@@ -57,6 +57,7 @@ export interface MatcherModelParams {
   cTune100Pf: number; // Tune 100% 위치의 Tune 브랜치 총 용량 (pF)
   cTuneBowPf: number; // Tune 곡선 2차 편차 (pF)
   rLossOhm: number; // 직렬 등가 손실 저항 (Ω)
+  cOutPf?: number; // 출력단(Chamber 쪽) 대지 기생 용량 (pF) — 정밀 보정 모드에서만 사용, 없으면 0
 }
 
 /** 사용자가 알고 있는 값을 고정하고 나머지만 피팅할 때 사용 */
@@ -88,7 +89,7 @@ export interface VvcTable {
 }
 
 /** 순방향 모델 계산에 필요한 고정 정보 */
-interface ModelContext {
+export interface ModelContext {
   loadTable?: VvcTable;
   tuneTable?: VvcTable;
 }
@@ -165,6 +166,7 @@ export interface MatcherSolvedSpec {
   loadDecompositionCandidates: CapacitorDecomposition[]; // 상위 3개 후보
   tuneDecompositionCandidates: CapacitorDecomposition[];
   positionRange: { loadMin: number; loadMax: number; tuneMin: number; tuneMax: number };
+  precision?: import('./matcherPrecisionFit').PrecisionInfo; // 정밀 보정 모드 결과 (출력 기생 C, Tune 실측 곡선 등)
 }
 
 /** 특정 Load %, Tune %에서의 순간 소자값 상태 */
@@ -299,7 +301,7 @@ function tuneCap(prm: MatcherModelParams, p: number, ctx: ModelContext): number 
  * 파라미터 + 정규화 위치 → 임피던스 (CTCL과 같은 기준)
  * 물리적으로 불가능한 값(용량 ≤ 0)이면 null
  */
-function forwardZ(
+export function forwardZ(
   prm: MatcherModelParams,
   pL: number,
   pT: number,
@@ -319,8 +321,19 @@ function forwardZ(
   const rP = (Z0 * xSh * xSh) / d;
   const xP = (Z0 * Z0 * xSh) / d;
 
-  const r = prm.rLossOhm + rP;
-  const xOut = xSe + xP;
+  let r = prm.rLossOhm + rP;
+  let xOut = xSe + xP;
+
+  // 출력단 기생 용량: Z' = Z ∥ (1 / jωC_out)
+  const cOut = prm.cOutPf ?? 0;
+  if (cOut > 0) {
+    const d2 = r * r + xOut * xOut;
+    const yr = r / d2;
+    const yi = -xOut / d2 + OMEGA * cOut * 1e-12;
+    const e = yr * yr + yi * yi;
+    r = yr / e;
+    xOut = -yi / e;
+  }
   return { r, x: convention === 'zout' ? xOut : -xOut };
 }
 
@@ -329,7 +342,7 @@ function forwardZ(
 // ============================================================================
 
 function toTheta(prm: MatcherModelParams, keys: (keyof MatcherModelParams)[]): number[] {
-  return keys.map((k) => (POSITIVE_KEYS.has(k) ? Math.log(Math.max(prm[k], 1e-6)) : prm[k]));
+  return keys.map((k) => (POSITIVE_KEYS.has(k) ? Math.log(Math.max(prm[k] ?? 0, 1e-6)) : (prm[k] ?? 0)));
 }
 
 function fromTheta(
@@ -668,7 +681,7 @@ function computeUncertainty(
   fit.freeKeys.forEach((k, i) => {
     const sdTheta = Math.sqrt(Math.max(0, cov![i][i] * s2));
     // log 파라미터는 delta method: σ_nat ≈ value · σ_log
-    sd[k] = POSITIVE_KEYS.has(k) ? fit.params[k] * sdTheta : sdTheta;
+    sd[k] = POSITIVE_KEYS.has(k) ? (fit.params[k] ?? 0) * sdTheta : sdTheta;
   });
   for (let i = 0; i < n; i++)
     for (let j = i + 1; j < n; j++) {
@@ -711,7 +724,7 @@ function decomposeCapacitance(cMinPf: number, cMaxPf: number, library: VvcProfil
 }
 
 /** 테이블 유효성 검사 + pct 오름차순 정렬. 무효면 undefined */
-function normalizeTable(tbl?: VvcTable): VvcTable | undefined {
+export function normalizeTable(tbl?: VvcTable): VvcTable | undefined {
   if (!tbl || !Array.isArray(tbl.points)) return undefined;
   const pts = tbl.points
     .filter((p) => Number.isFinite(p.pct) && Number.isFinite(p.pf) && p.pf > 0)
@@ -827,7 +840,7 @@ export function solveMatcherFromCTCL(
   if (met.r2 < 0.99) warn.push(`R²=${(met.r2 * 100).toFixed(1)}%: 모델이 데이터를 충분히 설명하지 못합니다.`);
   if (!lb.plausible) warn.push('Load 브랜치: 라이브러리 내 VVC 조합으로 용량 범위가 잘 설명되지 않습니다.');
   if (!tb.plausible) warn.push('Tune 브랜치: 라이브러리 내 VVC 조합으로 용량 범위가 잘 설명되지 않습니다.');
-  const relU = (k: keyof MatcherModelParams) => (unc[k] ?? 0) / Math.max(Math.abs(prm[k]), 1e-9);
+  const relU = (k: keyof MatcherModelParams) => (unc[k] ?? 0) / Math.max(Math.abs(prm[k] ?? 0), 1e-9);
   if (relU('lShuntNh') > 0.2 || relU('lSeriesNh') > 0.2)
     warn.push('인덕터 값의 불확도가 큽니다(>20%). 알고 있는 소자값을 options.fixed로 고정해 보세요.');
   if (degeneratePairs.length)

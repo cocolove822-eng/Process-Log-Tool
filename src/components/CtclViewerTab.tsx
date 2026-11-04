@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { CTCLMatrixData, AnalysisFileResult } from '../types/pecvd';
 import { interpolateCTCL } from '../utils/ctclParser';
+import { MatcherReverseSection } from './MatcherReverseSection';
 
 interface CtclViewerTabProps {
   ctclMatrix: CTCLMatrixData | null;
@@ -295,6 +296,9 @@ export const CtclViewerTab: React.FC<CtclViewerTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* L-Type 매처 회로 역추적 (CTCL Matrix → 회로도/소자값) */}
+      <MatcherReverseSection ctclMatrix={ctclMatrix} testLoad={testLoad} testTune={testTune} />
 
       {/* Side-by-Side:
           Left = Compact Bilinear Simulator with integrated File info & replacement (~240px)
