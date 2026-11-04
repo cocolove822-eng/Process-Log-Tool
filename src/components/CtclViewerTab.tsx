@@ -1,12 +1,9 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   FileSpreadsheet,
-  Calculator,
-  Layers,
   CheckCircle2,
   Upload,
   Sparkles,
-  HelpCircle,
   Link2,
   RotateCcw,
   ArrowRight,
@@ -14,7 +11,18 @@ import {
 } from 'lucide-react';
 import { CTCLMatrixData, AnalysisFileResult } from '../types/pecvd';
 import { interpolateCTCL } from '../utils/ctclParser';
-import { MatcherReverseSection } from './MatcherReverseSection';
+import { useTheme } from '../context/ThemeContext';
+import {
+  TABLE_TD_DATA_CLASS,
+  TINT_FIXED_TH1,
+  TINT_FIXED_TH2,
+  TINT_RF_TH1,
+  TINT_RF_TH2,
+  TINT_UNIT_TH,
+} from './IntegratedDashboard';
+
+/** 공정 종합 분석 탭과 같은 엑셀 그리드 데이터 셀 */
+const CELL = TABLE_TD_DATA_CLASS;
 
 interface CtclViewerTabProps {
   ctclMatrix: CTCLMatrixData | null;
@@ -37,6 +45,7 @@ export const CtclViewerTab: React.FC<CtclViewerTabProps> = ({
   onLoadSampleCtcl,
   onNavigateToIntegrated,
 }) => {
+  const { theme } = useTheme();
   // Active selected run from results
   const activeRun = useMemo(() => {
     if (!results || results.length === 0) return null;
@@ -218,32 +227,32 @@ export const CtclViewerTab: React.FC<CtclViewerTabProps> = ({
         </div>
 
         {/* CTCL Format Guide Card */}
-        <div className="bg-white border border-slate-300 rounded-2xl p-5 shadow-[0_4px_20px_-4px_rgba(15,23,42,0.08)]">
-          <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-[#E2E8F0]">
-            <HelpCircle className="w-4 h-4 text-[#2563EB]" />
-            <h3 className="text-xs font-bold text-[#0F172A]">CTCL Matrix 엑셀 파일 구조 안내</h3>
+        <section className={`${theme.cardBg} ${theme.cardRadius} overflow-hidden ${theme.cardShadow}`}>
+          <div className={`px-3 py-1.5 ${theme.cardHeaderBg} border-b ${theme.cardHeaderBorder} flex items-center gap-2`}>
+            <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
+            <h3 className={`text-[13px] font-bold tracking-tight ${theme.cardTitleColor}`}>CTCL Matrix 엑셀 파일 구조 안내</h3>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs p-3">
+            <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1">
               <span className="font-bold text-[#2563EB] block">① 행 & 열 구성</span>
               <p className="text-[#64748B] leading-relaxed">
                 A열에 Matcher Load (0~100), 1행에 Matcher Tune (0~100) 정수 격자(101×101)가 구성되어 있어야 합니다.
               </p>
             </div>
-            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-1">
+            <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1">
               <span className="font-bold text-[#2563EB] block">② 복소 임피던스(R+Xi) 셀</span>
               <p className="text-[#64748B] leading-relaxed">
                 격자 교차 셀에 <code className="font-mono text-[#0F172A] font-bold">0.34+5.21i</code>, <code className="font-mono text-[#0F172A] font-bold">2.77-17.07i</code> 형태의 복소수가 입력되어야 합니다.
               </p>
             </div>
-            <div className="bg-[#F8FAFC] p-3.5 rounded-xl border border-[#E2E8F0] space-y-1">
+            <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-1">
               <span className="font-bold text-[#2563EB] block">③ 2차원 선형 보간</span>
               <p className="text-[#64748B] leading-relaxed">
                 실제 Log의 소수점 Load/Tune 센서값을 기반으로 인접 4개 좌표로부터 2차원 Bilinear 보간을 수행합니다.
               </p>
             </div>
           </div>
-        </div>
+        </section>
       </div>
     );
   }
@@ -262,7 +271,7 @@ export const CtclViewerTab: React.FC<CtclViewerTabProps> = ({
   const p11 = ctclMatrix.grid[ceilL]?.[ceilT];
 
   const visibleLoads = ctclMatrix.loads.filter(l => Math.abs(l - loadFilter) <= 5);
-  const visibleTunes = ctclMatrix.tunes.filter(t => Math.abs(t - Math.round(testTune)) <= 6);
+  const visibleTunes = ctclMatrix.tunes.filter(t => Math.abs(t - Math.round(testTune)) <= 5);
 
   return (
     <div
@@ -297,391 +306,358 @@ export const CtclViewerTab: React.FC<CtclViewerTabProps> = ({
         </div>
       )}
 
-      {/* L-Type 매처 회로 역추적 (CTCL Matrix → 회로도/소자값) */}
-      <MatcherReverseSection ctclMatrix={ctclMatrix} testLoad={testLoad} testTune={testTune} />
-
-      {/* Side-by-Side:
-          Left = Compact Bilinear Simulator with integrated File info & replacement (~240px)
-          Right = CTCL Matrix Raw Grid Viewer (Stretched to match left panel height)
-      */}
-      <div className="flex flex-col lg:flex-row gap-2.5 items-stretch">
-        {/* Left Column: Ultra-compressed Simulator Panel */}
-        <div className="w-full lg:w-[240px] xl:w-[248px] shrink-0 bg-white border border-slate-300 rounded-xl p-2 shadow-xs space-y-1.5 flex flex-col justify-between">
-          <div className="space-y-1.5">
-            {/* 1. Simulator Header */}
-            <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-              <div className="flex items-center gap-1.5">
-                <div className="w-5 h-5 rounded bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-                  <Calculator className="w-3 h-3 stroke-[2.2]" />
-                </div>
-                <h3 className="text-[11.5px] font-bold text-slate-900 leading-none">2차원 선형 보간기</h3>
-              </div>
-              <span className="text-[8.5px] text-slate-500 font-mono bg-slate-100 px-1 py-0.2 rounded border border-slate-200">
-                Bilinear
-              </span>
+      {/* 좌: 2차원 선형 보간기 / 우: CTCL Matrix 원본 격자 뷰어 */}
+      <div className="flex flex-col lg:flex-row gap-2 items-stretch">
+        {/* ① [Bilinear] 2차원 선형 보간기 */}
+        <section
+          className={`w-full lg:w-[300px] shrink-0 ${theme.cardBg} ${theme.cardRadius} overflow-hidden ${theme.cardShadow} flex flex-col`}
+        >
+          <div
+            className={`px-3 py-1.5 ${theme.cardHeaderBg} border-b ${theme.cardHeaderBorder} flex items-center justify-between gap-2`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
+              <h3 className={`text-[13px] font-bold tracking-tight ${theme.cardTitleColor} whitespace-nowrap`}>
+                [Bilinear] 2차원 선형 보간기
+              </h3>
             </div>
+          </div>
 
-            {/* 2. CTCL File Info & File Replace Action (Inside Simulator) */}
-            <div className="bg-[#F8FAFC] border border-slate-300 rounded-lg p-1.5 space-y-1">
-              <div className="flex items-center justify-between gap-1">
-                <div className="flex items-center gap-1 min-w-0">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span
-                    className="text-[10px] font-bold text-slate-900 truncate max-w-[130px]"
-                    title={ctclMatrix.fileName}
-                  >
-                    {ctclMatrix.fileName}
-                  </span>
-                </div>
-                <span className="px-1 py-0.2 rounded-full bg-emerald-100 text-emerald-700 text-[8.5px] font-bold shrink-0">
-                  연결됨
-                </span>
-              </div>
+          <div className="p-2 space-y-2 text-[11px]">
+            {/* 파일 정보 */}
+            <table className="w-full border-collapse table-fixed">
+              <tbody>
+                <tr>
+                  <th className={`${TINT_FIXED_TH2} w-[64px] text-center`}>파일</th>
+                  <td className={`${CELL} text-left px-1.5 bg-white`}>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate" title={ctclMatrix.fileName}>
+                        {ctclMatrix.fileName}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <th className={`${TINT_FIXED_TH2} text-center`}>시트</th>
+                  <td className={`${CELL} text-left px-1 bg-white`}>
+                    {ctclMatrix.availableSheets.length > 1 && onSelectCtclSheet ? (
+                      <select
+                        id="ctcl-sheet"
+                        value={ctclMatrix.sheetName}
+                        onChange={e => onSelectCtclSheet(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded px-1 py-0.5 font-bold text-[11px] focus:outline-none focus:border-[#2563EB] cursor-pointer truncate"
+                      >
+                        {ctclMatrix.availableSheets.map(s => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="block truncate px-0.5" title={ctclMatrix.sheetName}>
+                        {ctclMatrix.sheetName}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+                <tr>
+                  <th className={`${TINT_FIXED_TH2} text-center`}>격자</th>
+                  <td className={`${CELL} text-left px-1.5 bg-white`}>
+                    {ctclMatrix.loads.length} × {ctclMatrix.tunes.length} (Load × Tune)
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
-              <div className="text-[9.5px] text-slate-500">
-                {ctclMatrix.availableSheets.length > 1 && onSelectCtclSheet ? (
-                  <div className="flex items-center gap-1">
-                    <span className="shrink-0 text-slate-600 font-medium text-[9px]">시트:</span>
-                    <select
-                      value={ctclMatrix.sheetName}
-                      onChange={e => onSelectCtclSheet(e.target.value)}
-                      className="flex-1 min-w-0 bg-white border border-slate-300 rounded px-1 py-0.2 text-slate-800 font-bold text-[9.5px] focus:outline-none cursor-pointer truncate"
-                    >
-                      {ctclMatrix.availableSheets.map(s => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-[9px]">
-                    <span className="text-slate-600 truncate">시트: <strong className="text-slate-800">{ctclMatrix.sheetName}</strong></span>
-                    <span className="font-mono text-slate-400 shrink-0">({ctclMatrix.loads.length}×{ctclMatrix.tunes.length})</span>
-                  </div>
-                )}
-              </div>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={`w-full flex items-center justify-center gap-1.5 py-1 rounded-lg text-[11px] font-semibold transition-all active:scale-95 cursor-pointer ${theme.btnSecondary}`}
+              title="다른 CTCL Matrix 엑셀 파일로 교체합니다. 화면에 파일을 끌어다 놓아도 됩니다."
+            >
+              <Upload className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span>파일 교체</span>
+            </button>
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-1 py-1 px-1.5 bg-white hover:bg-blue-50 text-blue-600 border border-blue-300 hover:border-blue-400 rounded text-[9.5px] font-bold shadow-2xs transition-all active:scale-95 cursor-pointer"
-                title="다른 CTCL Matrix 엑셀 파일로 교체 또는 화면으로 드래그 앤 드롭"
-              >
-                <Upload className="w-2.5 h-2.5" />
-                <span>파일 교체 (드래그 가능)</span>
-              </button>
-            </div>
-
-            {/* 3. 공정 Run 실제값 실시간 연동 */}
+            {/* 공정 Run 연동 */}
             {results && results.length > 0 && (
-              <div className="bg-[#F1F5F9] border border-slate-300 rounded-lg p-1.5 space-y-1">
-                <div className="flex items-center justify-between gap-1">
-                  <div className="flex items-center gap-1 text-[9.5px] font-bold text-slate-800">
-                    <Link2 className="w-2.5 h-2.5 text-blue-600" />
-                    <span>공정 Run 연동</span>
-                  </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1 font-bold text-[#0F172A]">
+                    <Link2 className="w-3 h-3 text-[#2563EB]" />
+                    공정 Run 연동
+                  </span>
                   {onNavigateToIntegrated && (
                     <button
                       type="button"
                       onClick={onNavigateToIntegrated}
-                      className="flex items-center gap-0.5 text-[8.5px] font-semibold text-blue-600 hover:underline cursor-pointer"
-                      title="공정 종합 분석 표로 바로 이동"
+                      className="flex items-center gap-0.5 text-[10.5px] font-semibold text-[#2563EB] hover:underline cursor-pointer"
+                      title="공정 종합 분석 탭으로 이동"
                     >
-                      <span>종합표</span>
-                      <ArrowRight className="w-2 h-2" />
+                      종합 분석
+                      <ArrowRight className="w-3 h-3" />
                     </button>
                   )}
                 </div>
-
-                {/* Run Selector */}
                 <select
+                  id="ctcl-run"
                   value={
                     activeRun
                       ? results.findIndex(r => r === activeRun || r.resultId === activeRun.resultId)
                       : 0
                   }
-                  onChange={e => {
-                    const idx = parseInt(e.target.value, 10);
-                    onSelectRunIdx?.(idx);
-                  }}
-                  className="w-full bg-white border border-slate-300 rounded px-1 py-0.5 font-bold text-slate-900 focus:outline-none cursor-pointer text-[9.5px] truncate shadow-2xs"
+                  onChange={e => onSelectRunIdx?.(parseInt(e.target.value, 10))}
+                  className="w-full bg-white border border-slate-400 rounded-lg px-1.5 py-1 font-bold text-[11px] text-[#0F172A] focus:outline-none focus:border-[#2563EB] cursor-pointer truncate"
                 >
                   {results.map((r, idx) => {
                     const m = r.monitoringData;
                     return (
                       <option key={r.resultId || idx} value={idx}>
-                        #{m.no} {m.rcpName} (L:{m.matcherLoadAvg !== null ? m.matcherLoadAvg.toFixed(1) : '-'}%, T:{m.matcherTuneAvg !== null ? m.matcherTuneAvg.toFixed(1) : '-'}%)
+                        #{m.no} {m.rcpName} (L {m.matcherLoadAvg !== null ? m.matcherLoadAvg.toFixed(1) : '-'}%, T{' '}
+                        {m.matcherTuneAvg !== null ? m.matcherTuneAvg.toFixed(1) : '-'}%)
                       </option>
                     );
                   })}
                 </select>
-
-                {/* Sync Status Badge / Reset Button */}
                 {activeRunLoad !== null && activeRunTune !== null && (
-                  <div>
-                    {isSyncedWithActiveRun ? (
-                      <div className="flex items-center justify-center gap-1 w-full px-1 py-0.5 rounded bg-emerald-100/90 border border-emerald-300 text-emerald-800 text-[8.5px] font-bold">
-                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                        <span>Run 실제값 일치 ({activeRunLoad.toFixed(1)}%, {activeRunTune.toFixed(1)}%)</span>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleResetToActiveRun}
-                        className="w-full flex items-center justify-center gap-1 px-1 py-0.5 rounded bg-white border border-blue-400 text-blue-600 hover:bg-blue-50 text-[8.5px] font-bold shadow-2xs transition-all active:scale-95 cursor-pointer"
-                        title={`현재 Run 실제값 (Load: ${activeRunLoad.toFixed(2)}%, Tune: ${activeRunTune.toFixed(2)}%)으로 동기화`}
-                      >
-                        <RotateCcw className="w-2.5 h-2.5 text-blue-600" />
-                        <span>Run 실제값 동기화 ({activeRunLoad.toFixed(1)}%, {activeRunTune.toFixed(1)}%)</span>
-                      </button>
-                    )}
-                  </div>
+                  isSyncedWithActiveRun ? (
+                    <div className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-lg text-[10.5px] font-semibold ${theme.badgeOk}`}>
+                      <CheckCircle2 className="w-3 h-3" />
+                      Run 실제값 적용됨 (L {activeRunLoad.toFixed(1)}%, T {activeRunTune.toFixed(1)}%)
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResetToActiveRun}
+                      className={`w-full flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-lg text-[10.5px] font-semibold transition-all active:scale-95 cursor-pointer ${theme.btnSecondary}`}
+                      title={`선택한 Run의 실제값(Load ${activeRunLoad.toFixed(2)}%, Tune ${activeRunTune.toFixed(2)}%)으로 되돌립니다`}
+                    >
+                      <RotateCcw className="w-3 h-3 text-[#2563EB]" />
+                      Run 실제값으로 되돌리기 (L {activeRunLoad.toFixed(1)}%, T {activeRunTune.toFixed(1)}%)
+                    </button>
+                  )
                 )}
               </div>
             )}
 
-            {/* 4. Controls (Sliders + Direct Numeric Inputs) */}
-            <div className="bg-[#F8FAFC] p-1.5 rounded-lg border border-slate-300 space-y-1.5">
-              {/* Load Input */}
-              <div className="space-y-0.5">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-slate-700 font-semibold">Load (%)</span>
-                  <div className="flex items-center gap-0.5">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={testLoad}
-                      onChange={e => {
-                        const v = parseFloat(e.target.value);
-                        if (!isNaN(v)) {
-                          const clamped = Math.max(0, Math.min(100, v));
-                          setTestLoad(clamped);
-                          setLoadFilter(Math.round(clamped));
-                        }
-                      }}
-                      className="w-13 bg-white border border-slate-300 rounded px-1 py-0.2 text-right font-mono font-bold text-[10.5px] text-slate-900 focus:outline-none focus:border-blue-500"
-                    />
-                    <span className="text-[9px] text-slate-500 font-bold">%</span>
+            {/* Load / Tune 입력 */}
+            <div className="space-y-1.5 border-t border-slate-300 pt-2">
+              {(
+                [
+                  { id: 'ctcl-load', label: 'Load', value: testLoad, set: (v: number) => { setTestLoad(v); setLoadFilter(Math.round(v)); } },
+                  { id: 'ctcl-tune', label: 'Tune', value: testTune, set: (v: number) => setTestTune(v) },
+                ] as const
+              ).map(ctl => (
+                <div key={ctl.id} className="space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <label htmlFor={ctl.id} className="font-bold text-[#0F172A]">
+                      Matcher {ctl.label}
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        id={ctl.id}
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={ctl.value}
+                        onChange={e => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) ctl.set(Math.max(0, Math.min(100, v)));
+                        }}
+                        className="w-16 bg-white border border-slate-400 rounded px-1 py-0.5 text-right font-bold tabular-nums text-[11px] text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
+                      />
+                      <span className="text-[10px] font-semibold text-[#475569]">%</span>
+                    </div>
                   </div>
+                  <input
+                    aria-label={`Matcher ${ctl.label} 슬라이더`}
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={ctl.value}
+                    onChange={e => ctl.set(parseFloat(e.target.value))}
+                    className="w-full h-1.5 accent-[#2563EB] cursor-pointer"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={testLoad}
-                  onChange={e => {
-                    const v = parseFloat(e.target.value);
-                    setTestLoad(v);
-                    setLoadFilter(Math.round(v));
-                  }}
-                  className="w-full h-1.5 accent-blue-600 cursor-pointer"
-                />
-              </div>
-
-              {/* Tune Input */}
-              <div className="space-y-0.5">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-slate-700 font-semibold">Tune (%)</span>
-                  <div className="flex items-center gap-0.5">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={testTune}
-                      onChange={e => {
-                        const v = parseFloat(e.target.value);
-                        if (!isNaN(v)) {
-                          const clamped = Math.max(0, Math.min(100, v));
-                          setTestTune(clamped);
-                        }
-                      }}
-                      className="w-13 bg-white border border-slate-300 rounded px-1 py-0.2 text-right font-mono font-bold text-[10.5px] text-slate-900 focus:outline-none focus:border-blue-500"
-                    />
-                    <span className="text-[9px] text-slate-500 font-bold">%</span>
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={testTune}
-                  onChange={e => setTestTune(parseFloat(e.target.value))}
-                  className="w-full h-1.5 accent-blue-600 cursor-pointer"
-                />
-              </div>
+              ))}
             </div>
 
-            {/* 5. 2차원 보간 복소 임피던스 계산 결과 */}
-            <div className="p-1.5 bg-[#ECFDF5] border border-emerald-300 rounded-lg space-y-1">
-              <div className="flex items-center gap-1 text-[9.5px] text-emerald-800 font-bold">
-                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                <span>2차원 보간 임피던스 결과</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                <div className="bg-white/95 p-1 rounded border border-emerald-200 text-center">
-                  <span className="text-[8.5px] text-slate-500 block font-medium">실수부 R</span>
-                  <span className="font-mono text-xs font-bold text-emerald-700">
-                    {interpolated ? `${interpolated.r.toFixed(2)} Ω` : '-'}
-                  </span>
-                </div>
-                <div className="bg-white/95 p-1 rounded border border-emerald-200 text-center">
-                  <span className="text-[8.5px] text-slate-500 block font-medium">허수부 X</span>
-                  <span className="font-mono text-xs font-bold text-emerald-700">
-                    {interpolated ? `${interpolated.x.toFixed(2)} Ω` : '-'}
-                  </span>
-                </div>
-              </div>
-              {isSyncedWithActiveRun && (
-                <div className="text-[8px] text-emerald-800 bg-white/70 px-1 py-0.5 rounded border border-emerald-200 font-medium leading-tight">
-                  ✓ Monitoring Data 실제 값 일치
-                </div>
-              )}
-            </div>
-
-            {/* 6. 보간에 사용된 인접 4개 정수 격자 좌표점 */}
-            <div className="bg-[#F1F5F9] p-1.5 rounded-lg border border-slate-300 space-y-0.5">
-              <h4 className="text-[9px] font-bold text-slate-700">인접 4개 정수 좌표점</h4>
-              <div className="grid grid-cols-2 gap-0.5 text-[8.5px] font-mono">
-                <div className="p-0.5 px-1 bg-white rounded border border-slate-300">
-                  <div className="text-[7.5px] text-slate-500">P00: L{floorL}, T{floorT}</div>
-                  <div className="font-bold text-slate-900 truncate">
-                    {p00 ? `${p00.r}+(${p00.x})i` : '-'}
-                  </div>
-                </div>
-                <div className="p-0.5 px-1 bg-white rounded border border-slate-300">
-                  <div className="text-[7.5px] text-slate-500">P01: L{floorL}, T{ceilT}</div>
-                  <div className="font-bold text-slate-900 truncate">
-                    {p01 ? `${p01.r}+(${p01.x})i` : '-'}
-                  </div>
-                </div>
-                <div className="p-0.5 px-1 bg-white rounded border border-slate-300">
-                  <div className="text-[7.5px] text-slate-500">P10: L{ceilL}, T{floorT}</div>
-                  <div className="font-bold text-slate-900 truncate">
-                    {p10 ? `${p10.r}+(${p10.x})i` : '-'}
-                  </div>
-                </div>
-                <div className="p-0.5 px-1 bg-white rounded border border-slate-300">
-                  <div className="text-[7.5px] text-slate-500">P11: L{ceilL}, T{ceilT}</div>
-                  <div className="font-bold text-slate-900 truncate">
-                    {p11 ? `${p11.r}+(${p11.x})i` : '-'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: CTCL Matrix Raw Grid Viewer (Height matching Left Column) */}
-        <div className="flex-1 min-w-0 bg-white border border-slate-300 rounded-xl overflow-hidden shadow-xs flex flex-col">
-          {/* Grid Viewer Header */}
-          <div className="px-3.5 py-2 bg-slate-100 border-b border-slate-300 flex items-center justify-between flex-wrap gap-2 shrink-0">
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#2563EB]" />
-              <h3 className="text-xs font-bold text-[#0F172A]">
-                CTCL Matrix 원본 격자 뷰어 (Load {loadFilter - 5} ~ {loadFilter + 5}%, Tune {Math.round(testTune) - 6} ~ {Math.round(testTune) + 6}%)
-              </h3>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setLoadFilter(Math.round(testLoad))}
-                className="flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-600 border border-slate-300 rounded text-[11px] font-semibold transition-colors shadow-2xs cursor-pointer"
-                title={`현재 Matcher Load(${testLoad.toFixed(1)}%) 기준으로 격자 중심 이동`}
-              >
-                <Target className="w-3 h-3 text-blue-600" />
-                <span>현재 Load({Math.round(testLoad)}%) 중심</span>
-              </button>
-
-              <div className="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
-                <span className="text-[#64748B] font-medium text-[11px]">중심 Load:</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={loadFilter}
-                  onChange={e => setLoadFilter(parseInt(e.target.value, 10) || 0)}
-                  className="w-12 text-[#0F172A] text-xs font-mono font-bold text-center focus:outline-none"
-                />
-              </div>
-
-              <span className="text-[10.5px] font-mono text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded border border-slate-300">
-                전체 {ctclMatrix.loads.length}×{ctclMatrix.tunes.length}
-              </span>
-            </div>
-          </div>
-
-          {/* Grid Table: Expands to fill container vertically and horizontally, with crisp legible typography */}
-          <div className="flex-1 min-h-0 overflow-auto scrollbar-thin flex flex-col p-0.5">
-            <table className="w-full h-full table-fixed text-center border-collapse font-mono select-text min-w-[780px]">
-              <thead className="bg-slate-100 text-slate-700 sticky top-0 z-20 border-b border-slate-300 shadow-2xs">
-                <tr className="h-9">
-                  <th className="w-20 px-2 py-2 border-r border-b border-slate-300 bg-slate-200 text-slate-900 font-bold text-[12px] sticky left-0 z-30 shadow-xs align-middle">
-                    Load \ Tune
+            {/* 보간 결과 */}
+            <table className="w-full border-collapse table-fixed">
+              <thead>
+                <tr>
+                  <th colSpan={2} className={`${TINT_RF_TH1} text-center`}>
+                    보간 임피던스 (L {testLoad.toFixed(2)}%, T {testTune.toFixed(2)}%)
                   </th>
-                  {visibleTunes.map(t => (
-                    <th
-                      key={t}
-                      className={`px-1 py-2 border-r border-b border-slate-300 text-[12px] align-middle ${
-                        t === floorT || t === ceilT
-                          ? 'bg-blue-100 text-blue-900 font-extrabold ring-1 ring-blue-400/50'
-                          : 'text-slate-700 font-bold'
-                      }`}
-                    >
-                      {t}%
-                    </th>
-                  ))}
+                </tr>
+                <tr>
+                  <th className={`${TINT_RF_TH2} text-center`}>R</th>
+                  <th className={`${TINT_RF_TH2} text-center`}>X</th>
+                </tr>
+                <tr>
+                  <th className={`${TINT_UNIT_TH} text-center`}>(Ω)</th>
+                  <th className={`${TINT_UNIT_TH} text-center`}>(Ω)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-slate-800">
-                {visibleLoads.map(l => (
-                  <tr key={l} className="hover:bg-blue-50/40 transition-colors">
-                    <td
-                      className={`w-20 px-2 py-2 font-bold border-r border-slate-300 sticky left-0 z-10 align-middle text-[12px] ${
-                        l === floorL || l === ceilL
-                          ? 'bg-blue-100 text-blue-900 font-extrabold ring-1 ring-blue-400/50'
-                          : 'bg-slate-100/90 text-slate-800'
-                      }`}
-                    >
-                      {l}%
-                    </td>
-                    {visibleTunes.map(t => {
-                      const pt = ctclMatrix.grid[l]?.[t];
-                      const isFocus = (l === floorL || l === ceilL) && (t === floorT || t === ceilT);
-                      return (
-                        <td
-                          key={t}
-                          className={`px-1 py-2 border-r border-slate-200 align-middle transition-all ${
-                            isFocus
-                              ? 'bg-blue-100 font-extrabold text-blue-950 text-[12.5px] ring-2 ring-blue-500 ring-inset shadow-xs'
-                              : 'text-[12px] hover:bg-slate-100/80'
-                          }`}
-                        >
-                          {pt ? (
-                            <span className="tabular-nums tracking-tight">
-                              <span className="font-semibold text-slate-900">{pt.r}</span>
-                              <span className={pt.x >= 0 ? 'text-blue-700 font-medium' : 'text-rose-700 font-medium'}>
-                                {pt.x >= 0 ? '+' : ''}
-                                {pt.x}i
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                        </td>
-                      );
-                    })}
+              <tbody>
+                <tr className="bg-white">
+                  <td className={`${CELL} text-[13px] py-1.5`}>{interpolated ? interpolated.r.toFixed(2) : '-'}</td>
+                  <td className={`${CELL} text-[13px] py-1.5`}>{interpolated ? interpolated.x.toFixed(2) : '-'}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            {/* 인접 4개 격자점 */}
+            <table className="w-full border-collapse table-fixed">
+              <thead>
+                <tr>
+                  <th colSpan={4} className={`${TINT_FIXED_TH1} text-center`}>
+                    보간에 쓰인 인접 격자점
+                  </th>
+                </tr>
+                <tr>
+                  <th className={`${TINT_FIXED_TH2} text-center`}>Load</th>
+                  <th className={`${TINT_FIXED_TH2} text-center`}>Tune</th>
+                  <th className={`${TINT_FIXED_TH2} text-center`}>R</th>
+                  <th className={`${TINT_FIXED_TH2} text-center`}>X</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(
+                  [
+                    [floorL, floorT, p00],
+                    [floorL, ceilT, p01],
+                    [ceilL, floorT, p10],
+                    [ceilL, ceilT, p11],
+                  ] as const
+                ).map(([l, t, p], i) => (
+                  <tr key={i} className={i % 2 ? theme.tableRowAltBg : theme.tableRowBg}>
+                    <td className={CELL}>{l}%</td>
+                    <td className={CELL}>{t}%</td>
+                    <td className={CELL}>{p ? p.r : '-'}</td>
+                    <td className={CELL}>{p ? p.x : '-'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
+
+        {/* ② [CTCL Matrix] 원본 격자 뷰어 */}
+        <section
+          className={`flex-1 min-w-0 ${theme.cardBg} ${theme.cardRadius} overflow-hidden ${theme.cardShadow} flex flex-col`}
+        >
+          <div
+            className={`px-3 py-1.5 ${theme.cardHeaderBg} border-b ${theme.cardHeaderBorder} flex flex-wrap items-center justify-between gap-2`}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
+              <h3 className={`text-[13px] font-bold tracking-tight ${theme.cardTitleColor} whitespace-nowrap`}>
+                [CTCL Matrix] 원본 격자 뷰어
+              </h3>
+              <span className="h-4 w-px bg-slate-300 mx-0.5 hidden sm:inline-block" />
+              <span className={`text-[11px] font-semibold ${theme.cardSubtitleColor} whitespace-nowrap`}>
+                Load {visibleLoads[0] ?? '-'}~{visibleLoads[visibleLoads.length - 1] ?? '-'}% · Tune{' '}
+                {visibleTunes[0] ?? '-'}~{visibleTunes[visibleTunes.length - 1] ?? '-'}%
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setLoadFilter(Math.round(testLoad))}
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-semibold transition-all active:scale-95 cursor-pointer ${theme.btnSecondary}`}
+                title={`보간기의 Load(${testLoad.toFixed(1)}%)를 격자 중심으로 맞춥니다`}
+              >
+                <Target className="w-3 h-3 text-[#2563EB]" />
+                현재 Load({Math.round(testLoad)}%) 중심
+              </button>
+              <label className="flex items-center gap-1 bg-white border border-slate-400 rounded-lg px-1.5 py-0.5">
+                <span className="text-[#475569] font-semibold">중심 Load</span>
+                <input
+                  id="ctcl-center-load"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={loadFilter}
+                  onChange={e => setLoadFilter(parseInt(e.target.value, 10) || 0)}
+                  className="w-10 text-[#0F172A] font-bold tabular-nums text-center focus:outline-none"
+                />
+                <span className="text-[#475569]">%</span>
+              </label>
+              <span className="px-2 py-0.5 rounded-lg bg-slate-200 text-[#334155] border border-slate-400 font-semibold tabular-nums">
+                전체 {ctclMatrix.loads.length}×{ctclMatrix.tunes.length}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-auto scrollbar-thin bg-white">
+            <table className="w-full h-full border-collapse table-fixed select-text min-w-[900px]">
+              <thead className="sticky top-0 z-20">
+                <tr>
+                  <th rowSpan={2} className={`${TINT_FIXED_TH1} w-[76px] text-center sticky left-0 z-30`}>
+                    Load \ Tune
+                  </th>
+                  <th colSpan={visibleTunes.length} className={`${TINT_RF_TH1} text-center`}>
+                    Matcher Tune (%) — 셀 값: R + jX (Ω)
+                  </th>
+                </tr>
+                <tr>
+                  {visibleTunes.map(t => (
+                    <th
+                      key={t}
+                      className={`${TINT_RF_TH2} text-center tabular-nums ${
+                        t === floorT || t === ceilT ? '!bg-[#BFDBFE] !text-[#1E3A8A]' : ''
+                      }`}
+                    >
+                      {t}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleLoads.map((l, ri) => {
+                  const loadFocus = l === floorL || l === ceilL;
+                  return (
+                    <tr key={l} className={`${ri % 2 ? theme.tableRowAltBg : theme.tableRowBg} ${theme.tableRowHover}`}>
+                      <td
+                        className={`${TINT_FIXED_TH2} text-center tabular-nums sticky left-0 z-10 ${
+                          loadFocus ? '!bg-[#BFDBFE] !text-[#1E3A8A]' : ''
+                        }`}
+                      >
+                        {l}%
+                      </td>
+                      {visibleTunes.map(t => {
+                        const pt = ctclMatrix.grid[l]?.[t];
+                        const isFocus = loadFocus && (t === floorT || t === ceilT);
+                        return (
+                          <td
+                            key={t}
+                            className={`${CELL} !px-1.5 py-1.5 ${isFocus ? 'bg-[#DBEAFE] ring-2 ring-inset ring-[#2563EB]' : ''}`}
+                          >
+                            {pt ? (
+                              <span className="inline-flex items-baseline justify-center gap-[3px] font-semibold">
+                                <span>{pt.r}</span>
+                                <span className={pt.x >= 0 ? 'text-[#1D4ED8]' : 'text-[#BE123C]'}>
+                                  {pt.x >= 0 ? '+' : '−'}
+                                  {Math.abs(pt.x)}i
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
   );
