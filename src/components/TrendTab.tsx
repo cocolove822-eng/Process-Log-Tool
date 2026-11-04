@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { RefreshCw, Eye, EyeOff, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 
@@ -220,6 +220,9 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   const [visibleFileIds, setVisibleFileIds] = useState<Record<string, boolean>>({});
   const [resetAllKey, setResetAllKey] = useState<number>(0);
   const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
+  // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
+  const [valueView, setValueView] = useState<ValueView>('list');
+  const [valueSort, setValueSort] = useState<ValueSort>('no');
   const [stepRefFileId, setStepRefFileId] = useState<string>(files[0]?.id || '');
 
   // Visible files list
@@ -688,6 +691,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   showStepTimeline={showStepTimeline}
                   alignedSteps={alignedSteps}
                   refFile={refFile}
+                  valueView={valueView}
+                  onChangeValueView={setValueView}
+                  valueSort={valueSort}
+                  onChangeValueSort={setValueSort}
                 />
               );
             })}
@@ -728,7 +735,248 @@ interface TrendChartCardProps {
   showStepTimeline: boolean;
   alignedSteps: AlignedStepSegment[];
   refFile?: ParsedLogFile;
+  valueView: ValueView;
+  onChangeValueView: (v: ValueView) => void;
+  valueSort: ValueSort;
+  onChangeValueSort: (v: ValueSort) => void;
 }
+
+type ValueView = 'list' | 'group';
+type ValueSort = 'no' | 'value';
+
+interface CursorValue {
+  fileId: string;
+  fileIdx: number;
+  fileNo: number;
+  rcpName: string;
+  color: string;
+  formatted: string;
+  numVal: number;
+}
+
+/** 커서 위치 값 서식 (상단 상태바와 같은 규칙) */
+const formatCursorValue = (v: number): string =>
+  Math.abs(v) >= 1000
+    ? Math.round(v).toLocaleString()
+    : Math.abs(v) >= 10
+    ? (Math.round(v * 10) / 10).toLocaleString()
+    : (Math.round(v * 100) / 100).toLocaleString();
+
+/**
+ * 같은 값 묶기: 값 순서로 정렬한 뒤, 바로 앞 값과의 차이가
+ * (보이는 값 중 최대 절댓값의 0.5%) 이하이면 같은 묶음으로 본다.
+ * 예) 10,150 · 10,151 → 한 묶음, 10,860 → 다른 묶음
+ */
+function groupCursorValues(values: CursorValue[]): { lo: number; hi: number; items: CursorValue[] }[] {
+  if (!values.length) return [];
+  const sorted = [...values].sort((a, b) => b.numVal - a.numVal);
+  const maxAbs = Math.max(...sorted.map(v => Math.abs(v.numVal)));
+  const tol = Math.max(maxAbs * 0.005, 1e-9);
+  const groups: { lo: number; hi: number; items: CursorValue[] }[] = [];
+  for (const v of sorted) {
+    const g = groups[groups.length - 1];
+    if (g && Math.abs(g.items[g.items.length - 1].numVal - v.numVal) <= tol) {
+      g.items.push(v);
+      g.lo = Math.min(g.lo, v.numVal);
+    } else {
+      groups.push({ lo: v.numVal, hi: v.numVal, items: [v] });
+    }
+  }
+  groups.forEach(g => g.items.sort((a, b) => a.fileNo - b.fileNo));
+  return groups;
+}
+
+// ============================================================================
+// 그래프 오른쪽 커서 값 표 (개별 보기 / 같은 값 묶어 보기)
+// ============================================================================
+interface CursorValuePanelProps {
+  files: ParsedLogFile[];
+  results: AnalysisFileResult[];
+  visibleFileIds: Record<string, boolean>;
+  values: CursorValue[] | null; // null = 아직 커서를 올린 적 없음
+  timeLabel: string | null; // 예: "61.4 s · Step 2"
+  live: boolean; // true = 지금 마우스가 그래프 위에 있음, false = 마지막 위치 값 유지 중
+  unit?: string;
+  view: ValueView;
+  onChangeView: (v: ValueView) => void;
+  sort: ValueSort;
+  onChangeSort: (v: ValueSort) => void;
+  highlightFileId: string | null;
+  onHighlight: (id: string | null) => void;
+}
+
+const SegBtn: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode; title?: string }> = ({
+  active,
+  onClick,
+  children,
+  title,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    aria-pressed={active}
+    className={`flex-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+      active ? 'bg-white text-[#2563EB] shadow-2xs border border-[#BFDBFE]' : 'text-[#475569] hover:text-[#0F172A] border border-transparent'
+    }`}
+  >
+    {children}
+  </button>
+);
+
+const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
+  files,
+  results,
+  visibleFileIds,
+  values,
+  timeLabel,
+  live,
+  unit,
+  view,
+  onChangeView,
+  sort,
+  onChangeSort,
+  highlightFileId,
+  onHighlight,
+}) => {
+  // 표시 중인 Recipe 목록 (커서 값이 없을 때도 행 자리를 유지)
+  const rows: CursorValue[] = useMemo(() => {
+    const byId = new Map((values ?? []).map(v => [v.fileId, v]));
+    const list: CursorValue[] = [];
+    files.forEach((file, idx) => {
+      if (visibleFileIds[file.id] === false) return;
+      const res = results.find(r => r.fileId === file.id) || results[idx];
+      const hit = byId.get(file.id);
+      list.push(
+        hit ?? {
+          fileId: file.id,
+          fileIdx: idx,
+          fileNo: idx + 1,
+          rcpName: res?.rcpName || file.meta.recipeName || file.fileName,
+          color: RECIPE_COLORS[idx % RECIPE_COLORS.length],
+          formatted: '–',
+          numVal: NaN,
+        }
+      );
+    });
+    if (sort === 'value') {
+      list.sort((a, b) => {
+        const av = Number.isFinite(a.numVal) ? a.numVal : -Infinity;
+        const bv = Number.isFinite(b.numVal) ? b.numVal : -Infinity;
+        return bv - av || a.fileNo - b.fileNo;
+      });
+    }
+    return list;
+  }, [files, results, visibleFileIds, values, sort]);
+
+  const groups = useMemo(() => groupCursorValues((values ?? []).filter(v => Number.isFinite(v.numVal))), [values]);
+  const hasValues = !!values && values.length > 0;
+
+  return (
+    <div className="w-[184px] shrink-0 h-[240px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
+      {/* 머리글: 시점 + 정렬 / 보기 방식 */}
+      <div className="px-1.5 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
+        <div className="flex items-center justify-between gap-1">
+          <span
+            className="flex items-center gap-1 min-w-0 text-[10.5px] font-bold text-[#0F172A]"
+            title={live ? '현재 커서 위치' : '마지막 커서 위치의 값을 유지하고 있습니다'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
+            <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
+          </span>
+          {view === 'list' && (
+            <button
+              type="button"
+              onClick={() => onChangeSort(sort === 'no' ? 'value' : 'no')}
+              title="정렬 바꾸기: 번호순 ↔ 값 큰 순"
+              className="shrink-0 px-1.5 py-[1px] rounded-md bg-white border border-slate-300 text-[9.5px] font-semibold text-[#334155] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
+            >
+              {sort === 'no' ? '번호순 ▾' : '값 큰 순 ▾'}
+            </button>
+          )}
+        </div>
+        <div className="flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-lg">
+          <SegBtn active={view === 'list'} onClick={() => onChangeView('list')} title="Recipe별로 한 줄씩 표시">
+            개별
+          </SegBtn>
+          <SegBtn active={view === 'group'} onClick={() => onChangeView('group')} title="값이 거의 같은 Recipe끼리 묶어서 표시">
+            묶어 보기
+          </SegBtn>
+        </div>
+      </div>
+
+      {/* 본문 */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin" onMouseLeave={() => onHighlight(null)}>
+        {view === 'list' ? (
+          <table className="w-full border-collapse table-fixed text-[10.5px]">
+            <tbody>
+              {rows.map((v, i) => {
+                const hi = highlightFileId === v.fileId;
+                return (
+                  <tr
+                    key={v.fileId}
+                    onMouseEnter={() => onHighlight(v.fileId)}
+                    className={`cursor-default ${hi ? 'bg-[#DBEAFE]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'}`}
+                    title={v.rcpName}
+                  >
+                    <td className="w-[32px] pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
+                        <span className="font-bold text-[#334155] tabular-nums">#{v.fileNo}</span>
+                      </span>
+                    </td>
+                    <td className="px-1 py-[2px] border-b border-slate-200 truncate text-[10px] text-[#475569]">
+                      {v.rcpName.split(/[\\/]/).pop()}
+                    </td>
+                    <td className="w-[50px] pr-1.5 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
+                      {v.formatted}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : hasValues ? (
+          <div className="divide-y divide-slate-200">
+            {groups.map((g, gi) => {
+              const lo = formatCursorValue(g.lo);
+              const hiV = formatCursorValue(g.hi);
+              return (
+                <div key={gi} className="px-1.5 py-1 space-y-0.5">
+                  <div className="flex items-baseline justify-between gap-1">
+                    <span className="text-[12px] font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
+                      {lo === hiV ? hiV : `${lo} ~ ${hiV}`}
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#475569] whitespace-nowrap">{g.items.length}개</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {g.items.map(v => (
+                      <span
+                        key={v.fileId}
+                        onMouseEnter={() => onHighlight(v.fileId)}
+                        title={`${v.rcpName}: ${v.formatted}${unit ? ' ' + unit : ''}`}
+                        className={`inline-flex items-center gap-1 px-1.5 py-[1px] rounded border text-[10px] font-bold tabular-nums cursor-default ${
+                          highlightFileId === v.fileId ? 'bg-[#DBEAFE] border-[#2563EB] text-[#1E3A8A]' : 'bg-[#F8FAFC] border-slate-300 text-[#334155]'
+                        }`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: v.color }} />#{v.fileNo}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="px-2 py-3 text-[10.5px] text-[#64748B] leading-relaxed">
+            그래프 위에 마우스를 올리면 값이 같은 Recipe끼리 묶어서 보여 줍니다.
+          </p>
+        )}
+      </div>
+
+    </div>
+  );
+};
 
 const TrendChartCard: React.FC<TrendChartCardProps> = ({
   metric,
@@ -743,6 +991,10 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   showStepTimeline,
   alignedSteps,
   refFile,
+  valueView,
+  onChangeValueView,
+  valueSort,
+  onChangeValueSort,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -817,6 +1069,10 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
   // Hover crosshair state
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  // 값 표의 행에 마우스를 올리면 그 Recipe 선을 그래프에서 강조
+  const [highlightFileId, setHighlightFileId] = useState<string | null>(null);
+  // 마지막으로 마우스가 있던 시점 (값 표 유지용)
+  const [lastHoverTime, setLastHoverTime] = useState<number | null>(null);
 
   // Filter visible files list with computed colors and recipe names
   const visibleFiles = useMemo(() => {
@@ -1074,6 +1330,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     const ratio = (mouseX - padLeft) / plotW;
     const time = effectiveXRange[0] + ratio * (effectiveXRange[1] - effectiveXRange[0]);
     setHoverTime(Math.round(time * 10) / 10);
+    setLastHoverTime(Math.round(time * 10) / 10);
   };
 
   const handleMouseLeave = () => {
@@ -1083,34 +1340,28 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   };
 
   // Docked hover information calculation (방안 A: 상단 고정 도킹형 상태바)
-  const hoverInfo = useMemo(() => {
-    if (hoverTime === null || hoverTime < effectiveXRange[0] || hoverTime > effectiveXRange[1]) {
+  // 특정 시점(t)의 Step과 Recipe별 값 계산 (상단 상태바 · 오른쪽 값 표 공용)
+  const computeCursorInfo = useCallback((t: number | null) => {
+    if (t === null || t < effectiveXRange[0] || t > effectiveXRange[1]) {
       return null;
     }
 
     // 1. Current active Step at hover timestamp: "Step 4(SIN)"
-    const curStep = alignedSteps.find(s => hoverTime >= s.alignedStart && hoverTime <= s.alignedEnd);
+    const curStep = alignedSteps.find(s => t >= s.alignedStart && t <= s.alignedEnd);
     const stepStr = curStep
       ? (curStep.stepName ? `Step ${curStep.step}(${curStep.stepName})` : `Step ${curStep.step}`)
       : '';
 
     // 2. Y-values across visible files at hover timestamp
     const visibleFiles = files.filter(f => visibleFileIds[f.id] !== false);
-    const fileValues: {
-      fileIdx: number;
-      fileNo: number;
-      rcpName: string;
-      color: string;
-      formatted: string;
-      numVal: number;
-    }[] = [];
+    const fileValues: CursorValue[] = [];
 
     visibleFiles.forEach(file => {
       const fileIdx = files.indexOf(file);
       const color = RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
       const res = results.find(r => r.fileId === file.id) || results[fileIdx];
       const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
-      const targetSec = hoverTime + tOnOffset;
+      const targetSec = t + tOnOffset;
 
       let closestRow: RawLogRow | null = null;
       let minDiff = Infinity;
@@ -1135,6 +1386,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           const rcpName = res?.rcpName || file.meta.recipeName || file.fileName;
 
           fileValues.push({
+            fileId: file.id,
             fileIdx,
             fileNo: fileIdx + 1,
             rcpName,
@@ -1147,11 +1399,15 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     });
 
     return {
-      timeFormatted: `${hoverTime.toFixed(1)}`,
+      timeFormatted: `${t.toFixed(1)}`,
       fileValues,
       stepStr,
     };
-  }, [hoverTime, effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric]);
+  }, [effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric]);
+
+  const hoverInfo = useMemo(() => computeCursorInfo(hoverTime), [computeCursorInfo, hoverTime]);
+  // 오른쪽 값 표는 마우스가 그래프를 벗어나도 마지막 커서 위치의 값을 유지
+  const panelInfo = useMemo(() => computeCursorInfo(hoverTime ?? lastHoverTime), [computeCursorInfo, hoverTime, lastHoverTime]);
 
   // 3. Canvas Render
   useEffect(() => {
@@ -1374,7 +1630,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.textBaseline = 'top';
     const xStep = axisConfig.xStep !== null && axisConfig.xStep > 0 ? axisConfig.xStep : 10.0;
     const tickCount = spanX / xStep;
-    const stepMultiplier = tickCount > 30 ? Math.ceil(tickCount / 20) : 1;
+    // 눈금 숫자 사이가 최소 40px은 떨어지도록 그래프 폭에 맞춰 건너뛰기 (값 표 때문에 그래프가 좁아져도 겹치지 않게)
+    const pxPerTick = tickCount > 0 ? plotW / tickCount : plotW;
+    const stepMultiplier = Math.max(tickCount > 30 ? Math.ceil(tickCount / 20) : 1, Math.ceil(40 / Math.max(pxPerTick, 1)));
     const actualStep = xStep * stepMultiplier;
     const actualMinorStep = axisConfig.xMinorStep !== null && axisConfig.xMinorStep > 0
       ? axisConfig.xMinorStep
@@ -1444,15 +1702,20 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.rect(padLeft, padTop, plotW, plotH);
     ctx.clip();
 
-    // Plot series for each visible file
-    files.forEach((file, idx) => {
+    // Plot series for each visible file (강조된 Recipe는 맨 나중에 그려 위로 올림)
+    const drawOrder = files.map((file, idx) => ({ file, idx }));
+    if (highlightFileId) drawOrder.sort((a, b) => Number(a.file.id === highlightFileId) - Number(b.file.id === highlightFileId));
+    drawOrder.forEach(({ file, idx }) => {
       if (visibleFileIds[file.id] === false) return;
       const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
       const res = results.find(r => r.fileId === file.id) || results[idx];
       const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+      const isHi = highlightFileId === file.id;
+      const isDim = highlightFileId !== null && !isHi;
 
+      ctx.globalAlpha = isDim ? 0.22 : 1;
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2.0;
+      ctx.lineWidth = isHi ? 3.2 : 2.0;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -1485,6 +1748,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       ctx.stroke();
     });
+    ctx.globalAlpha = 1;
 
     // 4-0. If Step Timeline is enabled, draw linked vertical dashed divider lines & top step tags
     if (showStepTimeline && alignedSteps.length > 0) {
@@ -1697,6 +1961,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     showStepTimeline,
     alignedSteps,
     fontsLoaded,
+    highlightFileId,
   ]);
 
   const catStyle = CATEGORY_STYLES[metric.category];
@@ -1904,7 +2169,10 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
               const leftPct = ((visStart - minX) / spanX) * 100;
               const widthPct = Math.max(0.4, ((visEnd - visStart) / spanX) * 100);
-              const palette = STEP_PALETTE[(step.step - 1) % STEP_PALETTE.length];
+              // Step 번호가 0·음수·숫자가 아니어도 색 목록 범위를 벗어나지 않도록 보정
+              const stepIdx = Number.isFinite(step.step) ? Math.round(step.step) - 1 : 0;
+              const palette =
+                STEP_PALETTE[((stepIdx % STEP_PALETTE.length) + STEP_PALETTE.length) % STEP_PALETTE.length] ?? STEP_PALETTE[0];
 
               return (
                 <div
@@ -1952,30 +2220,6 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
               {hoverInfo.timeFormatted}
             </span>
 
-            <span className="text-slate-300 font-bold shrink-0">|</span>
-
-            {/* 2. Y축 수치 */}
-            {hoverInfo.fileValues.length > 0 ? (
-              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                {hoverInfo.fileValues.map(fv => (
-                  <div
-                    key={fv.fileNo}
-                    className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 px-2 py-0.5 rounded text-[11px] font-semibold text-slate-800 shadow-2xs"
-                    title={fv.rcpName}
-                  >
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: fv.color }} />
-                    {hoverInfo.fileValues.length > 1 && (
-                      <span className="text-slate-500 font-mono text-[10px]">#{fv.fileNo}</span>
-                    )}
-                    <span className="font-bold text-slate-900 font-mono">{fv.formatted}</span>
-                    {metric.unit && <span className="text-slate-500 text-[10px] font-medium">{metric.unit}</span>}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <span className="text-slate-400 text-[11px] font-mono">--</span>
-            )}
-
             {/* 3. Step */}
             {hoverInfo.stepStr && (
               <>
@@ -1989,7 +2233,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         ) : (
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span>
-            <span>마우스 커서를 그래프 위에 올리면 실시간 시점(s), Y축 수치, Step 정보가 상단에 고정 표시됩니다</span>
+            <span>그래프 위에 마우스를 올리면 시점(s)과 Step이 여기에, Recipe별 값이 오른쪽 표에 표시됩니다</span>
           </div>
         )}
 
@@ -2007,8 +2251,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         </div>
       </div>
 
-      {/* 3. Canvas Area */}
-      <div className="p-2 bg-[#EEF2F6] flex-1 flex items-center justify-center relative min-h-[240px]">
+      {/* 3. Canvas Area + 오른쪽 커서 값 표 */}
+      <div className="p-2 bg-[#EEF2F6] flex-1 flex items-stretch gap-2 relative min-h-[240px]">
+        <div className="flex-1 min-w-0 flex items-center justify-center">
         <canvas
           ref={canvasRef}
           onMouseDown={handleMouseDown}
@@ -2024,6 +2269,27 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
               : 'cursor-crosshair'
           }`}
           title="마우스 휠: 개별 확대/축소 | 좌클릭 드래그: 개별 좌우 이동 | 더블클릭: 줌 초기화"
+        />
+        </div>
+
+        <CursorValuePanel
+          files={files}
+          results={results}
+          visibleFileIds={visibleFileIds}
+          values={panelInfo?.fileValues ?? null}
+          timeLabel={
+            panelInfo
+              ? `${panelInfo.timeFormatted} s${panelInfo.stepStr ? ' · ' + panelInfo.stepStr.replace(/\(.*\)$/, '') : ''}`
+              : null
+          }
+          live={hoverInfo !== null}
+          unit={metric.unit}
+          view={valueView}
+          onChangeView={onChangeValueView}
+          sort={valueSort}
+          onChangeSort={onChangeValueSort}
+          highlightFileId={highlightFileId}
+          onHighlight={setHighlightFileId}
         />
 
         {/* 4. Excel-Style [축 서식] Clean Overlay Modal */}
