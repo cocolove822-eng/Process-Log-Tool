@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PECVD Process Log 분석 대시보드 R1</title>
+    <meta name="description" content="PECVD 설비 공정 Log(CSV)와 Matcher CTCL Matrix(Excel)를 분석하여 공정 조건, 시퀀스 타이밍, RF/Matcher 특성, 편차 및 Time Trend를 시각화하는 공정 엔지니어용 분석 대시보드 (R1)" />
+    <meta property="og:title" content="PECVD Process Log 분석 대시보드 R1" />
+    <meta property="og:description" content="PECVD 설비 공정 Log(CSV)와 Matcher CTCL Matrix(Excel)를 분석하여 공정 조건, 시퀀스 타이밍, RF/Matcher 특성, 편차 및 Time Trend를 시각화하는 공정 엔지니어용 분석 대시보드 (R1)" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
+    <style>
+      *, *::before, *::after, body, button, input, select, textarea, code, pre, kbd, samp {
+        font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
+        font-feature-settings: "tnum" 1, "cv01" 1;
+        -webkit-font-smoothing: antialiased;
+      }
+    </style>
+  </head>
+  <body class="bg-[#E2E8F0] text-[#0F172A] font-sans antialiased min-h-screen selection:bg-blue-500/20">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

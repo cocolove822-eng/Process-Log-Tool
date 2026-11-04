@@ -1,0 +1,8 @@
+{
+  "name": "(26.11.02 08:30) 공정 Log 분석 대시보드",
+  "description": "PECVD 설비 공정 Log(CSV)와 Matcher CTCL Matrix(Excel)를 분석하여 공정 조건, 시퀀스 타이밍, RF/Matcher 특성, 편차 및 Time Trend를 시각화하는 공정 엔지니어용 분석 대시보드",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
