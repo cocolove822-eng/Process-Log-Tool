@@ -67,18 +67,26 @@ const HCap: React.FC<{ x: number; y: number; color: string; variable?: boolean }
 export const LTypeSchematicSvg: React.FC<Props> = ({ spec, state, zR, zX }) => {
   const tuneCount = Math.max(1, Math.min(3, spec.tuneVvcCount || 1));
   const loadCount = Math.max(1, spec.loadVvcCount || 1);
-  const hasTuneVfc = Number.isFinite(spec.tuneVfcPf) && spec.tuneVfcPf > 5;
+  const vc = spec.vfcConfig;
+  const hasTuneVfc = Number.isFinite(spec.tuneVfcPf) && spec.tuneVfcPf > 0.5;
   const hasLoadVfc = Number.isFinite(spec.loadVfcPf) && spec.loadVfcPf > 5;
+  // 회로도에 그릴 VFC 개수 (입력한 수량, 최대 3개 / Tune은 최대 2개)
+  const loadVfcN = hasLoadVfc ? Math.max(1, Math.min(3, vc?.loadKnown ? vc.loadCount : 1)) : 0;
+  const tuneVfcN = hasTuneVfc ? Math.max(1, Math.min(2, vc?.tuneCount || 1)) : 0;
   const cOut = spec.precision?.cOutPf ?? spec.params?.cOutPf ?? 0;
 
   const railY = 80;
   const nodeX = 300;
-  const vvcX = hasLoadVfc ? 265 : nodeX; // Load VVC 위치
-  const vfcX = hasLoadVfc ? 335 : nodeX; // Load VFC 위치
+  const capGap = loadVfcN >= 3 ? 34 : 42;
+  const vvcX = loadVfcN ? nodeX - (loadVfcN * capGap) / 2 : nodeX; // Load VVC 위치
+  const vfcXs = Array.from({ length: loadVfcN }, (_, i) => vvcX + capGap * (i + 1)); // Load VFC 위치들
+  const vfcX = loadVfcN ? vfcXs[loadVfcN - 1] : nodeX; // 가장 오른쪽 커패시터
   const tuneX0 = 510; // Tune 블록 시작
   const tuneX1 = 620; // Tune 블록 끝
   const tuneCx = (tuneX0 + tuneX1) / 2;
-  const tuneRows = Array.from({ length: tuneCount }, (_, i) => railY + (i - (tuneCount - 1) / 2) * 46);
+  const rowN = tuneCount + tuneVfcN;
+  const rowGap = rowN <= 2 ? 46 : rowN === 3 ? 38 : 32;
+  const tuneRows = Array.from({ length: rowN }, (_, i) => railY + (i - (rowN - 1) / 2) * rowGap);
 
   // 수직 코일 (오른쪽으로 볼록)
   const coilV = (x: number, y: number, n: number) =>
@@ -115,7 +123,9 @@ export const LTypeSchematicSvg: React.FC<Props> = ({ spec, state, zR, zX }) => {
       <line x1={nodeX} y1={railY} x2={nodeX} y2={105} stroke={C_WIRE} strokeWidth={1.6} />
       <line x1={vvcX} y1={105} x2={vfcX} y2={105} stroke={C_WIRE} strokeWidth={1.6} />
       <VCap x={vvcX} y={105} color={C_CAP} variable />
-      {hasLoadVfc && <VCap x={vfcX} y={105} color={C_FIX} />}
+      {vfcXs.map((x) => (
+        <VCap key={x} x={x} y={105} color={C_FIX} />
+      ))}
       <line x1={vvcX} y1={135} x2={vfcX} y2={135} stroke={C_WIRE} strokeWidth={1.6} />
       <line x1={nodeX} y1={135} x2={nodeX} y2={165} stroke={C_WIRE} strokeWidth={1.6} />
       <path d={coilV(nodeX, 165, 4)} fill="none" stroke={C_IND} strokeWidth={2.2} />
@@ -132,9 +142,21 @@ export const LTypeSchematicSvg: React.FC<Props> = ({ spec, state, zR, zX }) => {
       {/* Load VFC 라벨 (오른쪽) */}
       {hasLoadVfc && (
         <>
-          <text x={vfcX + 22} y={110} fontSize={12} fontWeight={700} fill={C_FIX}>Load VFC 합계</text>
-          <text x={vfcX + 22} y={125} fontSize={11} fill={C_TEXT} fontFamily="monospace">≈ {fmt(spec.loadVfcPf, 'pF')}</text>
-          <text x={vfcX + 22} y={140} fontSize={10} fill={C_SUB}>VFC + 기생 용량</text>
+          {vc?.loadKnown ? (
+            <>
+              <text x={vfcX + 22} y={110} fontSize={12} fontWeight={700} fill={C_FIX}>Load VFC</text>
+              <text x={vfcX + 22} y={125} fontSize={11} fill={C_TEXT} fontFamily="monospace">
+                {vc.loadUnitPf}pF × {vc.loadCount}EA
+              </text>
+              <text x={vfcX + 22} y={140} fontSize={10} fill={C_SUB}>= {fmt(spec.loadVfcPf, 'pF')} (입력값)</text>
+            </>
+          ) : (
+            <>
+              <text x={vfcX + 22} y={110} fontSize={12} fontWeight={700} fill={C_FIX}>Load VFC 합계</text>
+              <text x={vfcX + 22} y={125} fontSize={11} fill={C_TEXT} fontFamily="monospace">≈ {fmt(spec.loadVfcPf, 'pF')}</text>
+              <text x={vfcX + 22} y={140} fontSize={10} fill={C_SUB}>VFC + 기생 용량 (추정)</text>
+            </>
+          )}
         </>
       )}
 
@@ -149,31 +171,35 @@ export const LTypeSchematicSvg: React.FC<Props> = ({ spec, state, zR, zX }) => {
       </text>
 
       {/* ── Series 브랜치: Tune VVC × n (병렬) ── */}
-      {tuneCount > 1 && (
+      {rowN > 1 && (
         <>
-          <line x1={tuneX0} y1={tuneRows[0]} x2={tuneX0} y2={tuneRows[tuneCount - 1]} stroke={C_WIRE} strokeWidth={1.6} />
-          <line x1={tuneX1} y1={tuneRows[0]} x2={tuneX1} y2={tuneRows[tuneCount - 1]} stroke={C_WIRE} strokeWidth={1.6} />
+          <line x1={tuneX0} y1={tuneRows[0]} x2={tuneX0} y2={tuneRows[rowN - 1]} stroke={C_WIRE} strokeWidth={1.6} />
+          <line x1={tuneX1} y1={tuneRows[0]} x2={tuneX1} y2={tuneRows[rowN - 1]} stroke={C_WIRE} strokeWidth={1.6} />
           <circle cx={tuneX0} cy={railY} r={3} fill={C_TEXT} />
           <circle cx={tuneX1} cy={railY} r={3} fill={C_TEXT} />
         </>
       )}
-      {tuneRows.map((y) => (
+      {tuneRows.map((y, i) => (
         <g key={y}>
           <line x1={tuneX0} y1={y} x2={tuneCx - 15} y2={y} stroke={C_WIRE} strokeWidth={1.6} />
-          <HCap x={tuneCx - 15} y={y} color={C_CAP} variable />
+          {i < tuneCount ? (
+            <HCap x={tuneCx - 15} y={y} color={C_CAP} variable />
+          ) : (
+            <HCap x={tuneCx - 15} y={y} color={C_FIX} />
+          )}
           <line x1={tuneCx + 15} y1={y} x2={tuneX1} y2={y} stroke={C_WIRE} strokeWidth={1.6} />
         </g>
       ))}
-      <text x={tuneCx} y={tuneRows[0] - 34} textAnchor="middle" fontSize={12} fontWeight={700} fill={C_VAR}>Tune VVC</text>
-      <text x={tuneCx} y={tuneRows[0] - 20} textAnchor="middle" fontSize={11} fill={C_TEXT}>
-        {vvcRange(spec.tuneVvcMinPf, spec.tuneVvcMaxPf, tuneCount)}
+      <text x={tuneCx} y={tuneRows[0] - 18} textAnchor="middle" fontSize={11.5} fill={C_TEXT}>
+        <tspan fontWeight={700} fill={C_VAR}>Tune VVC</tspan> {vvcRange(spec.tuneVvcMinPf, spec.tuneVvcMaxPf, tuneCount)}
       </text>
-      <text x={tuneCx} y={tuneRows[tuneCount - 1] + 32} textAnchor="middle" fontSize={11} fill={C_CAP} fontFamily="monospace">
-        현재 {Number.isFinite(state.currentTuneVvcPf) ? `${state.currentTuneVvcPf}pF × ${tuneCount}` : '-'} = {fmt(state.currentTuneTotalPf, 'pF')}
+      <text x={tuneCx} y={tuneRows[rowN - 1] + 32} textAnchor="middle" fontSize={11} fill={C_CAP} fontFamily="monospace">
+        현재 VVC {Number.isFinite(state.currentTuneVvcPf) ? `${state.currentTuneVvcPf}pF × ${tuneCount} = ${state.currentTuneVvcPf * tuneCount} pF` : '-'}
       </text>
       {hasTuneVfc && (
-        <text x={tuneCx} y={tuneRows[tuneCount - 1] + 47} textAnchor="middle" fontSize={10} fill={C_FIX} fontFamily="monospace">
-          + Tune VFC ≈ {fmt(spec.tuneVfcPf, 'pF')}
+        <text x={tuneCx} y={tuneRows[rowN - 1] + 47} textAnchor="middle" fontSize={10.5} fill={C_FIX} fontFamily="monospace">
+          + Tune VFC {vc && vc.tuneCount > 0 ? `${vc.tuneUnitPf}pF × ${vc.tuneCount}EA = ` : ''}
+          {fmt(spec.tuneVfcPf, 'pF')}
         </text>
       )}
 

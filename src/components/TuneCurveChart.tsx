@@ -8,12 +8,13 @@ import React, { useState } from 'react';
 interface Props {
   curve: { pct: number; totalPf: number; ratedPf: number }[];
   count: number;
+  vfcPf?: number;
 }
 
 const C_FIT = '#2563EB';
 const C_RATED = '#94A3B8';
 
-export const TuneCurveChart: React.FC<Props> = ({ curve, count }) => {
+export const TuneCurveChart: React.FC<Props> = ({ curve, count, vfcPf = 0 }) => {
   const [hover, setHover] = useState<number | null>(null);
   const W = 460;
   const H = 210;
@@ -49,7 +50,7 @@ export const TuneCurveChart: React.FC<Props> = ({ curve, count }) => {
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-        <div className="text-xs font-bold text-slate-900">Tune VVC 위치별 총 용량 (×{count}EA 합계)</div>
+        <div className="text-xs font-bold text-slate-900">Tune 브랜치 위치별 총 용량 (VVC ×{count}EA{vfcPf > 0 ? ' + VFC' : ''})</div>
         <div className="flex items-center gap-3 text-[10.5px] text-slate-600">
           <span className="flex items-center gap-1">
             <span className="inline-block w-4 h-[2px]" style={{ background: C_FIT }} /> CTCL 학습 곡선
@@ -83,7 +84,7 @@ export const TuneCurveChart: React.FC<Props> = ({ curve, count }) => {
           <circle key={p.pct} cx={x(p.pct)} cy={y(p.totalPf)} r={2.5} fill={C_FIT} stroke="#FFFFFF" strokeWidth={1} />
         ))}
         <text x={m.l + 8} y={m.t + 14} fontSize={10} fill="#334155">
-          100% 지점 = 정격 최대 {last.totalPf} pF로 고정
+          100% 지점 = 정격 최대{vfcPf > 0 ? ` + VFC ${vfcPf}` : ''} = {last.totalPf} pF로 고정
         </text>
 
         {hover !== null && hv && (

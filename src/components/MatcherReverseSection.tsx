@@ -9,9 +9,10 @@ import {
   VvcTable,
   getInstantaneousMatcherState,
   getUnsolvedSpec,
+  solveMatcherFromCTCL,
 } from '../utils/matcherSolver';
 import { MatcherSchematicPanel } from './MatcherSchematicPanel';
-import { PrecisionOptions } from '../utils/matcherPrecisionFit';
+import { PrecisionOptions, solveMatcherPrecision } from '../utils/matcherPrecisionFit';
 import { TuneCurveChart } from './TuneCurveChart';
 
 /**
@@ -33,8 +34,21 @@ const REFERENCE_CIRCUIT = {
   seriesNh: 180,
   loadVfcPf: 420, // 210pF × 2EA
   loadVfcDesc: '210pF × 2EA',
-  tuneVfcPf: 0,
+  loadVfcUnitPf: 210,
+  loadVfcCount: 2,
+  tuneVfcPf: 0, // 미장착
+  tuneVfcUnitPf: 0,
+  tuneVfcCount: 0,
 };
+
+/** "용량 × 수량" 입력 → 합계 (용량 칸이 비어 있으면 undefined = 모름) */
+function vfcTotal(unit: string, count: string): number | undefined {
+  const u = parseFloat(unit);
+  const n = parseFloat(count);
+  if (!Number.isFinite(u) || u < 0) return undefined;
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return u * Math.round(n);
+}
 
 function profileToTable(label: string): VvcTable | undefined {
   const p = STANDARD_VVC_PROFILES.find((v) => v.label === label);
@@ -49,6 +63,49 @@ function profileToTable(label: string): VvcTable | undefined {
   };
 }
 
+const VfcInput: React.FC<{
+  id: string;
+  label: string;
+  unit: string;
+  count: string;
+  onUnit: (v: string) => void;
+  onCount: (v: string) => void;
+  total: number | undefined;
+  emptyText: string;
+  title: string;
+}> = ({ id, label, unit, count, onUnit, onCount, total, emptyText, title }) => (
+  <div className="flex items-center gap-1" title={title}>
+    <label htmlFor={`${id}-pf`} className="text-slate-600 font-semibold">
+      {label}
+    </label>
+    <input
+      id={`${id}-pf`}
+      type="number"
+      min={0}
+      step={10}
+      placeholder="pF"
+      value={unit}
+      onChange={(e) => onUnit(e.target.value)}
+      className="w-16 border border-slate-300 rounded px-1.5 py-0.5 bg-white font-mono text-right"
+    />
+    <span className="text-slate-500">pF ×</span>
+    <input
+      id={`${id}-ea`}
+      aria-label={`${label} 수량`}
+      type="number"
+      min={0}
+      step={1}
+      value={count}
+      onChange={(e) => onCount(e.target.value)}
+      className="w-11 border border-slate-300 rounded px-1.5 py-0.5 bg-white font-mono text-right"
+    />
+    <span className="text-slate-500">EA</span>
+    <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-slate-700">
+      {total === undefined ? emptyText : total > 0 ? `합계 ${total} pF` : emptyText}
+    </span>
+  </div>
+);
+
 interface Props {
   ctclMatrix: CTCLMatrixData;
   testLoad: number;
@@ -62,7 +119,22 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
   const [isSolving, setIsSolving] = useState(false);
   const [runNonce, setRunNonce] = useState(0);
   const [precisionOn, setPrecisionOn] = useState(true);
-  const [loadVfcInput, setLoadVfcInput] = useState<string>('');
+  const [loadVfcUnit, setLoadVfcUnit] = useState<string>(String(REFERENCE_CIRCUIT.loadVfcUnitPf));
+  const [loadVfcCount, setLoadVfcCount] = useState<string>(String(REFERENCE_CIRCUIT.loadVfcCount));
+  const [tuneVfcUnit, setTuneVfcUnit] = useState<string>(String(REFERENCE_CIRCUIT.tuneVfcUnitPf));
+  const [tuneVfcCount, setTuneVfcCount] = useState<string>(String(REFERENCE_CIRCUIT.tuneVfcCount));
+  const loadVfc = vfcTotal(loadVfcUnit, loadVfcCount); // undefined = 모름 → 정격에서 추정
+  const tuneVfc = vfcTotal(tuneVfcUnit, tuneVfcCount) ?? 0; // 비우면 미장착(0)
+  const vfcConfig = useMemo(
+    () => ({
+      loadUnitPf: parseFloat(loadVfcUnit),
+      loadCount: Math.max(0, Math.round(parseFloat(loadVfcCount) || 0)),
+      loadKnown: loadVfc !== undefined,
+      tuneUnitPf: parseFloat(tuneVfcUnit) || 0,
+      tuneCount: tuneVfc > 0 ? Math.max(1, Math.round(parseFloat(tuneVfcCount) || 0)) : 0,
+    }),
+    [loadVfcUnit, loadVfcCount, loadVfc, tuneVfcUnit, tuneVfcCount, tuneVfc]
+  );
   const workerRef = useRef<Worker | null>(null);
 
   const options: SolverOptions = useMemo(() => {
@@ -71,36 +143,76 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
     const tt = tuneHint === AUTO ? undefined : profileToTable(tuneHint);
     if (lt) o.loadVvcTable = lt;
     if (tt) o.tuneVvcTable = tt;
+    // 정격 테이블 모드에서 cLoad0Pf / cTune0Pf = VFC 오프셋 → 아는 값이면 고정
+    const fixed: SolverOptions['fixed'] = {};
+    if (lt && loadVfc !== undefined) fixed.cLoad0Pf = Math.max(loadVfc, 0.5);
+    if (tt) fixed.cTune0Pf = Math.max(tuneVfc, 0.5);
+    if (Object.keys(fixed).length) o.fixed = fixed;
     return o;
-  }, [loadHint, tuneHint]);
+  }, [loadHint, tuneHint, loadVfc, tuneVfc]);
 
   const precision: PrecisionOptions | undefined = useMemo(() => {
     if (!precisionOn || loadHint === AUTO || tuneHint === AUTO) return undefined;
     const lp = STANDARD_VVC_PROFILES.find((p) => p.label === loadHint);
     const tp = STANDARD_VVC_PROFILES.find((p) => p.label === tuneHint);
     if (!lp || !tp) return undefined;
-    const vfc = parseFloat(loadVfcInput);
-    return { loadProfile: lp, tuneProfile: tp, knownLoadVfcPf: Number.isFinite(vfc) && vfc >= 0 ? vfc : undefined };
-  }, [precisionOn, loadHint, tuneHint, loadVfcInput]);
+    return { loadProfile: lp, tuneProfile: tp, knownLoadVfcPf: loadVfc, tuneVfcPf: tuneVfc };
+  }, [precisionOn, loadHint, tuneHint, loadVfc, tuneVfc]);
 
   useEffect(() => {
     workerRef.current?.terminate();
-    const worker = new Worker(new URL('../workers/matcherSolverWorker.ts', import.meta.url), { type: 'module' });
-    workerRef.current = worker;
+    let cancelled = false;
     setIsSolving(true);
-    worker.onmessage = (e: MessageEvent<{ success: boolean; spec?: MatcherSolvedSpec; error?: string }>) => {
-      setSpec(e.data.success && e.data.spec ? e.data.spec : getUnsolvedSpec(`역산 오류: ${e.data.error ?? '알 수 없음'}`));
-      setIsSolving(false);
-      worker.terminate();
+
+    // 백그라운드 Worker를 쓸 수 없는 환경(일부 샌드박스 페이지 등)에서는 메인 스레드에서 계산
+    const runInline = () => {
+      setTimeout(() => {
+        if (cancelled) return;
+        try {
+          const result = precision ? solveMatcherPrecision(ctclMatrix, precision) : solveMatcherFromCTCL(ctclMatrix, options);
+          if (!cancelled) setSpec({ ...result, vfcConfig });
+        } catch (err) {
+          if (!cancelled) setSpec(getUnsolvedSpec(`역산 오류: ${String(err)}`));
+        }
+        if (!cancelled) setIsSolving(false);
+      }, 30);
     };
-    worker.onerror = (err) => {
-      setSpec(getUnsolvedSpec(`역산 오류: ${err.message}`));
+
+    let worker: Worker | null = null;
+    try {
+      worker = new Worker(new URL('../workers/matcherSolverWorker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      worker = null;
+    }
+    if (!worker) {
+      runInline();
+      return () => {
+        cancelled = true;
+      };
+    }
+    workerRef.current = worker;
+    const w = worker;
+    w.onmessage = (e: MessageEvent<{ success: boolean; spec?: MatcherSolvedSpec; error?: string }>) => {
+      if (cancelled) return;
+      setSpec(
+        e.data.success && e.data.spec
+          ? { ...e.data.spec, vfcConfig }
+          : getUnsolvedSpec(`역산 오류: ${e.data.error ?? '알 수 없음'}`)
+      );
       setIsSolving(false);
-      worker.terminate();
+      w.terminate();
     };
-    worker.postMessage({ matrix: ctclMatrix, options, precision });
-    return () => worker.terminate();
-  }, [ctclMatrix, options, precision, runNonce]);
+    w.onerror = (ev) => {
+      ev.preventDefault();
+      w.terminate();
+      runInline();
+    };
+    w.postMessage({ matrix: ctclMatrix, options, precision });
+    return () => {
+      cancelled = true;
+      w.terminate();
+    };
+  }, [ctclMatrix, options, precision, vfcConfig, runNonce]);
 
   const state = useMemo(() => getInstantaneousMatcherState(spec, testLoad, testTune), [spec, testLoad, testTune]);
   const interpolatedZ = useMemo(() => interpolateCTCL(ctclMatrix, testLoad, testTune), [ctclMatrix, testLoad, testTune]);
@@ -111,15 +223,19 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
         { name: 'Series Inductor', ref: `${REFERENCE_CIRCUIT.seriesNh} nH`, refV: REFERENCE_CIRCUIT.seriesNh, fit: spec.seriesInductorNh, unit: 'nH' },
         ...(spec.precision ? [{ name: '출력 기생 C', ref: '- (도면 없음)', refV: NaN, fit: spec.precision.cOutPf, unit: 'pF' }] : []),
         {
-          name: 'Load VFC 합계',
+          name: loadVfc !== undefined ? 'Load VFC 합계 (입력값)' : 'Load VFC 합계',
           ref: `${REFERENCE_CIRCUIT.loadVfcPf} pF (${REFERENCE_CIRCUIT.loadVfcDesc})`,
           refV: REFERENCE_CIRCUIT.loadVfcPf,
           fit: spec.loadVfcPf,
           unit: 'pF',
         },
-        ...(spec.precision
-          ? []
-          : [{ name: 'Tune VFC 합계', ref: '0 pF (미장착)', refV: REFERENCE_CIRCUIT.tuneVfcPf, fit: spec.tuneVfcPf, unit: 'pF' }]),
+        {
+          name: 'Tune VFC 합계 (입력값)',
+          ref: '0 pF (미장착)',
+          refV: REFERENCE_CIRCUIT.tuneVfcPf,
+          fit: spec.tuneVfcPf,
+          unit: 'pF',
+        },
       ]
     : [];
 
@@ -128,10 +244,10 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
   return (
     <div className="space-y-2">
       {/* 힌트 설정 바 */}
-      <div className="bg-white border border-slate-300 rounded-xl p-2.5 shadow-xs flex flex-col lg:flex-row lg:items-center gap-2.5">
+      <div className="bg-white border border-slate-300 rounded-xl p-2.5 shadow-xs flex flex-col gap-2">
         <div className="flex items-center gap-1.5 shrink-0">
           <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-          <span className="text-xs font-bold text-slate-900">회로 역추적 조건 (장착 VVC 정격)</span>
+          <span className="text-xs font-bold text-slate-900">회로 역추적 조건 (장착 VVC 정격 · VFC 구성)</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           <label className="flex items-center gap-1">
@@ -169,6 +285,10 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
             onClick={() => {
               setLoadHint(REFERENCE_CIRCUIT.loadVvcLabel);
               setTuneHint(REFERENCE_CIRCUIT.tuneVvcLabel);
+              setLoadVfcUnit(String(REFERENCE_CIRCUIT.loadVfcUnitPf));
+              setLoadVfcCount(String(REFERENCE_CIRCUIT.loadVfcCount));
+              setTuneVfcUnit(String(REFERENCE_CIRCUIT.tuneVfcUnitPf));
+              setTuneVfcCount(String(REFERENCE_CIRCUIT.tuneVfcCount));
             }}
             className="px-2 py-0.5 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100 font-semibold text-slate-700"
           >
@@ -183,29 +303,40 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
             />
             <span className="font-semibold text-slate-700">정밀 보정</span>
           </label>
-          <label className="flex items-center gap-1" title="BOM 등으로 Load VFC 합계를 알고 있으면 입력하세요. 비워 두면 Load VVC 정격으로부터 VFC를 추정합니다.">
-            <span className="text-slate-600 font-semibold">Load VFC 합계</span>
-            <input
-              type="number"
-              min={0}
-              placeholder="모름"
-              value={loadVfcInput}
-              disabled={!precision && !(precisionOn && !hintless)}
-              onChange={(e) => setLoadVfcInput(e.target.value)}
-              className="w-20 border border-slate-300 rounded px-1.5 py-0.5 bg-white font-mono"
-            />
-            <span className="text-slate-500">pF</span>
-          </label>
         </div>
-        <p className="text-[10px] text-slate-500 flex items-start gap-1 lg:ml-auto lg:max-w-[360px]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px]">
+          <VfcInput
+            id="load-vfc"
+            label="Load VFC"
+            unit={loadVfcUnit}
+            count={loadVfcCount}
+            onUnit={setLoadVfcUnit}
+            onCount={setLoadVfcCount}
+            total={loadVfc}
+            emptyText="모름 (정격으로 추정)"
+            title="Load VVC와 병렬로 장착된 고정 커패시터. 용량 칸을 비우면 Load VVC 정격으로부터 VFC를 추정합니다."
+          />
+          <VfcInput
+            id="tune-vfc"
+            label="Tune VFC"
+            unit={tuneVfcUnit}
+            count={tuneVfcCount}
+            onUnit={setTuneVfcUnit}
+            onCount={setTuneVfcCount}
+            total={tuneVfc}
+            emptyText="미장착"
+            title="Tune VVC와 병렬로 장착된 고정 커패시터. 없으면 0 또는 빈칸으로 두세요."
+          />
+        </div>
+        <p className="text-[10px] text-slate-500 flex items-start gap-1">
           <Info className="w-3 h-3 mt-0.5 shrink-0" />
           {hintless
             ? '힌트 없이 추정하면 VVC 정격 조합과 인덕터 값이 서로 맞바뀔 수 있어 결과가 불안정합니다. 정격을 알면 선택하세요.'
             : precision
               ? precision.knownLoadVfcPf !== undefined
-                ? '입력한 Load VFC를 기준으로 Shunt L과 Load VVC 최소 용량을 구합니다. Tune VVC는 100%=정격 최대로 두고 곡선을 학습합니다.'
-                : 'Load는 VVC 정격 그대로, Tune은 100%=정격 최대로 두고 실측 곡선·출력 기생 C를 학습합니다. Load VFC를 알면 입력하세요(Shunt L이 함께 바뀝니다).'
-              : 'VVC 정격을 직선으로 고정하고 Shunt/Series 인덕터와 고정 VFC(+기생 용량)를 피팅합니다.'}
+                ? '입력한 Load VFC를 기준으로 Shunt L과 Load VVC 최소 용량을 구합니다. Tune 브랜치는 100% = Tune VVC 정격 최대 × 수량 + Tune VFC로 두고 곡선과 출력 기생 C를 학습합니다.'
+                : 'Load VFC를 모르면 Load VVC 정격으로부터 VFC를 추정합니다. Load VFC를 입력하면 Shunt L이 그 값에 맞게 다시 계산됩니다.'
+              : '정밀 보정을 끄면 VVC 정격을 직선으로 두고, 입력한 VFC를 고정한 채 Shunt/Series 인덕터를 피팅합니다.'}
         </p>
       </div>
 
@@ -250,11 +381,11 @@ export const MatcherReverseSection: React.FC<Props> = ({ ctclMatrix, testLoad, t
               </li>
             </ul>
             <p className="text-[10px] text-slate-500">
-              Load 쪽은 CTCL만으로 VFC와 Shunt L을 구분할 수 없습니다. Load VFC 합계를 입력하면 그 값에 맞는 Shunt L이 다시
-              계산됩니다.
+              Load 쪽은 CTCL만으로 VFC와 Shunt L을 구분할 수 없어서, 입력한 Load VFC를 기준으로 Shunt L을 계산합니다. VFC
+              구성이 바뀌면 Shunt L도 함께 바뀝니다.
             </p>
           </div>
-          <TuneCurveChart curve={spec.precision.tuneCurve} count={spec.tuneVvcCount} />
+          <TuneCurveChart curve={spec.precision.tuneCurve} count={spec.tuneVvcCount} vfcPf={spec.tuneVfcPf} />
         </div>
       )}
 

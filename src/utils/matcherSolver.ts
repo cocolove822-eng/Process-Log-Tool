@@ -166,7 +166,9 @@ export interface MatcherSolvedSpec {
   loadDecompositionCandidates: CapacitorDecomposition[]; // 상위 3개 후보
   tuneDecompositionCandidates: CapacitorDecomposition[];
   positionRange: { loadMin: number; loadMax: number; tuneMin: number; tuneMax: number };
-  precision?: import('./matcherPrecisionFit').PrecisionInfo; // 정밀 보정 모드 결과 (출력 기생 C, Tune 실측 곡선 등)
+  precision?: import('./matcherPrecisionFit').PrecisionInfo;
+  /** 화면에서 입력한 VFC 구성 (회로도 표시용) */
+  vfcConfig?: { loadUnitPf: number; loadCount: number; loadKnown: boolean; tuneUnitPf: number; tuneCount: number }; // 정밀 보정 모드 결과 (출력 기생 C, Tune 실측 곡선 등)
 }
 
 /** 특정 Load %, Tune %에서의 순간 소자값 상태 */

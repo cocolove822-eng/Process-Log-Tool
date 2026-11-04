@@ -36,6 +36,8 @@ export interface PrecisionOptions {
   tuneProfile: VvcProfile;
   /** 알고 있는 Load VFC 합계 (pF). 지정하면 loadMode = 'vfc' */
   knownLoadVfcPf?: number;
+  /** Tune VFC 합계 (pF). Tune VVC와 병렬로 장착된 고정 용량, 미장착이면 0 */
+  tuneVfcPf?: number;
   rWeight?: number;
 }
 
@@ -68,8 +70,9 @@ function buildModel(v: Vec, o: PrecisionOptions, mode: 'rating' | 'vfc', curve: 
   const lMax = o.loadProfile.max * o.loadProfile.count;
   const lMin = mode === 'rating' ? o.loadProfile.min * o.loadProfile.count : v.lMin;
   const vfcL = mode === 'rating' ? v.vfcL : o.knownLoadVfcPf ?? 0;
-  const anchor = o.tuneProfile.max * o.tuneProfile.count;
-  const tMin = o.tuneProfile.min * o.tuneProfile.count;
+  const tVfc = Math.max(0, o.tuneVfcPf ?? 0);
+  const anchor = o.tuneProfile.max * o.tuneProfile.count + tVfc;
+  const tMin = o.tuneProfile.min * o.tuneProfile.count + tVfc;
 
   const loadTable: VvcTable = { points: [{ pct: 0, pf: lMin }, { pct: 100, pf: lMax }], count: 1 };
   const tunePts = curve
@@ -294,8 +297,9 @@ export function solveMatcherPrecision(matrix: CTCLMatrixData | null, o: Precisio
   const fine = thin(2600);
 
   const mode: 'rating' | 'vfc' = o.knownLoadVfcPf !== undefined && o.knownLoadVfcPf >= 0 ? 'vfc' : 'rating';
-  const anchor = o.tuneProfile.max * o.tuneProfile.count;
-  const tMinRated = o.tuneProfile.min * o.tuneProfile.count;
+  const tuneVfc = Math.max(0, o.tuneVfcPf ?? 0);
+  const anchor = o.tuneProfile.max * o.tuneProfile.count + tuneVfc; // Tune 브랜치 총 용량 100% 지점 (VVC 최대 × 수량 + VFC)
+  const tMinRated = o.tuneProfile.min * o.tuneProfile.count + tuneVfc;
   const ratedAt = (pct: number) => tMinRated + ((anchor - tMinRated) * pct) / 100;
   const lMinRated = o.loadProfile.min * o.loadProfile.count;
 
@@ -371,6 +375,12 @@ export function solveMatcherPrecision(matrix: CTCLMatrixData | null, o: Precisio
   if (met.r2 < 0.995) warn.push(`R²=${(met.r2 * 100).toFixed(2)}%: 정밀 보정 후에도 설명되지 않는 오차가 있습니다.`);
   if (degeneratePairs.length) warn.push(`분리가 어려운 쌍: ${degeneratePairs.join(', ')}`);
   if (mode === 'rating' && vfcL < 5) warn.push('Load VFC가 0에 가깝게 나왔습니다. Load VVC 정격이 실제보다 크게 선택됐을 수 있습니다.');
+  if (tuneLo - tuneVfc < 0)
+    warn.push(
+      `입력한 Tune VFC(${round(tuneVfc, 0)} pF)가 Tune 0% 지점의 총 용량(${round(tuneLo, 0)} pF)보다 큽니다. Tune VFC 값을 확인하세요.`
+    );
+  if (mode === 'vfc' && lMin < 0)
+    warn.push('입력한 Load VFC가 너무 커서 Load VVC 최소 용량이 음수로 나옵니다. Load VFC 값을 확인하세요.');
   if (mode === 'vfc' && lMin > lMax * 0.9) warn.push('입력한 Load VFC로는 Load VVC 최소 용량이 비정상적으로 큽니다. VFC 값을 확인하세요.');
   for (let i = 1; i < tuneCurve.length; i++)
     if (tuneCurve[i].totalPf < tuneCurve[i - 1].totalPf) {
@@ -392,11 +402,11 @@ export function solveMatcherPrecision(matrix: CTCLMatrixData | null, o: Precisio
     loadTotalMaxPf: round(vfcL + lMax, 0),
 
     seriesInductorNh: round(v.lse),
-    tuneVvcMinPf: round(tuneLo / o.tuneProfile.count, 0),
+    tuneVvcMinPf: round((tuneLo - tuneVfc) / o.tuneProfile.count, 0),
     tuneVvcMaxPf: o.tuneProfile.max,
     tuneVvcCount: o.tuneProfile.count,
-    tuneVfcPf: 0,
-    tuneVfcDesc: '곡선에 포함',
+    tuneVfcPf: round(tuneVfc, 0),
+    tuneVfcDesc: tuneVfc > 0 ? `${round(tuneVfc, 0)} pF (입력값)` : '미장착 (0 pF)',
     tuneTotalMinPf: round(tuneLo, 0),
     tuneTotalMaxPf: round(anchor, 0),
 
