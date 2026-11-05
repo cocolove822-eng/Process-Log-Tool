@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, Eye, EyeOff, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { RefreshCw, Eye, EyeOff, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 
 export interface AlignedStepSegment {
@@ -873,35 +873,36 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   const hasValues = !!values && values.length > 0;
 
   return (
-    <div className="w-[184px] shrink-0 h-[240px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
-      {/* 머리글: 시점 + 정렬 / 보기 방식 */}
-      <div className="px-1.5 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
-        <div className="flex items-center justify-between gap-1">
-          <span
-            className="flex items-center gap-1 min-w-0 text-[10.5px] font-bold text-[#0F172A]"
-            title={live ? '현재 커서 위치' : '마지막 커서 위치의 값을 유지하고 있습니다'}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
-            <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
-          </span>
+    <div className="w-[128px] shrink-0 h-[272px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
+      {/* 머리글: 시점 / 보기 방식 + 정렬 */}
+      <div className="px-1 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
+        <span
+          className="flex items-center gap-1 min-w-0 px-0.5 text-[10px] font-bold text-[#0F172A]"
+          title={live ? '현재 커서 위치' : '마지막 커서 위치의 값을 유지하고 있습니다'}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
+          <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
+        </span>
+        <div className="flex items-center gap-0.5">
+          <div className="flex-1 flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-lg">
+            <SegBtn active={view === 'list'} onClick={() => onChangeView('list')} title="Recipe별로 한 줄씩 표시">
+              개별
+            </SegBtn>
+            <SegBtn active={view === 'group'} onClick={() => onChangeView('group')} title="값이 거의 같은 Recipe끼리 묶어서 표시">
+              묶음
+            </SegBtn>
+          </div>
           {view === 'list' && (
             <button
               type="button"
               onClick={() => onChangeSort(sort === 'no' ? 'value' : 'no')}
-              title="정렬 바꾸기: 번호순 ↔ 값 큰 순"
-              className="shrink-0 px-1.5 py-[1px] rounded-md bg-white border border-slate-300 text-[9.5px] font-semibold text-[#334155] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
+              title={sort === 'no' ? '현재: 번호순 (누르면 값 큰 순)' : '현재: 값 큰 순 (누르면 번호순)'}
+              aria-label="정렬 바꾸기"
+              className="shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-md bg-white border border-slate-300 text-[#334155] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
             >
-              {sort === 'no' ? '번호순 ▾' : '값 큰 순 ▾'}
+              {sort === 'no' ? <ArrowDown01 className="w-3.5 h-3.5" /> : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
             </button>
           )}
-        </div>
-        <div className="flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-lg">
-          <SegBtn active={view === 'list'} onClick={() => onChangeView('list')} title="Recipe별로 한 줄씩 표시">
-            개별
-          </SegBtn>
-          <SegBtn active={view === 'group'} onClick={() => onChangeView('group')} title="값이 거의 같은 Recipe끼리 묶어서 표시">
-            묶어 보기
-          </SegBtn>
         </div>
       </div>
 
@@ -917,18 +918,15 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                     key={v.fileId}
                     onMouseEnter={() => onHighlight(v.fileId)}
                     className={`cursor-default ${hi ? 'bg-[#DBEAFE]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'}`}
-                    title={v.rcpName}
+                    title={`#${v.fileNo} ${v.rcpName}`}
                   >
-                    <td className="w-[32px] pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap">
+                    <td className="w-[44px] pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap">
                       <span className="inline-flex items-center gap-1">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
                         <span className="font-bold text-[#334155] tabular-nums">#{v.fileNo}</span>
                       </span>
                     </td>
-                    <td className="px-1 py-[2px] border-b border-slate-200 truncate text-[10px] text-[#475569]">
-                      {v.rcpName.split(/[\\/]/).pop()}
-                    </td>
-                    <td className="w-[50px] pr-1.5 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
+                    <td className="pr-1.5 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
                       {v.formatted}
                     </td>
                   </tr>
@@ -942,7 +940,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
               const lo = formatCursorValue(g.lo);
               const hiV = formatCursorValue(g.hi);
               return (
-                <div key={gi} className="px-1.5 py-1 space-y-0.5">
+                <div key={gi} className="px-1 py-1 space-y-0.5">
                   <div className="flex items-baseline justify-between gap-1">
                     <span className="text-[12px] font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
                       {lo === hiV ? hiV : `${lo} ~ ${hiV}`}
@@ -955,7 +953,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                         key={v.fileId}
                         onMouseEnter={() => onHighlight(v.fileId)}
                         title={`${v.rcpName}: ${v.formatted}${unit ? ' ' + unit : ''}`}
-                        className={`inline-flex items-center gap-1 px-1.5 py-[1px] rounded border text-[10px] font-bold tabular-nums cursor-default ${
+                        className={`inline-flex items-center gap-0.5 px-1 py-[1px] rounded border text-[10px] font-bold tabular-nums cursor-default ${
                           highlightFileId === v.fileId ? 'bg-[#DBEAFE] border-[#2563EB] text-[#1E3A8A]' : 'bg-[#F8FAFC] border-slate-300 text-[#334155]'
                         }`}
                       >
@@ -968,8 +966,8 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
             })}
           </div>
         ) : (
-          <p className="px-2 py-3 text-[10.5px] text-[#64748B] leading-relaxed">
-            그래프 위에 마우스를 올리면 값이 같은 Recipe끼리 묶어서 보여 줍니다.
+          <p className="px-1.5 py-2 text-[10px] text-[#64748B] leading-relaxed">
+            그래프 위에 마우스를 올리면 같은 값끼리 묶어 보여 줍니다.
           </p>
         )}
       </div>
@@ -1417,7 +1415,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     if (!ctx) return;
 
     const width = canvas.parentElement?.clientWidth || 450;
-    const height = 240; // Proportioned height for 2-column view
+    const height = 272; // 상단 상태바를 없앤 만큼 키운 높이 (오른쪽 값 표와 같은 높이)
     // Enforce minimum 2x Retina supersampling so text & lines are razor-sharp on all screens
     const dpr = Math.max(window.devicePixelRatio || 1, 2);
 
@@ -2205,54 +2203,8 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         </div>
       )}
 
-      {/* 2-2. Docked Hover Info Bar (방안 A: 상단 고정 도킹형 상태바 - 화이트톤 테마) */}
-      <div
-        className={`px-3 py-1.5 border-b transition-colors flex items-center justify-between text-xs select-none min-h-[30px] ${
-          hoverInfo
-            ? 'bg-white border-blue-300 text-slate-800 shadow-2xs'
-            : 'bg-[#F8FAFC] border-slate-300 text-slate-600'
-        }`}
-      >
-        {hoverInfo ? (
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            {/* 1. Time */}
-            <span className="font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px] font-mono tracking-tight shrink-0 shadow-2xs">
-              {hoverInfo.timeFormatted}
-            </span>
-
-            {/* 3. Step */}
-            {hoverInfo.stepStr && (
-              <>
-                <span className="text-slate-300 font-bold shrink-0">|</span>
-                <span className="font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded text-[11px] shrink-0 shadow-2xs">
-                  {hoverInfo.stepStr}
-                </span>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span>
-            <span>그래프 위에 마우스를 올리면 시점(s)과 Step이 여기에, Recipe별 값이 오른쪽 표에 표시됩니다</span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-1 text-[10px] font-mono shrink-0 ml-2">
-          {hoverInfo ? (
-            <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 flex items-center gap-1 text-[10px] font-medium shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-              실시간 커서
-            </span>
-          ) : (
-            <span className="text-slate-500 hidden sm:inline">
-              단위: [{metric.unit}]
-            </span>
-          )}
-        </div>
-      </div>
-
       {/* 3. Canvas Area + 오른쪽 커서 값 표 */}
-      <div className="p-2 bg-[#EEF2F6] flex-1 flex items-stretch gap-2 relative min-h-[240px]">
+      <div className="p-2 bg-[#EEF2F6] flex-1 flex items-stretch gap-1.5 relative min-h-[272px]">
         <div className="flex-1 min-w-0 flex items-center justify-center">
         <canvas
           ref={canvasRef}
