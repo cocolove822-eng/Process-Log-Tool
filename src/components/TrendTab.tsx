@@ -762,11 +762,18 @@ interface CursorValue {
  * (긴 단어부터 확인하므로 YILD2_B → YILD2, YILD_B → YILD)
  * 새 키워드가 생기면 이 목록에 추가하면 된다.
  */
-export const RECIPE_KEYWORDS = ['BBN', 'TBO', 'BGO', 'BLO', 'BLN', 'TLN', 'YILD', 'YILD2', 'YMTL', 'YCNT'];
+export const RECIPE_KEYWORDS = [
+  'BBN', 'TBO', 'BGO', 'BLO', 'BLN', 'TLN',
+  'YILD', 'YILD2', 'YMTL', 'YCNT',
+  'GI_SIN', 'GI_SIO', 'a-Si', '3Layer',
+];
+
+/** 키워드 안의 '-', '.' 같은 문자를 정규식에서 글자 그대로 찾도록 처리 */
+const escapeRegExp = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const RECIPE_KEYWORD_RES = [...RECIPE_KEYWORDS]
   .sort((x, y) => y.length - x.length)
-  .map(k => ({ k, re: new RegExp(`(?<![A-Za-z])${k}(?![A-Za-z])`, 'i') }));
+  .map(k => ({ k, re: new RegExp(`(?<![A-Za-z])${escapeRegExp(k)}(?![A-Za-z])`, 'i') }));
 
 /**
  * Recipe 짧은 이름
