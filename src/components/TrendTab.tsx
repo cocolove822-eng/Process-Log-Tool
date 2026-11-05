@@ -745,6 +745,8 @@ type ValueView = 'list' | 'group';
 type ValueSort = 'no' | 'value';
 
 interface CursorValue {
+  /** 값 표에 보여 줄 짧은 이름 (로그 4번째 행 Recipe Name 기준) */
+  shortName: string;
   fileId: string;
   fileIdx: number;
   fileNo: number;
@@ -755,16 +757,26 @@ interface CursorValue {
 }
 
 /**
- * Recipe 짧은 이름: 경로를 떼고 마지막 '_' 뒤 부분 (예: ILD\\IRUJA_IT_BUF_BBN9 → BBN9)
- * 끝이 숫자뿐이면 한 단계 앞까지 붙인다 (예: ..._BBN_2 → BBN_2)
+ * 값 표에 보여 줄 Recipe 대표 이름 키워드.
+ * 로그 4번째 행 "Recipe Name"에 이 단어가 들어 있으면 그 단어만 표시한다.
+ * (긴 단어부터 확인하므로 YILD2_B → YILD2, YILD_B → YILD)
+ * 새 키워드가 생기면 이 목록에 추가하면 된다.
+ */
+export const RECIPE_KEYWORDS = ['BBN', 'TBO', 'BGO', 'BLO', 'BLN', 'TLN', 'YILD', 'YILD2', 'YMTL', 'YCNT'];
+
+const RECIPE_KEYWORD_RES = [...RECIPE_KEYWORDS]
+  .sort((x, y) => y.length - x.length)
+  .map(k => ({ k, re: new RegExp(`(?<![A-Za-z])${k}(?![A-Za-z])`, 'i') }));
+
+/**
+ * Recipe 짧은 이름
+ * 1) 키워드(BBN, TBO, YILD2 …)가 들어 있으면 그 단어 (영단어 속에 우연히 섞인 경우는 제외: BLOCK ≠ BLO)
+ * 2) 없으면 경로를 뗀 Recipe Name 전체
  */
 export function shortRecipeName(name: string): string {
-  const base = (name || '').split(/[\\/]/).pop() || name || '';
-  const tokens = base.split('_').filter(Boolean);
-  if (tokens.length <= 1) return base;
-  let last = tokens.pop() as string;
-  if (/^\d+$/.test(last) && tokens.length) last = `${tokens.pop()}_${last}`;
-  return last;
+  const base = ((name || '').split(/[\\/]/).pop() || name || '').trim();
+  for (const { k, re } of RECIPE_KEYWORD_RES) if (re.test(base)) return k;
+  return base;
 }
 
 /** 커서 위치 값 서식 (상단 상태바와 같은 규칙) */
@@ -862,6 +874,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
       const hit = byId.get(file.id);
       list.push(
         hit ?? {
+          shortName: shortRecipeName(file.meta.recipeName || res?.rcpName || file.fileName),
           fileId: file.id,
           fileIdx: idx,
           fileNo: idx + 1,
@@ -937,7 +950,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                       <span className="flex items-center gap-1 min-w-0">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
                         <span className="font-bold text-[#334155] tabular-nums shrink-0">#{v.fileNo}</span>
-                        <span className="font-semibold text-[#475569] truncate">{shortRecipeName(v.rcpName)}</span>
+                        <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
                       </span>
                     </td>
                     <td className="w-[68px] pr-1 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
@@ -971,12 +984,13 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                         key={v.fileId}
                         onMouseEnter={() => onHighlight(v.fileId)}
                         title={`${v.rcpName}: ${v.formatted}${unit ? ' ' + unit : ''}`}
-                        className={`inline-flex items-center gap-0.5 px-1 py-[1px] rounded border text-[10px] font-bold tabular-nums cursor-default ${
+                        className={`inline-flex items-center gap-0.5 px-1 py-[1px] max-w-full min-w-0 rounded border text-[10px] font-bold tabular-nums cursor-default ${
                           highlightFileId === v.fileId ? 'bg-[#DBEAFE] border-[#2563EB] text-[#1E3A8A]' : 'bg-[#F8FAFC] border-slate-300 text-[#334155]'
                         }`}
                       >
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: v.color }} />#{v.fileNo}
-                        <span className="font-semibold text-[#475569]">{shortRecipeName(v.rcpName)}</span>
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
+                        <span className="shrink-0">#{v.fileNo}</span>
+                        <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
                       </span>
                     ))}
                   </div>
@@ -1479,6 +1493,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           const rcpName = res?.rcpName || file.meta.recipeName || file.fileName;
 
           fileValues.push({
+            shortName: shortRecipeName(file.meta.recipeName || rcpName),
             fileId: file.id,
             fileIdx,
             fileNo: fileIdx + 1,
