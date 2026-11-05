@@ -995,6 +995,64 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   );
 };
 
+// ============================================================================
+// 축 서식 팝오버용 작은 입력 부품
+// ============================================================================
+const AXIS_INPUT =
+  'w-full min-w-0 bg-white border border-slate-300 rounded px-1.5 py-[3px] text-[11px] font-semibold tabular-nums text-[#0F172A] focus:outline-none focus:border-[#2563EB]';
+
+/** 한 줄: 왼쪽 항목 이름 + 오른쪽 입력들 */
+const AxisRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-1.5">
+    <span className="text-[10.5px] font-semibold text-[#475569] truncate" title={label}>
+      {label}
+    </span>
+    <div className="flex items-center gap-1 flex-wrap min-w-0 [&>*]:flex-1">{children}</div>
+  </div>
+);
+
+/** 숫자 칸: 빈칸 = 자동(null). 입력 중인 글자('-', '1.' 등)는 그대로 유지 */
+const AxisNum: React.FC<{ value: number | null; placeholder: string; onChange: (v: number | null) => void; accent?: boolean }> = ({
+  value,
+  placeholder,
+  onChange,
+  accent,
+}) => {
+  const [text, setText] = useState<string>(value === null ? '' : String(value));
+  useEffect(() => {
+    const cur = text.trim() === '' ? null : parseFloat(text);
+    if (value !== cur && !(value === null && cur !== null && isNaN(cur))) setText(value === null ? '' : String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={text}
+      onChange={e => {
+        const t = e.target.value;
+        setText(t);
+        if (t.trim() === '') return onChange(null);
+        const v = parseFloat(t);
+        if (!isNaN(v)) onChange(v);
+      }}
+      className={`${AXIS_INPUT} ${accent ? 'border-[#FDBA74] text-[#C2410C] focus:border-[#EA580C]' : ''}`}
+    />
+  );
+};
+
+const AxisCheck: React.FC<{ checked: boolean; onChange: (c: boolean) => void; children: React.ReactNode }> = ({
+  checked,
+  onChange,
+  children,
+}) => (
+  <label className="!flex-none flex items-center gap-1 text-[10.5px] text-[#334155] cursor-pointer whitespace-nowrap">
+    <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="rounded accent-[#2563EB]" />
+    {children}
+  </label>
+);
+
 const TrendChartCard: React.FC<TrendChartCardProps> = ({
   metric,
   files,
@@ -1803,24 +1861,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           ctx.restore();
         }
 
-        // Top mini step tag inside canvas plot area
-        const visS = Math.max(minX, step.alignedStart);
-        const visE = Math.min(maxX, step.alignedEnd);
-        if (visE > minX && visS < maxX) {
-          const px0 = mapX(visS);
-          const px1 = mapX(visE);
-          const stepW = px1 - px0;
-          if (stepW > 28) {
-            ctx.save();
-            ctx.font = FONT_TAG;
-            ctx.fillStyle = '#334155';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            const tagLabel = stepW > 64 ? `S${step.step} ${step.stepName}` : `S${step.step}`;
-            ctx.fillText(tagLabel, Math.round(px0 + 5), padTop + 4);
-            ctx.restore();
-          }
-        }
+        // (그래프 안 S1·S2 등 Step 글자는 표시하지 않음: 위쪽 Step 띠와 점선 구분선으로 충분)
       });
     }
 
@@ -2307,493 +2348,173 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           onHighlight={setHighlightFileId}
         />
 
-        {/* 4. Excel-Style [축 서식] Clean Overlay Modal */}
+        {/* 4. [축 서식] 컴팩트 팝오버 (그래프 오른쪽 위, 그래프를 가리지 않는 작은 창) */}
         {isFormatOpen && (
-          <div className="absolute inset-2 z-30 bg-white/98 backdrop-blur-md p-3.5 flex flex-col justify-between overflow-y-auto rounded-xl shadow-lg border border-[#2563EB]/40 animate-in fade-in zoom-in-95 duration-100">
-            {/* Header */}
-            <div>
-              <div className="flex items-center justify-between pb-2 border-b border-[#E2E8F0]">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-5 h-5 rounded bg-[#2563EB]/10 flex items-center justify-center text-[#2563EB]">
-                    <SlidersHorizontal className="w-3 h-3" />
-                  </div>
-                  <h4 className="text-xs font-bold text-[#0F172A]">축 서식</h4>
-                  <span className="text-[10px] text-[#64748B]">({metric.name})</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsFormatOpen(false)}
-                  className="p-1 rounded text-[#94A3B8] hover:text-[#0F172A] hover:bg-slate-100 text-xs font-bold cursor-pointer"
-                  title="닫기"
-                >
-                  ✕
-                </button>
+          <div
+            className="absolute right-2 top-2 z-30 w-[300px] max-w-[calc(100%-16px)] bg-white rounded-lg shadow-lg border border-slate-400 text-[11px] text-[#0F172A] animate-in fade-in zoom-in-95 duration-100"
+            onMouseDown={e => e.stopPropagation()}
+          >
+            {/* 머리: 탭 + 닫기 */}
+            <div className="flex items-center gap-1 px-1.5 py-1 bg-[#E2E8F0] border-b border-slate-300 rounded-t-lg">
+              <SlidersHorizontal className="w-3 h-3 text-[#2563EB] shrink-0" />
+              <div className="flex-1 flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-md">
+                <SegBtn active={formatTab === 'x'} onClick={() => setFormatTab('x')}>
+                  가로축 (시간)
+                </SegBtn>
+                <SegBtn active={formatTab === 'y'} onClick={() => setFormatTab('y')}>
+                  세로축 (값)
+                </SegBtn>
               </div>
-
-              {/* Excel Style Tabs: 가로 축 (X) vs 세로 축 (Y) */}
-              <div className="grid grid-cols-2 gap-1 bg-[#F1F5F9] p-0.5 rounded-lg text-[11px] font-semibold my-2">
-                <button
-                  type="button"
-                  onClick={() => setFormatTab('x')}
-                  className={`py-1 rounded text-center transition-all cursor-pointer ${
-                    formatTab === 'x'
-                      ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
-                      : 'text-[#64748B] hover:text-[#0F172A]'
-                  }`}
-                >
-                  가로(시간) 축 옵션 [X]
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormatTab('y')}
-                  className={`py-1 rounded text-center transition-all cursor-pointer ${
-                    formatTab === 'y'
-                      ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
-                      : 'text-[#64748B] hover:text-[#0F172A]'
-                  }`}
-                >
-                  세로(값) 축 옵션 [Y]
-                </button>
-              </div>
-
-              {/* Form Content: X-Axis Options (Excel 1:1) */}
-              {formatTab === 'x' && (
-                <div className="space-y-3 text-[11px] py-1">
-                  {/* 1. 경계 (Bounds) */}
-                  <div className="space-y-1.5">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">경계 (Time sec)</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최소값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            value={axisConfig.xMin !== null ? axisConfig.xMin : autoMinX}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xMin: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xMin: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 계산 최소값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최대값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            value={axisConfig.xMax !== null ? axisConfig.xMax : autoMaxX}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xMax: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xMax: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 계산 최대값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 2. 단위 (Units) - 주 단위 & 보조 단위 */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">단위 (Time Unit)</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">주 눈금 간격 (초)</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            min="1"
-                            value={axisConfig.xStep !== null ? axisConfig.xStep : 10.0}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xStep: isNaN(v) || v <= 0 ? 10.0 : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xStep: 10.0 }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="기본 10.0초 간격으로 복원"
-                          >
-                            10초
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">보조 눈금 간격 (초)</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            min="0.5"
-                            placeholder="자동 (5초)"
-                            value={axisConfig.xMinorStep !== null ? axisConfig.xMinorStep : ''}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xMinorStep: isNaN(v) || v <= 0 ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xMinorStep: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 보조 간격으로 복원"
-                          >
-                            자동
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. 눈금선 및 틱 (Lines & Ticks) */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">눈금선 및 축 틱 (Lines & Ticks)</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showVGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showVGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>주 세로 눈금선(Grid)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showVMinorGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showVMinorGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>보조 세로 눈금선(점선)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showTickMarks}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showTickMarks: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>축 경계 눈금 틱(Ticks)</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* 4. 일괄 적용 버튼 */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyGlobalXFormat({
-                          xMin: axisConfig.xMin,
-                          xMax: axisConfig.xMax,
-                          xStep: axisConfig.xStep,
-                          xMinorStep: axisConfig.xMinorStep,
-                          showVGrid: axisConfig.showVGrid,
-                          showVMinorGrid: axisConfig.showVMinorGrid,
-                          showTickMarks: axisConfig.showTickMarks,
-                        });
-                        setJustAppliedToAll(true);
-                        setTimeout(() => setJustAppliedToAll(false), 2000);
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E40AF] border border-[#BFDBFE] rounded text-[10px] font-bold transition-all cursor-pointer shadow-2xs"
-                      title="현재 설정된 시간축 범위 및 간격을 모든 그래프에 일괄 적용합니다"
-                    >
-                      {justAppliedToAll ? (
-                        <>
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span className="text-emerald-700">전체 적용 완료!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Globe className="w-3 h-3 text-[#2563EB]" />
-                          <span>전체 그래프 시간축 일괄 적용</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Form Content: Y-Axis Options (Excel 1:1) */}
-              {formatTab === 'y' && (
-                <div className="space-y-3 text-[11px] py-1">
-                  {/* 1. 경계 (Bounds) */}
-                  <div className="space-y-1.5">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">
-                      경계 ({metric.unit})
-                    </span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최소값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            value={axisConfig.yMin !== null ? axisConfig.yMin : autoMinY}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yMin: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yMin: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="데이터 자동 최소값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최대값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            value={axisConfig.yMax !== null ? axisConfig.yMax : autoMaxY}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yMax: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yMax: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="데이터 자동 최대값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 2. 단위 (Units) - 주 단위 & 보조 단위 */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">단위 ({metric.unit})</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">주 눈금 간격</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="자동"
-                            value={axisConfig.yStep !== null ? axisConfig.yStep : ''}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yStep: isNaN(v) || v <= 0 ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yStep: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 간격으로 복원"
-                          >
-                            자동
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">보조 눈금 간격</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="자동"
-                            value={axisConfig.yMinorStep !== null ? axisConfig.yMinorStep : ''}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yMinorStep: isNaN(v) || v <= 0 ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yMinorStep: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 보조 간격으로 복원"
-                          >
-                            자동
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. 스케일 및 표시 형식 (Scale & Format) */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">스케일 및 표시 형식 (Scale & Format)</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">로그 눈금 (Log₁₀)</span>
-                        <label className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#CBD5E1] rounded cursor-pointer text-[10px]">
-                          <input
-                            type="checkbox"
-                            checked={axisConfig.isLogScale}
-                            onChange={e => setAxisConfig(prev => ({ ...prev, isLogScale: e.target.checked }))}
-                            className="rounded accent-[#2563EB]"
-                          />
-                          <span className="font-medium text-[#0F172A]">로그 스케일</span>
-                        </label>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">소수점 자릿수</span>
-                        <select
-                          value={axisConfig.decimalPlaces}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setAxisConfig(prev => ({
-                              ...prev,
-                              decimalPlaces: val === 'auto' ? 'auto' : (parseInt(val, 10) as 0 | 1 | 2),
-                            }));
-                          }}
-                          className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-1 text-[10.5px] font-medium text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
-                        >
-                          <option value="auto">자동 판별</option>
-                          <option value="0">정수 (0자리)</option>
-                          <option value="1">소수점 1자리</option>
-                          <option value="2">소수점 2자리</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">표시 단위 축약</span>
-                        <select
-                          value={axisConfig.displayUnit}
-                          onChange={e => {
-                            setAxisConfig(prev => ({
-                              ...prev,
-                              displayUnit: e.target.value as 'auto' | 'k',
-                            }));
-                          }}
-                          className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-1 text-[10.5px] font-medium text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
-                        >
-                          <option value="auto">원래 값</option>
-                          <option value="k">천 단위 (k)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4. 기준선 및 눈금선 (Lines & Target) */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">기준선 및 눈금선 (Lines & Target)</span>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showHGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showHGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>주 가로 눈금선(Grid)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showHMinorGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showHMinorGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>보조 가로 눈금선(점선)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showZeroBaseline}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showZeroBaseline: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>0.0 기준선 강조</span>
-                      </label>
-                    </div>
-
-                    {/* 공정 목표/스펙 기준선 (Target Line) */}
-                    <div className="pt-1">
-                      <span className="text-[10px] text-[#64748B] block mb-0.5">공정 목표/스펙 기준선 (Target Line)</span>
-                      <div className="flex items-center gap-1 max-w-[280px]">
-                        <input
-                          type="number"
-                          step="any"
-                          placeholder="예: 4700"
-                          value={axisConfig.targetLine !== null ? axisConfig.targetLine : ''}
-                          onChange={e => {
-                            const v = parseFloat(e.target.value);
-                            setAxisConfig(prev => ({ ...prev, targetLine: isNaN(v) ? null : v }));
-                          }}
-                          className="w-full bg-white border border-[#FDBA74] rounded px-1.5 py-0.5 text-xs font-mono font-bold text-[#C2410C] focus:outline-none focus:border-[#EA580C]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setAxisConfig(prev => ({ ...prev, targetLine: null }))}
-                          className="px-2 py-0.5 text-[9.5px] border border-orange-200 bg-orange-50 hover:bg-orange-100 rounded text-orange-700 shrink-0 font-medium cursor-pointer"
-                          title="기준선 제거"
-                        >
-                          지우기
-                        </button>
-                      </div>
-                      <span className="text-[9px] text-[#94A3B8] block mt-0.5">
-                        수치를 입력하면 차트에 주황색 목표 점선 및 배지가 오버레이됩니다.
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom Footer Actions */}
-            <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between">
-              <button
-                type="button"
-                onClick={handleResetCard}
-                className="text-[10.5px] text-[#64748B] hover:text-[#DC2626] font-medium cursor-pointer"
-              >
-                기본값 복원
-              </button>
-
               <button
                 type="button"
                 onClick={() => setIsFormatOpen(false)}
-                className="px-3 py-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                aria-label="축 서식 닫기"
+                className="p-0.5 rounded text-[#64748B] hover:text-[#0F172A] hover:bg-slate-300/60 cursor-pointer"
               >
-                닫기
+                <X className="w-3.5 h-3.5" />
               </button>
+            </div>
+
+            <div className="p-2 space-y-1.5">
+              {formatTab === 'x' ? (
+                <>
+                  <AxisRow label="경계 (s)">
+                    <AxisNum value={axisConfig.xMin} placeholder="최소 자동" onChange={v => setAxisConfig(p => ({ ...p, xMin: v }))} />
+                    <AxisNum value={axisConfig.xMax} placeholder="최대 자동" onChange={v => setAxisConfig(p => ({ ...p, xMax: v }))} />
+                  </AxisRow>
+                  <AxisRow label="눈금 간격 (s)">
+                    <AxisNum
+                      value={axisConfig.xStep}
+                      placeholder="주 10"
+                      onChange={v => setAxisConfig(p => ({ ...p, xStep: v !== null && v > 0 ? v : 10.0 }))}
+                    />
+                    <AxisNum
+                      value={axisConfig.xMinorStep}
+                      placeholder="보조 자동"
+                      onChange={v => setAxisConfig(p => ({ ...p, xMinorStep: v !== null && v > 0 ? v : null }))}
+                    />
+                  </AxisRow>
+                  <AxisRow label="눈금선">
+                    <AxisCheck checked={axisConfig.showVGrid} onChange={c => setAxisConfig(p => ({ ...p, showVGrid: c }))}>
+                      주
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showVMinorGrid} onChange={c => setAxisConfig(p => ({ ...p, showVMinorGrid: c }))}>
+                      보조
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showTickMarks} onChange={c => setAxisConfig(p => ({ ...p, showTickMarks: c }))}>
+                      눈금 틱
+                    </AxisCheck>
+                  </AxisRow>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyGlobalXFormat({
+                        xMin: axisConfig.xMin,
+                        xMax: axisConfig.xMax,
+                        xStep: axisConfig.xStep,
+                        xMinorStep: axisConfig.xMinorStep,
+                        showVGrid: axisConfig.showVGrid,
+                        showVMinorGrid: axisConfig.showVMinorGrid,
+                        showTickMarks: axisConfig.showTickMarks,
+                      });
+                      setJustAppliedToAll(true);
+                      setTimeout(() => setJustAppliedToAll(false), 2000);
+                    }}
+                    className="w-full flex items-center justify-center gap-1 py-1 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E40AF] border border-[#BFDBFE] rounded text-[10.5px] font-bold cursor-pointer"
+                    title="이 가로축 설정을 모든 그래프에 똑같이 적용합니다"
+                  >
+                    {justAppliedToAll ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="text-emerald-700">모든 그래프에 적용됨</span>
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="w-3 h-3" />
+                        <span>모든 그래프에 가로축 적용</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <AxisRow label={`경계${metric.unit ? ` (${metric.unit})` : ''}`}>
+                    <AxisNum value={axisConfig.yMin} placeholder="최소 자동" onChange={v => setAxisConfig(p => ({ ...p, yMin: v }))} />
+                    <AxisNum value={axisConfig.yMax} placeholder="최대 자동" onChange={v => setAxisConfig(p => ({ ...p, yMax: v }))} />
+                  </AxisRow>
+                  <AxisRow label="눈금 간격">
+                    <AxisNum
+                      value={axisConfig.yStep}
+                      placeholder="주 자동"
+                      onChange={v => setAxisConfig(p => ({ ...p, yStep: v !== null && v > 0 ? v : null }))}
+                    />
+                    <AxisNum
+                      value={axisConfig.yMinorStep}
+                      placeholder="보조 자동"
+                      onChange={v => setAxisConfig(p => ({ ...p, yMinorStep: v !== null && v > 0 ? v : null }))}
+                    />
+                  </AxisRow>
+                  <AxisRow label="표시 형식">
+                    <select
+                      aria-label="소수 자릿수"
+                      value={axisConfig.decimalPlaces}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setAxisConfig(p => ({ ...p, decimalPlaces: val === 'auto' ? 'auto' : (parseInt(val, 10) as 0 | 1 | 2) }));
+                      }}
+                      className={AXIS_INPUT}
+                    >
+                      <option value="auto">소수 자동</option>
+                      <option value="0">정수</option>
+                      <option value="1">소수 1자리</option>
+                      <option value="2">소수 2자리</option>
+                    </select>
+                    <select
+                      aria-label="표시 단위"
+                      value={axisConfig.displayUnit}
+                      onChange={e => setAxisConfig(p => ({ ...p, displayUnit: e.target.value as 'auto' | 'k' }))}
+                      className={AXIS_INPUT}
+                    >
+                      <option value="auto">원래 값</option>
+                      <option value="k">천 단위 (k)</option>
+                    </select>
+                  </AxisRow>
+                  <AxisRow label="눈금 · 선">
+                    <AxisCheck checked={axisConfig.showHGrid} onChange={c => setAxisConfig(p => ({ ...p, showHGrid: c }))}>
+                      주
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showHMinorGrid} onChange={c => setAxisConfig(p => ({ ...p, showHMinorGrid: c }))}>
+                      보조
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showZeroBaseline} onChange={c => setAxisConfig(p => ({ ...p, showZeroBaseline: c }))}>
+                      0 기준선
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.isLogScale} onChange={c => setAxisConfig(p => ({ ...p, isLogScale: c }))}>
+                      로그
+                    </AxisCheck>
+                  </AxisRow>
+                  <AxisRow label="목표선">
+                    <AxisNum
+                      value={axisConfig.targetLine}
+                      placeholder="예: 4700 (없음)"
+                      onChange={v => setAxisConfig(p => ({ ...p, targetLine: v }))}
+                      accent
+                    />
+                  </AxisRow>
+                </>
+              )}
+            </div>
+
+            {/* 아래: 기본값 복원 */}
+            <div className="flex items-center justify-between px-2 py-1 border-t border-slate-200 bg-[#F8FAFC] rounded-b-lg">
+              <button
+                type="button"
+                onClick={handleResetCard}
+                className="text-[10px] text-[#64748B] hover:text-[#DC2626] font-semibold cursor-pointer"
+              >
+                기본값 복원
+              </button>
+              <span className="text-[9.5px] text-[#94A3B8]">빈칸 = 자동</span>
             </div>
           </div>
         )}
