@@ -886,7 +886,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   const hasValues = !!values && values.length > 0;
 
   return (
-    <div className="w-[140px] shrink-0 h-[272px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
+    <div className="w-[160px] shrink-0 h-[272px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
       {/* 머리글: 시점 / 보기 방식 + 정렬 */}
       <div className="px-1 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
         <span
@@ -940,8 +940,11 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                         <span className="font-semibold text-[#475569] truncate">{shortRecipeName(v.rcpName)}</span>
                       </span>
                     </td>
-                    <td className="w-[44px] pr-1 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
+                    <td className="w-[68px] pr-1 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
                       {v.formatted}
+                      {unit && Number.isFinite(v.numVal) && (
+                        <span className="ml-0.5 text-[9px] font-semibold text-[#64748B]">{unit}</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -958,6 +961,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                   <div className="flex items-baseline justify-between gap-1">
                     <span className="text-[12px] font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
                       {lo === hiV ? hiV : `${lo} ~ ${hiV}`}
+                      {unit && <span className="ml-0.5 text-[10px] font-semibold text-[#64748B]">{unit}</span>}
                     </span>
                     <span className="text-[10px] font-semibold text-[#475569] whitespace-nowrap">{g.items.length}개</span>
                   </div>
@@ -1084,6 +1088,24 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   // 값 표의 행에 마우스를 올리면 그 Recipe 선을 그래프에서 강조
   const [highlightFileId, setHighlightFileId] = useState<string | null>(null);
+  // Step 띠를 그래프 실제 영역(padLeft ~ padRight)에 정확히 맞추기 위한 측정값
+  const bandRowRef = useRef<HTMLDivElement>(null);
+  const plotWrapRef = useRef<HTMLDivElement>(null);
+  const [trackPos, setTrackPos] = useState<{ left: number; right: number } | null>(null);
+  const [sizeTick, setSizeTick] = useState(0);
+  useEffect(() => {
+    const el = plotWrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let last = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== last) {
+        last = el.clientWidth;
+        setSizeTick(t => t + 1); // 폭이 바뀌면 그래프를 다시 그림
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // 마지막으로 마우스가 있던 시점 (값 표 유지용)
   const [lastHoverTime, setLastHoverTime] = useState<number | null>(null);
 
@@ -1960,7 +1982,20 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.strokeStyle = isDragging ? '#2563EB' : '#94A3B8';
     ctx.lineWidth = isDragging ? 1.5 : 1.2;
     ctx.strokeRect(padLeft, padTop, plotW, plotH);
+
+    // 위쪽 Step 띠가 그래프 영역과 같은 위치·폭을 갖도록 실제 위치를 측정
+    const row = bandRowRef.current;
+    if (row) {
+      const rr = row.getBoundingClientRect();
+      const cr = canvas.getBoundingClientRect();
+      const next = {
+        left: Math.round(cr.left - rr.left + padLeft),
+        right: Math.round(rr.right - cr.right + padRight),
+      };
+      setTrackPos(p => (p && p.left === next.left && p.right === next.right ? p : next));
+    }
   }, [
+    sizeTick,
     files,
     results,
     metric,
@@ -2151,10 +2186,11 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       {/* 2-1. Step Sequence Timeline Band Bar (Top Step Indicator) */}
       {showStepTimeline && alignedSteps.length > 0 && (
-        <div className="bg-[#EAEFF5] border-b border-slate-300 px-2 py-1 flex items-center select-none">
-          {/* Left label width exactly matching canvas padLeft (52px) */}
+        <div ref={bandRowRef} className="bg-[#EAEFF5] border-b border-slate-300 px-2 py-1 flex items-center select-none relative h-[31px]">
+          {/* 왼쪽 라벨: 그래프 Y축 숫자 영역 폭에 맞춤 */}
           <div
-            className="w-[52px] shrink-0 flex items-center gap-1 text-[9px] font-bold text-[#334155] pr-1"
+            className="shrink-0 flex items-center gap-1 text-[9px] font-bold text-[#334155] pr-1"
+            style={{ width: trackPos ? Math.max(40, trackPos.left - 8 - 4) : 52 }}
             title={
               refFile
                 ? `Step 기준: #${files.findIndex(f => f.id === refFile.id) + 1} ${
@@ -2171,13 +2207,23 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
             </span>
           </div>
 
-          {/* Step track matching plot canvas width (padLeft: 52px, padRight: 18px) */}
-          <div className="flex-1 relative h-[21px] rounded overflow-hidden bg-slate-300/60 border border-slate-400 mr-[10px]">
-            {alignedSteps.map(step => {
+          {/* Step 띠: 측정한 그래프 영역(left/right)에 맞춰 배치 → 그래프 안의 Step 구분선과 정확히 일치 */}
+          <div
+            className={`h-[21px] rounded overflow-hidden bg-slate-300/60 ${
+              trackPos
+                ? 'absolute top-1/2 -translate-y-1/2 ring-1 ring-slate-400' /* ring은 폭을 줄이지 않아 Step 위치가 그래프와 1px도 어긋나지 않음 */
+                : 'flex-1 relative mr-[10px] border border-slate-400'
+            }`}
+            style={trackPos ? { left: trackPos.left, right: trackPos.right, boxSizing: 'border-box' } : undefined}
+          >
+            {alignedSteps.map((step, si) => {
               const [minX, maxX] = effectiveXRange;
               const spanX = Math.max(0.1, maxX - minX);
               const visStart = Math.max(minX, step.alignedStart);
-              const visEnd = Math.min(maxX, step.alignedEnd);
+              // 다음 Step 시작 시점까지 이어서 그림 → 샘플 간격 틈 없이 그래프 구분선과 같은 위치에서 바뀜
+              const nextStart = alignedSteps[si + 1]?.alignedStart;
+              const blockEnd = nextStart !== undefined && nextStart > step.alignedStart ? nextStart : step.alignedEnd;
+              const visEnd = Math.min(maxX, blockEnd);
               if (visEnd <= minX || visStart >= maxX) return null;
 
               const leftPct = ((visStart - minX) / spanX) * 100;
@@ -2198,7 +2244,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
                     ]);
                   }}
                   title={`Step ${step.step}: ${step.stepName} · ${step.durationSec}s (${step.alignedStart.toFixed(1)}s ~ ${step.alignedEnd.toFixed(1)}s) [클릭 시 Step 구간으로 줌]`}
-                  className={`absolute top-0 bottom-0 flex items-center justify-center border-r transition-all cursor-pointer hover:brightness-95 active:scale-[0.99] ${palette.badgeClass}`}
+                  className={`absolute top-0 bottom-0 flex items-center justify-center ${
+                    si > 0 && step.alignedStart > minX ? 'border-l' : ''
+                  } transition-all cursor-pointer hover:brightness-95 active:scale-[0.99] ${palette.badgeClass}`}
                   style={{
                     left: `${leftPct}%`,
                     width: `${widthPct}%`,
@@ -2220,7 +2268,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       {/* 3. Canvas Area + 오른쪽 커서 값 표 */}
       <div className="p-2 bg-[#EEF2F6] flex-1 flex items-stretch gap-1.5 relative min-h-[272px]">
-        <div className="flex-1 min-w-0 flex items-center justify-center">
+        <div ref={plotWrapRef} className="flex-1 min-w-0 flex items-center justify-center">
         <canvas
           ref={canvasRef}
           onMouseDown={handleMouseDown}
