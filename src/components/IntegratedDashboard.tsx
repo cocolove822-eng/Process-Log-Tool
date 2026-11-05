@@ -1171,7 +1171,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="overflow-x-auto max-h-[360px] scrollbar-thin">
-              <table className={`w-full min-w-[1340px] text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+              <table className={`pd-grid w-full min-w-[1340px] text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={TABLE_COL_NO_STYLE} />
                   <col style={TABLE_COL_RCP_STYLE} />
@@ -1455,7 +1455,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="w-full overflow-x-auto scrollbar-thin max-h-[460px]">
-            <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+            <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={TABLE_COL_NO_STYLE} />
                 <col style={TABLE_COL_RCP_STYLE} />
@@ -1671,7 +1671,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           {/* 전체 채널 상세 뷰 (24열) - [Monitoring Data] 공정 중 실제 값과 디자인 100% 동일 */}
           {/* ============================================================== */}
           <div className="w-full overflow-x-auto scrollbar-thin max-h-[460px]">
-              <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+              <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={TABLE_COL_NO_STYLE} />
                   <col style={TABLE_COL_RCP_STYLE} />
@@ -1982,7 +1982,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="overflow-x-auto max-h-[460px] scrollbar-thin flex-1">
-            <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+            <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={TABLE_COL_NO_STYLE} />
                 <col style={TABLE_COL_RCP_STYLE} />
@@ -2465,7 +2465,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="w-full overflow-x-auto scrollbar-thin max-h-[460px]">
-            <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+            <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={TABLE_COL_NO_STYLE} />
                 <col style={TABLE_COL_RCP_STYLE} />

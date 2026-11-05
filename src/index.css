@@ -12,3 +12,48 @@ body, button, input, select, textarea, code, pre, kbd, samp {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ============================================================================
+   공정 종합 분석 탭 표 5종 공통 행 높이 (pd-grid)
+   - 데이터 행 24px / 한 줄 머리글 22px / 단위 행 17px
+   - 두 줄 머리글은 같은 여백 규칙으로 모든 표에서 같은 높이가 됨
+   ============================================================================ */
+.pd-grid > tbody > tr {
+  height: 24px;
+}
+.pd-grid > tbody > tr > td {
+  height: 24px;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 1.2;
+}
+/* 셀 안 배지·칩도 24px 행 안에 들어가도록 */
+.pd-grid > tbody > tr > td span[class*='rounded'] {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 16px;
+}
+.pd-grid > thead > tr > th {
+  height: 22px;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+/* 줄 간격을 px로 고정 → 글자 크기가 달라도 두 줄 머리글 높이가 모든 표에서 같음 */
+.pd-grid > thead > tr > th,
+.pd-grid > thead > tr > th * {
+  line-height: 13px !important;
+}
+.pd-grid > thead > tr > th * {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+/* 마지막 머리글 행 = 단위 행 (W, sec, sccm …) */
+.pd-grid > thead > tr:last-child > th {
+  height: 17px;
+  padding-top: 1px !important;
+  padding-bottom: 1px !important;
+}
+/* 머리글 제목 줄 안의 작은 글씨 "(sec)" 등이 줄 높이를 키우지 않도록 */
+.pd-grid > thead > tr > th > div > span {
+  vertical-align: top;
+}
