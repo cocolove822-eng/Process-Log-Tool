@@ -754,6 +754,19 @@ interface CursorValue {
   numVal: number;
 }
 
+/**
+ * Recipe 짧은 이름: 경로를 떼고 마지막 '_' 뒤 부분 (예: ILD\\IRUJA_IT_BUF_BBN9 → BBN9)
+ * 끝이 숫자뿐이면 한 단계 앞까지 붙인다 (예: ..._BBN_2 → BBN_2)
+ */
+export function shortRecipeName(name: string): string {
+  const base = (name || '').split(/[\\/]/).pop() || name || '';
+  const tokens = base.split('_').filter(Boolean);
+  if (tokens.length <= 1) return base;
+  let last = tokens.pop() as string;
+  if (/^\d+$/.test(last) && tokens.length) last = `${tokens.pop()}_${last}`;
+  return last;
+}
+
 /** 커서 위치 값 서식 (상단 상태바와 같은 규칙) */
 const formatCursorValue = (v: number): string =>
   Math.abs(v) >= 1000
@@ -873,7 +886,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   const hasValues = !!values && values.length > 0;
 
   return (
-    <div className="w-[128px] shrink-0 h-[272px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
+    <div className="w-[140px] shrink-0 h-[272px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
       {/* 머리글: 시점 / 보기 방식 + 정렬 */}
       <div className="px-1 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
         <span
@@ -920,13 +933,14 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                     className={`cursor-default ${hi ? 'bg-[#DBEAFE]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'}`}
                     title={`#${v.fileNo} ${v.rcpName}`}
                   >
-                    <td className="w-[44px] pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1">
+                    <td className="pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap overflow-hidden">
+                      <span className="flex items-center gap-1 min-w-0">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
-                        <span className="font-bold text-[#334155] tabular-nums">#{v.fileNo}</span>
+                        <span className="font-bold text-[#334155] tabular-nums shrink-0">#{v.fileNo}</span>
+                        <span className="font-semibold text-[#475569] truncate">{shortRecipeName(v.rcpName)}</span>
                       </span>
                     </td>
-                    <td className="pr-1.5 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
+                    <td className="w-[44px] pr-1 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
                       {v.formatted}
                     </td>
                   </tr>
@@ -958,6 +972,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                         }`}
                       >
                         <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: v.color }} />#{v.fileNo}
+                        <span className="font-semibold text-[#475569]">{shortRecipeName(v.rcpName)}</span>
                       </span>
                     ))}
                   </div>
