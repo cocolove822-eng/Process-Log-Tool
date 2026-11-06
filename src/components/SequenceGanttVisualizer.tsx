@@ -42,7 +42,6 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
       setSelectedRunIdx(externalSelectedRunIdx);
     }
   }, [externalSelectedRunIdx, results.length]);
-  const [viewMode, setViewMode] = useState<'single' | 'compare'>('single');
   const [isCollapsed, setIsCollapsed] = useState<boolean>(true);
 
   // Control 시점 인터랙티브 하이라이트 (다중 선택/토글 누적 지원)
@@ -1038,33 +1037,6 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
             </button>
           </div>
 
-          <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-300 text-[11px] shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setViewMode('single')}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                viewMode === 'single'
-                  ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'text-[#475569] hover:text-[#0F172A] hover:bg-slate-100'
-              }`}
-            >
-              <Sliders className="w-3 h-3" />
-              <span>단일 런 정밀 분석</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('compare')}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                viewMode === 'compare'
-                  ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'text-[#475569] hover:text-[#0F172A] hover:bg-slate-100'
-              }`}
-            >
-              <GitCompare className="w-3 h-3" />
-              <span>레시피 타이밍 비교 (Diff)</span>
-            </button>
-          </div>
-
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -1078,7 +1050,7 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
 
       {!isCollapsed && (
         <div className="p-3 bg-[#F1F5F9]">
-          {viewMode === 'single' ? (
+          {(
             <div className="flex flex-col lg:flex-row gap-4 items-start">
               {/* 좌측 세로: 분석 레시피 목록 (Samsung/SK hynix 실무 그리드 스타일) */}
               <aside className="w-full lg:w-56 shrink-0 bg-[#EAEFF5] border border-slate-400 rounded-xl p-2.5 flex flex-col gap-2 shadow-2xs">
@@ -1805,90 +1777,6 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                     </div>
                   </div>
                   </div>
-                </div>
-              </div>
-            </div>
-        ) : (
-            /* 4. Multi-Recipe Diff Comparison View - Subtle 3% Tint Matrix */
-            <div className="space-y-3">
-              <div className="bg-[#F8FAFC] border border-slate-300 rounded-xl p-3.5 space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <GitCompare className="w-4 h-4 text-[#475569]" />
-                    <span className="font-bold text-[#0F172A]">전체 레시피 End-to-End 시퀀스 타이밍 동기화 비교 (Full Recipe Diff)</span>
-                  </div>
-                  <span className="text-[10px] text-[#64748B] font-medium">STAB1 ➔ Main RF ➔ SiH4 차단 ➔ Power Lift (PL) 전 구간 비교</span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {results.map((r, idx) => {
-                    const runS = r.hwStart;
-                    const runEndStep = r.hwEndStep;
-                    const runP = r.processData;
-
-                    const runStableDur = runEndStep.totalStepTimeStable ?? 15.0;
-                    const runDepoDur = runEndStep.totalStepTimeDepo ?? 65.7;
-                    const runPlDur = runEndStep.totalStepTimePL ?? 5.0;
-                    const runTotalCum = Math.max(1, runStableDur + runDepoDur + 5.0 + runPlDur + 5.0);
-
-                    const runRfOnCum = Math.round((runStableDur + (runS.depo_rfForwardAct ?? 3.1)) * 10) / 10;
-                    const runRfOffCum = Math.round((runStableDur + (runEndStep.depo_rfOffTime ?? 65.1)) * 10) / 10;
-                    const runPlRfOnCum = Math.round((runStableDur + runDepoDur + 5.0 + (runS.pl_rfForwardAct ?? 0.8)) * 10) / 10;
-
-                    const rToPct = (t: number) => Math.min(100, Math.max(0, (t / runTotalCum) * 100));
-                    const rPctW = (st: number, en: number) => Math.max(0, rToPct(en) - rToPct(st));
-
-                    return (
-                      <div
-                        key={`${r.fileId || 'item'}_${idx}`}
-                        className="p-2.5 rounded-xl bg-white border border-slate-300 hover:border-slate-400 hover:shadow-2xs transition-all space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-[#EFF6FF] text-[#1E40AF] font-mono font-bold text-[10px] border border-[#BFDBFE]">
-                              #{idx + 1}
-                            </span>
-                            <span className="font-bold text-[#0F172A]">{runP.rcpName}</span>
-                            <span className="text-[10px] text-[#64748B] font-mono">(Lift: {Math.round(runP.liftSpacingSet ?? 450)} mils)</span>
-                          </div>
-
-                          <div className="flex items-center gap-3 font-mono text-[11px] flex-wrap">
-                            <span className="text-[#065F46] font-semibold">SiH4: {runS.depoStable_pyroSiH4 ?? 0.5}s</span>
-                            <span className="text-[#94A3B8]">➔</span>
-                            <span className="text-[#1E3A8A] font-semibold">Main RF: {runRfOnCum}s</span>
-                            <span className="text-[#94A3B8]">➔</span>
-                            <span className="text-[#9F1239] font-semibold">Depo Off: {runRfOffCum}s</span>
-                            <span className="text-[#94A3B8]">➔</span>
-                            <span className="text-[#1E3A8A] font-bold">PL RF: {runPlRfOnCum}s</span>
-                          </div>
-                        </div>
-
-                        {/* Visual Progress Bar for this recipe - Solid Engineering Matrix */}
-                        <div className="h-5 w-full bg-[#CBD5E1]/40 rounded-lg overflow-hidden flex text-[9px] font-extrabold border border-slate-300 shadow-2xs">
-                          {/* STAB1 Zone */}
-                          <div style={{ width: `${rPctW(0, runStableDur)}%` }} className="bg-[#CBD5E1] border-r border-slate-300 flex items-center justify-between text-slate-800 px-1 truncate">
-                            <span>STAB1</span>
-                          </div>
-                          {/* SIO RF Active (Solid Royal Blue) */}
-                          <div style={{ width: `${rPctW(runStableDur, runRfOffCum)}%` }} className="bg-[#2563EB] text-white border-r-2 border-[#1D4ED8] flex items-center justify-between px-2 truncate shadow-2xs">
-                            <span>Main SIO RF ({runP.rfForwardSetValue}W)</span>
-                          </div>
-                          {/* PL Stable (Solid Amber) */}
-                          <div style={{ width: `${rPctW(runRfOffCum, runPlRfOnCum)}%` }} className="bg-[#D97706] text-white flex items-center justify-center border-r border-[#B45309] px-1 truncate shadow-2xs">
-                            PL Stb
-                          </div>
-                          {/* PL Step (Solid Teal) */}
-                          <div style={{ width: `${rPctW(runPlRfOnCum, runPlRfOnCum + 4.0)}%` }} className="bg-[#0D9488] text-white border-r-2 border-[#0F766E] flex items-center justify-center px-1 truncate shadow-2xs">
-                            Power Lift
-                          </div>
-                          {/* Post Off */}
-                          <div style={{ width: `${rPctW(runPlRfOnCum + 4.0, runTotalCum)}%` }} className="bg-[#CBD5E1] text-slate-700 flex items-center justify-center px-1 truncate">
-                            Idle
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               </div>
             </div>
