@@ -39,8 +39,8 @@ const CANDIDATE_GASES: GasDef[] = [
 
 const ROW_HEIGHT = 30; // Pixel-precise row height
 // 열 너비: Step & Time 5열은 각자 너비, 나머지 묶음(Gas·Lift·T/V·Matcher·RF·Susceptor)의 모든 열은 같은 너비
-const STEP_TIME_COL_WIDTHS = [100, 150, 84, 70, 44]; // Step Name, Time, Step All Time, Step Time, Step
-const UNIFORM_COL_WIDTH = 76;
+const STEP_TIME_COL_WIDTHS = [84, 140, 64, 58, 36]; // Step Name, Time, Step All Time, Step Time, Step
+const UNIFORM_COL_WIDTH = 64;
 const OVERSCAN = 25;   // Pre-rendered buffer rows above & below viewport for 60fps scrolling
 
 // ============================================================================
@@ -91,6 +91,25 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
   // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  // 왼쪽 '로그 & Step 매니저' 카드를 오른쪽 [Raw Data] 카드와 같은 높이로 맞춤 (넓은 화면에서만)
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  const [sidebarHeight, setSidebarHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const el = rightPanelRef.current;
+    if (!el) return;
+    const update = () => {
+      const wide = window.matchMedia('(min-width: 1024px)').matches;
+      setSidebarHeight(wide ? Math.round(el.getBoundingClientRect().height) : null);
+    };
+    update();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Virtual Scrolling State
@@ -413,7 +432,10 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
           isSidebarCollapsed ? 'w-9' : 'w-full lg:w-[160px]'
         } lg:sticky lg:top-2`}
       >
-        <div className="bg-[#F8FAFC] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]">
+        <div
+          className="bg-[#F8FAFC] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]"
+          style={!isSidebarCollapsed && sidebarHeight ? { height: sidebarHeight, maxHeight: 'none' } : undefined}
+        >
           {/* Sidebar Top Header (공정 종합 분석 카드 스타일) */}
           <div className="px-2.5 py-1.5 bg-[#E2E8F0] border-b border-slate-400 flex items-center justify-between">
             {!isSidebarCollapsed ? (
@@ -439,7 +461,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
           </div>
 
           {!isSidebarCollapsed && (
-            <div className="p-1.5 space-y-1.5 overflow-y-auto scrollbar-thin flex-1 text-xs">
+            <div className="p-1.5 flex flex-col gap-1.5 overflow-hidden flex-1 min-h-0 text-xs [&>*]:shrink-0">
               {/* 1-1. 선택된 Recipe 연동 안내 뱃지 */}
               <div className="px-1.5 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs">
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#2563EB]">
@@ -476,8 +498,8 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 )}
               </div>
 
-              {/* 1-3. Step 필터 & Step 별 요약 (Ultra-compact high-density vertical list) */}
-              <div className="space-y-1">
+              {/* 1-3. Step 필터 & Step 별 요약: 남는 세로 공간을 모두 사용 */}
+              <div className="!shrink flex-1 min-h-[120px] flex flex-col gap-1">
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#64748B] px-0.5">
                   <span className="flex items-center gap-1">
                     <Filter className="w-3 h-3 text-[#2563EB]" />
@@ -521,7 +543,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 </button>
 
                 {/* Vertical Step Items: Ultra-dense single-line layout */}
-                <div className="space-y-1 max-h-[320px] overflow-y-auto pr-0.5 scrollbar-thin">
+                <div className="flex-1 min-h-0 space-y-1 overflow-y-auto pr-0.5 scrollbar-thin">
                   {activeFile.stepsSummary.map(s => {
                     const isSelected = selectedStepFilter === s.step.toString();
                     return (
@@ -580,7 +602,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
       </div>
 
       {/* 2. Right Content: Raw Data Table (공정 종합 분석과 100% 동일한 고밀도 엑셀 그리드 스타일) */}
-      <div className="flex-1 min-w-0 w-full space-y-2">
+      <div ref={rightPanelRef} className="flex-1 min-w-0 w-full space-y-2">
         {/* Missing Columns Notice if any */}
         {activeFile.missingColumns.length > 0 && (
           <div className="p-2.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl flex items-start gap-2 text-xs text-[#92400E] shadow-xs">

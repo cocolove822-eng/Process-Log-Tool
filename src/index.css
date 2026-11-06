@@ -82,3 +82,9 @@ body, button, input, select, textarea, code, pre, kbd, samp {
 .raw-grid > tbody > tr.raw-row-selected > td:last-child {
   box-shadow: inset -2px 0 0 #2563eb, inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
 }
+/* 원본 로그: 칸 좌우 여백을 줄여 열 너비 압축 */
+.raw-grid > tbody > tr > td,
+.raw-grid > thead > tr > th {
+  padding-left: 3px !important;
+  padding-right: 3px !important;
+}
