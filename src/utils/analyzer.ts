@@ -864,18 +864,57 @@ export function analyzeLogFile(
     return isTailTime && (isSetDown || isPwrDown);
   });
 
+  const rsdThr = settings.rfOnThresholdDepo ?? 300;
   const pwrShelfRows = rsdShelfRows.filter(
-    r => r.rfForwardPowerAct > (settings.rfOnThresholdDepo ?? 300) && (baseSet <= 0 || r.rfForwardPowerAct < baseSet * 0.85)
+    r => r.rfForwardPowerAct > rsdThr && (baseSet <= 0 || r.rfForwardPowerAct < baseSet * 0.85)
   );
 
-  if (pwrShelfRows.length >= 2 || (rsdShelfRows.length >= 2 && pwrShelfRows.length >= 1)) {
-    const targetRowsForStats = pwrShelfRows.length >= 2 ? pwrShelfRows : rsdShelfRows;
+  // RSD 판정 (꺼지는 중인 Ramp Down 샘플을 RSD로 오인하지 않도록 두 가지 근거 중 하나가 있어야 함)
+  //  A) Set 기준: RF Set이 0이 아닌 낮은 값(주방전의 85% 미만)으로 내려간 행이 2개 이상 (장비가 의도적으로 스텝다운)
+  //  B) 파워 기준: Set 기록이 없어도, 낮아진 파워가 3행 이상 연속으로 평평하게 유지 (최대/최소 ≤ 1.3)
+  //  ※ Set이 0이 된 뒤 10,150 → 3,191 → 372 W처럼 떨어지는 과도 구간은 A·B 모두 해당하지 않음 → RSD 아님
+  const isSetDownRow = (r: RawLogRow) =>
+    baseSet > 0 &&
+    ((r.rfForwardSetValue > 0 && r.rfForwardSetValue < baseSet * 0.85) ||
+      (r.rfForwardSetValueAct > 0 && r.rfForwardSetValueAct < baseSet * 0.85));
+  const setDownRows = rsdShelfRows.filter(isSetDownRow);
+  const setDownPwrRows = setDownRows.filter(r => r.rfForwardPowerAct > rsdThr);
+
+  // B) depoRows 상에서 연속된 pwrShelfRows 중, 값이 평평한 가장 긴 구간
+  let plateauRows: RawLogRow[] = [];
+  {
+    const idx = new Map(depoRows.map((r, i) => [r, i]));
+    let run: RawLogRow[] = [];
+    const flush = () => {
+      if (run.length > plateauRows.length) plateauRows = run;
+      run = [];
+    };
+    for (const r of pwrShelfRows) {
+      const prev = run[run.length - 1];
+      const consecutive = prev !== undefined && (idx.get(r) ?? -2) === (idx.get(prev) ?? -9) + 1;
+      if (prev !== undefined && !consecutive) flush();
+      const cand = [...run, r];
+      const vals = cand.map(x => x.rfForwardPowerAct);
+      if (Math.max(...vals) <= Math.min(...vals) * 1.3) run = cand;
+      else {
+        flush();
+        run = [r];
+      }
+    }
+    flush();
+  }
+
+  const useSetEvidence = setDownRows.length >= 2 && setDownPwrRows.length >= 1;
+  const usePlateau = !useSetEvidence && plateauRows.length >= 3;
+
+  if (useSetEvidence || usePlateau) {
+    const targetRowsForStats = useSetEvidence ? (setDownPwrRows.length >= 2 ? setDownPwrRows : setDownRows) : plateauRows;
     const avgPwr = targetRowsForStats.reduce((a, b) => a + b.rfForwardPowerAct, 0) / targetRowsForStats.length;
 
     // RSD 유지 시간 산출:
     // 주방전 직후 파워 하강 시작점(lastHighPowerRow의 시점)부터 마지막 잔류 방전 유지 행(lastPwrTime)까지의 실제 방전 유지 시간
-    const lastPwrTime = pwrShelfRows.length > 0 ? pwrShelfRows[pwrShelfRows.length - 1].stepAllTime : rsdShelfRows[rsdShelfRows.length - 1].stepAllTime;
-    const firstPwrTime = pwrShelfRows.length > 0 ? pwrShelfRows[0].stepAllTime : rsdShelfRows[0].stepAllTime;
+    const lastPwrTime = targetRowsForStats[targetRowsForStats.length - 1].stepAllTime;
+    const firstPwrTime = targetRowsForStats[0].stepAllTime;
 
     // lastHighPowerRow 시점부터 하강 완료까지의 총 전이 및 유지 시간 (예: 11.8s - 10.7s = 1.1s)
     const durationFromHighPwr = lastHighPowerRow ? Math.round((lastPwrTime - lastHighPowerRow.stepAllTime) * 10) / 10 : 0;
@@ -884,8 +923,8 @@ export function analyzeLogFile(
 
     if (duration >= 0.3) {
       isRsdDetected = true;
-      const setPwr = rsdShelfRows.find(r => r.rfForwardSetValue > 0 && r.rfForwardSetValue < baseSet * 0.85)?.rfForwardSetValue
-        || rsdShelfRows.find(r => r.rfForwardSetValueAct > 0 && r.rfForwardSetValueAct < baseSet * 0.85)?.rfForwardSetValueAct;
+      const setPwr = setDownRows.find(r => r.rfForwardSetValue > 0 && r.rfForwardSetValue < baseSet * 0.85)?.rfForwardSetValue
+        || setDownRows.find(r => r.rfForwardSetValueAct > 0 && r.rfForwardSetValueAct < baseSet * 0.85)?.rfForwardSetValueAct;
       rsdPower = setPwr ? setPwr : Math.round(avgPwr);
       rsdTime = duration;
     }
