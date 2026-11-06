@@ -154,13 +154,21 @@ export const TABLE_TH_UNIT_CLASS =
 export const TINT_FIXED_TH1 = 'py-1 px-1 border border-slate-400 bg-[#CBD5E1] text-[#0F172A] font-bold text-[11px] font-sans align-middle';
 export const TINT_FIXED_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DDE3EA] text-[#0F172A] font-bold text-[11px] font-sans align-middle';
 
-// 2) RF Power & Matcher 계통 - 아이스 블루 틴트 (음영 밝기 조절로 또렷한 대비)
+// 2) RF Power 계통 (Power·RSD·Max Ref.·RF Delay) - 아이스 블루 틴트 (음영 밝기 조절로 또렷한 대비)
 export const TINT_RF_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C2D7EF] text-[#1E3A8A] font-bold text-[11px] font-sans align-middle';
 export const TINT_RF_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D7E5F4] text-[#1E3A8A] font-bold text-[11px] font-sans align-middle';
 
-// 3) Pressure, Spacing & Throttle Valve (T/V) 계통 - 연두·올리브 틴트 (원본 로그 탭과 동일, Matcher 민트와 구분)
+// 3) Pressure & Throttle Valve (Pres.·T/V Pos.) 계통 - 연두·올리브 틴트 (원본 로그 탭과 동일)
 export const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#DCE3B0] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
 export const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAEFCC] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
+
+// 3-1) Lift / Spacing 계통 - 연보라 틴트 (원본 로그 탭 Lift Spacing과 동일)
+export const TINT_LIFT_TH1 = 'py-1 px-1 border border-slate-400 bg-[#D9D7F1] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
+export const TINT_LIFT_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAE8F8] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
+
+// 3-2) Matcher 계통 (Load·Tune·R·X·Vpp·Irms·Vdc) - 민트 틴트 (원본 로그 탭 Matcher Parameter와 동일)
+export const TINT_MATCHER_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C1E2D4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
+export const TINT_MATCHER_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D8EDE4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
 
 // 4) Gas MFC 계통 - 앰버/샌드 틴트
 export const TINT_GAS_TH1 = 'py-1 px-1 border border-slate-400 bg-[#EEDBB8] text-[#78350F] font-bold text-[11px] font-sans align-middle';
@@ -1198,7 +1206,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
 
                     {/* Lift (1 col) - Sage/Teal 3% */}
-                    <th colSpan={1} className={TINT_PRES_TH1}>
+                    <th colSpan={1} className={TINT_LIFT_TH1}>
                       Lift
                     </th>
 
@@ -1218,7 +1226,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
 
                     {/* Lift Spacing (1 col) - Sage/Teal 3% */}
-                    <th rowSpan={2} className={TINT_PRES_TH1}>
+                    <th rowSpan={2} className={TINT_LIFT_TH1}>
                       <div>{getAlias('lift_spacing', 'Spacing')}</div>
                     </th>
 
@@ -1255,7 +1263,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
 
                     {/* Lift Sub-header */}
-                    <th className={`${TINT_PRES_TH2} leading-tight`}>
+                    <th className={`${TINT_LIFT_TH2} leading-tight`}>
                       <div>Home</div>
                       <div>Spacing</div>
                     </th>
@@ -1494,7 +1502,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     RSD
                   </th>
                   {/* Matcher 7 (Blue 3%) */}
-                  <th colSpan={7} className={TINT_RF_TH1}>Matcher</th>
+                  <th colSpan={7} className={TINT_MATCHER_TH1}>Matcher</th>
                 </tr>
 
                 {/* Tier 2 Header: Matcher Sub-headers */}
@@ -1503,13 +1511,13 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   <th className={TINT_RF_TH2}>Power</th>
                   <th className={TINT_RF_TH2}>Time</th>
                   {/* Matcher Sub-headers */}
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_load', 'Load')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_tune', 'Tune')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_r', 'R')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_x', 'X')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_vpp', 'Vpp')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_irms', 'Irms')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_vdc', 'Vdc')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_load', 'Load')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_tune', 'Tune')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_r', 'R')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_x', 'X')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_vpp', 'Vpp')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_irms', 'Irms')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_vdc', 'Vdc')}</th>
                 </tr>
 
                 {/* Tier 3 Header with Units */}
@@ -2012,9 +2020,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {/* RF Power */}
                       <th colSpan={4} className={TINT_RF_TH1}>{getAlias('rf_power', 'Power')}</th>
                       {/* Matcher Vpp, Irms, Vdc */}
-                      <th colSpan={3} className={TINT_RF_TH1}>{getAlias('matcher_vpp', 'Vpp')}</th>
-                      <th colSpan={3} className={TINT_RF_TH1}>{getAlias('matcher_irms', 'Irms')}</th>
-                      <th colSpan={3} className={TINT_RF_TH1}>{getAlias('matcher_vdc', 'DC Bias')}</th>
+                      <th colSpan={3} className={TINT_MATCHER_TH1}>{getAlias('matcher_vpp', 'Vpp')}</th>
+                      <th colSpan={3} className={TINT_MATCHER_TH1}>{getAlias('matcher_irms', 'Irms')}</th>
+                      <th colSpan={3} className={TINT_MATCHER_TH1}>{getAlias('matcher_vdc', 'DC Bias')}</th>
                     </>
                   )}
 
@@ -2025,7 +2033,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th colSpan={4} className={TINT_PRES_TH1}>{getAlias('tv_press', 'Pres.')}</th>
                       <th colSpan={3} className={TINT_PRES_TH1}>{getAlias('tv_pos', 'T/V Pos.')}</th>
                       {/* Lift Spacing */}
-                      <th colSpan={4} className={TINT_PRES_TH1}>{getAlias('lift_spacing', 'Spacing')}</th>
+                      <th colSpan={4} className={TINT_LIFT_TH1}>{getAlias('lift_spacing', 'Spacing')}</th>
                     </>
                   )}
 
@@ -2073,19 +2081,19 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th className={TINT_RF_TH2}>ΔMax</th>
 
                       {/* Matcher Vpp */}
-                      <th className={TINT_RF_TH2}>Min</th>
-                      <th className={TINT_RF_TH2}>Max</th>
-                      <th className={TINT_RF_TH2}>Unif.</th>
+                      <th className={TINT_MATCHER_TH2}>Min</th>
+                      <th className={TINT_MATCHER_TH2}>Max</th>
+                      <th className={TINT_MATCHER_TH2}>Unif.</th>
 
                       {/* Matcher Irms */}
-                      <th className={TINT_RF_TH2}>Min</th>
-                      <th className={TINT_RF_TH2}>Max</th>
-                      <th className={TINT_RF_TH2}>Unif.</th>
+                      <th className={TINT_MATCHER_TH2}>Min</th>
+                      <th className={TINT_MATCHER_TH2}>Max</th>
+                      <th className={TINT_MATCHER_TH2}>Unif.</th>
 
                       {/* Matcher DC Bias */}
-                      <th className={TINT_RF_TH2}>Min</th>
-                      <th className={TINT_RF_TH2}>Max</th>
-                      <th className={TINT_RF_TH2}>Unif.</th>
+                      <th className={TINT_MATCHER_TH2}>Min</th>
+                      <th className={TINT_MATCHER_TH2}>Max</th>
+                      <th className={TINT_MATCHER_TH2}>Unif.</th>
                     </>
                   )}
 
@@ -2103,10 +2111,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th className={TINT_PRES_TH2}>Unif.</th>
 
                       {/* Spacing */}
-                      <th className={TINT_PRES_TH2}>Min</th>
-                      <th className={TINT_PRES_TH2}>ΔMin</th>
-                      <th className={TINT_PRES_TH2}>Max</th>
-                      <th className={TINT_PRES_TH2}>ΔMax</th>
+                      <th className={TINT_LIFT_TH2}>Min</th>
+                      <th className={TINT_LIFT_TH2}>ΔMin</th>
+                      <th className={TINT_LIFT_TH2}>Max</th>
+                      <th className={TINT_LIFT_TH2}>ΔMax</th>
                     </>
                   )}
 
