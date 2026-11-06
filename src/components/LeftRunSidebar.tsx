@@ -438,7 +438,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                     <span>Step · 날짜</span>
                   </div>
 
-                  <div className="bg-[#F1F5F9] rounded-lg border border-slate-400 overflow-hidden divide-y divide-slate-300">
+                  <div className="bg-white rounded-lg border border-slate-400 overflow-hidden divide-y divide-slate-300">
                   {files.map((file, idx) => {
                     const fileResults = results.filter(r => r.fileId === file.id);
                     const firstResult = fileResults[0];
@@ -464,7 +464,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                         key={`${file.id}_${idx}`}
                         onClick={() => onSelectRunIdx(isSelected ? null : (primaryResultIdx !== -1 ? primaryResultIdx : idx))}
                         className={`flex items-center gap-1 pl-1 pr-0.5 h-[26px] cursor-pointer group transition-colors ${
-                          isSelected ? 'bg-[#DBEAFE]' : idx % 2 ? 'bg-[#E2E8F0] hover:bg-[#D5DEE9]' : 'bg-[#EEF2F6] hover:bg-[#D5DEE9]'
+                          isSelected ? 'bg-[#DBEAFE]' : 'bg-white hover:bg-[#F1F5F9]'
                         }`}
                         title={`#${idx + 1} ${rcpDisplay}${file.meta.date ? ` · ${file.meta.date.slice(0, 10)}` : ''}`}
                       >
