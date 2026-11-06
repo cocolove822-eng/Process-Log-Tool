@@ -125,13 +125,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Reset scroll to top when changing file, step filter, or search
+  // 파일·검색어가 바뀌면 맨 위로 (Step 선택은 아래에서 해당 Step 첫 행으로 이동)
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
     setScrollTop(0);
-  }, [activeFile?.id, selectedStepFilter, searchTerm]);
+  }, [activeFile?.id, searchTerm]);
 
   // Helper to test if a column is present in the uploaded file header
   const hasCol = (name: string): boolean => {
@@ -304,10 +304,8 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     if (!activeFile) return [];
     let rows = activeFile.rows;
 
-    if (selectedStepFilter !== 'all') {
-      const stepNum = parseInt(selectedStepFilter, 10);
-      rows = rows.filter(r => r.step === stepNum);
-    }
+    // Step 선택은 행을 걸러내지 않고 해당 Step 위치로 이동만 한다
+    // → 마우스 휠로 직전·다음 Step 로그를 이어서 볼 수 있음
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
@@ -321,7 +319,28 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     }
 
     return rows;
-  }, [activeFile, selectedStepFilter, searchTerm]);
+  }, [activeFile, searchTerm]);
+
+  // 선택한 Step 번호와, 그 Step이 차지하는 행 수
+  const selectedStepNum = selectedStepFilter === 'all' ? null : parseInt(selectedStepFilter, 10);
+  const selectedStepRowCount = useMemo(
+    () => (selectedStepNum === null ? 0 : filteredRows.reduce((n, r) => n + (r.step === selectedStepNum ? 1 : 0), 0)),
+    [filteredRows, selectedStepNum]
+  );
+
+  // Step을 고르면 그 Step의 첫 행이 표 맨 위(머리글 바로 아래)에 오도록 이동
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let top = 0;
+    if (selectedStepNum !== null) {
+      const first = filteredRows.findIndex(r => r.step === selectedStepNum);
+      if (first >= 0) top = first * ROW_HEIGHT;
+    }
+    el.scrollTop = top;
+    setScrollTop(top);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStepFilter, activeFile?.id]);
 
   // Virtual Window Calculation
   const totalCount = filteredRows.length;
@@ -385,7 +404,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
       {/* 1. Left Sidebar: 초소형·고밀도 '로그 & Step 매니저' (공정 Run 매니저와 연동) */}
       <div
         className={`shrink-0 transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-9' : 'w-full lg:w-[210px]'
+          isSidebarCollapsed ? 'w-9' : 'w-full lg:w-[160px]'
         } lg:sticky lg:top-2`}
       >
         <div className="bg-[#F8FAFC] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]">
@@ -414,11 +433,11 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
           </div>
 
           {!isSidebarCollapsed && (
-            <div className="p-2 space-y-2 overflow-y-auto scrollbar-thin flex-1 text-xs">
+            <div className="p-1.5 space-y-1.5 overflow-y-auto scrollbar-thin flex-1 text-xs">
               {/* 1-1. 선택된 Recipe 연동 안내 뱃지 */}
-              <div className="px-2 py-1.5 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl shadow-2xs">
+              <div className="px-1.5 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs">
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#2563EB]">
-                  <span>선택된 Run Recipe</span>
+                  <span>선택 Run</span>
                   <span className="font-mono">{activeFile.rows.length.toLocaleString()}행</span>
                 </div>
                 <div
@@ -434,7 +453,8 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 <Search className="w-3 h-3 text-[#94A3B8] absolute left-2 top-2" />
                 <input
                   type="text"
-                  placeholder="검색 (Time, Step, 모드)..."
+                  placeholder="검색"
+                  title="Time, Step, 모드 등으로 검색"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   className="w-full bg-white border border-slate-300 text-[#0F172A] text-[11px] rounded-lg pl-6.5 pr-6 py-1 focus:outline-none focus:border-[#2563EB] transition-all placeholder:text-[#94A3B8]"
@@ -455,7 +475,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#64748B] px-0.5">
                   <span className="flex items-center gap-1">
                     <Filter className="w-3 h-3 text-[#2563EB]" />
-                    Step 필터 ({activeFile.stepsSummary.length})
+                    Step ({activeFile.stepsSummary.length})
                   </span>
                   {selectedStepFilter !== 'all' && (
                     <button
@@ -471,7 +491,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedStepFilter('all')}
-                  className={`w-full px-2 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
+                  className={`w-full px-1.5 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
                     selectedStepFilter === 'all'
                       ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1D4ED8] font-bold shadow-xs'
                       : 'bg-white border-slate-300 hover:bg-[#F1F5F9] text-[#334155]'
@@ -503,7 +523,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         key={s.step}
                         type="button"
                         onClick={() => setSelectedStepFilter(s.step.toString())}
-                        className={`w-full px-2 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
+                        className={`w-full px-1.5 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
                           isSelected
                             ? 'bg-[#EFF6FF] border-[#2563EB] ring-1 ring-[#2563EB] text-[#1D4ED8] font-bold shadow-xs'
                             : 'bg-white border-slate-300 hover:bg-[#F1F5F9] text-[#334155]'
@@ -543,7 +563,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     <Filter className="w-2.5 h-2.5 text-[#EA580C]" />
                     Gas ({usedGases.length})
                   </span>
-                  <span className="font-mono font-semibold truncate max-w-[100px]">
+                  <span className="font-mono font-semibold truncate max-w-[80px]">
                     {usedGases.map(g => g.name).join(', ')}
                   </span>
                 </div>
@@ -580,11 +600,23 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
               <span className="h-3.5 w-px bg-slate-300 mx-0.5 hidden sm:inline-block" />
 
               <span className="text-[#4E5968] text-[11px] flex items-center gap-1 font-medium">
-                <span>표시 중:</span>
-                <strong className="font-mono text-[#2563EB] text-xs font-bold">
-                  {totalCount.toLocaleString()}
-                </strong>
-                <span>행</span>
+                {selectedStepNum !== null ? (
+                  <>
+                    <span>Step {selectedStepNum}:</span>
+                    <strong className="font-mono text-[#2563EB] text-xs font-bold">
+                      {selectedStepRowCount.toLocaleString()}
+                    </strong>
+                    <span>행 / 전체 {totalCount.toLocaleString()}행 · 휠로 앞뒤 Step 이어 보기</span>
+                  </>
+                ) : (
+                  <>
+                    <span>표시 중:</span>
+                    <strong className="font-mono text-[#2563EB] text-xs font-bold">
+                      {totalCount.toLocaleString()}
+                    </strong>
+                    <span>행</span>
+                  </>
+                )}
               </span>
 
               <span className="inline-flex items-center gap-1 bg-[#D1FAE5] text-[#065F46] border border-[#34D399] px-1.5 py-0.2 rounded text-[10px] font-bold">
@@ -748,20 +780,27 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  visibleRows.map(r => {
+                  visibleRows.map((r, vi) => {
                     const isEven = r.rowIndex % 2 === 0;
                     // 공정 종합 분석과 100% 동일한 zebra: 흰색(white)과 소프트 슬레이트(#EDF2F7)
                     const rowBgClass = isEven ? 'bg-white' : 'bg-[#EDF2F7]';
+                    // Step이 바뀌는 첫 행 → 위쪽에 파란 굵은 경계선
+                    const prev = filteredRows[startIndex + vi - 1];
+                    const isStepStart = !!prev && prev.step !== r.step;
+                    const inSelected = selectedStepNum !== null && r.step === selectedStepNum;
+                    const nameCellBg = inSelected ? 'bg-[#DBEAFE] text-[#1E3A8A]' : rowBgClass;
 
                     return (
                       <tr
                         key={r.rowIndex}
-                        className={`group transition-colors h-[30px] ${rowBgClass} hover:bg-blue-50/80`}
+                        className={`group transition-colors h-[30px] ${rowBgClass} hover:bg-blue-50/80 ${
+                          isStepStart ? '[&>td]:border-t-2 [&>td]:border-t-[#2563EB]' : ''
+                        }`}
                         style={{ height: `${ROW_HEIGHT}px` }}
                       >
                         {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0, matching row background) */}
                         <td
-                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 sticky left-0 z-10 truncate max-w-[130px] shadow-xs ${rowBgClass} group-hover:bg-blue-50/80`}
+                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 sticky left-0 z-10 truncate max-w-[130px] shadow-xs ${nameCellBg} group-hover:bg-blue-50/80`}
                           title={`행 #${r.rowIndex.toLocaleString()} | ${r.stepName}`}
                         >
                           {r.stepName}
