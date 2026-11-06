@@ -219,9 +219,10 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
             [
               { label: 'RF Forward', hint: 'Set ±', unit: '%', w: 'ecRfForwardWarningPct', a: 'ecRfForwardAlarmPct', step: 0.5, dot: 'bg-[#2563EB]' },
               { label: 'RF Reflect', hint: 'Max', unit: 'W', w: 'ecRfReflectWarningW', a: 'ecRfReflectAlarmW', step: 10, dot: 'bg-[#7C3AED]' },
-              { label: 'Matcher', hint: 'Unif.', unit: '%', w: 'ecMatcherWarningPct', a: 'ecMatcherAlarmPct', step: 0.5, dot: 'bg-[#059669]' },
+              { label: 'Matcher', hint: 'Vpp·Irms Unif.', unit: '%', w: 'ecMatcherWarningPct', a: 'ecMatcherAlarmPct', step: 0.5, dot: 'bg-[#059669]' },
+              { label: 'Vdc', hint: 'Max−Min', unit: 'V', w: 'ecVdcWarningV', a: 'ecVdcAlarmV', step: 1, dot: 'bg-[#059669]' },
               { label: 'T/V Press', hint: 'Set ±', unit: '%', w: 'ecPressureWarningPct', a: 'ecPressureAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
-              { label: 'T/V Pos.', hint: 'Unif.', unit: '%', w: 'ecPositionWarningPct', a: 'ecPositionAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
+              { label: 'T/V Pos.', hint: 'Max−Min', unit: '%', w: 'ecPositionWarningPct', a: 'ecPositionAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
               { label: 'Gas 유량', hint: 'Set ±', unit: '%', w: 'ecGasWarningPct', a: 'ecGasAlarmPct', step: 0.5, dot: 'bg-[#D97706]' },
               { label: 'Heater', hint: '온도차 ±', unit: '℃', w: 'ecHeaterWarningC', a: 'ecHeaterAlarmC', step: 1, dot: 'bg-[#E11D48]' },
             ] as const

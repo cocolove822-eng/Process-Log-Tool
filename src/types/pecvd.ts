@@ -184,12 +184,14 @@ export interface AnalyzerSettings {
   ecRfForwardAlarmPct: number | null; // 3% (양방향)
   ecRfReflectWarningW: number | null; // 100 W (상한)
   ecRfReflectAlarmW: number | null; // 200 W (상한)
-  ecMatcherWarningPct: number | null; // 2% (상한 - Vpp, Irms, DC Bias)
+  ecMatcherWarningPct: number | null; // 2% (상한 - Vpp, Irms Unif.)
   ecMatcherAlarmPct: number | null; // 3% (상한)
   ecPressureWarningPct: number | null; // 2% (양방향)
   ecPressureAlarmPct: number | null; // 5% (양방향)
-  ecPositionWarningPct: number | null; // 0.5% (상한)
-  ecPositionAlarmPct: number | null; // 1.0% (상한)
+  ecPositionWarningPct: number | null; // T/V Position Max−Min 1% (상한)
+  ecPositionAlarmPct: number | null; // T/V Position Max−Min 2% (상한)
+  ecVdcWarningV?: number | null; // Matcher DC Bias(Vdc) Max−Min 15 V (상한)
+  ecVdcAlarmV?: number | null; // Matcher DC Bias(Vdc) Max−Min 30 V (상한)
   ecLiftSpacingWarningPct: number | null; // null (미설정, 양방향)
   ecLiftSpacingAlarmPct: number | null; // null (미설정, 양방향)
   ecGasWarningPct: number | null; // 3% (양방향)
@@ -424,6 +426,8 @@ export interface DeviationStat {
   isHeaterC?: boolean; // true if unit is ℃
   isReflectW?: boolean; // true if deviation value is in Watts (W)
   uniformityPct?: number | null;
+  /** Max − Min (판정값이 Unif. 대신 편차 절대값인 항목: Vdc, T/V Position) */
+  range?: number | null;
   ratioToForwardPct?: number | null; // For RF Reflect Power: Max / 기준Set * 100
   minAlarmLevel?: 'normal' | 'warning' | 'alarm'; // Min 편차 개별 판정
   maxAlarmLevel?: 'normal' | 'warning' | 'alarm'; // Max 편차 개별 판정

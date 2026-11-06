@@ -939,9 +939,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     `${getAlias('rf_power', 'Power')} Min(W)`, `${getAlias('rf_power', 'Power')} ΔMin(%)`, `${getAlias('rf_power', 'Power')} Max(W)`, `${getAlias('rf_power', 'Power')} ΔMax(%)`,
     `${getAlias('matcher_vpp', 'Vpp')} Min(V)`, `${getAlias('matcher_vpp', 'Vpp')} Max(V)`, `${getAlias('matcher_vpp', 'Vpp')} Unif.(%)`,
     `${getAlias('matcher_irms', 'Irms')} Min(A)`, `${getAlias('matcher_irms', 'Irms')} Max(A)`, `${getAlias('matcher_irms', 'Irms')} Unif.(%)`,
-    `${getAlias('matcher_vdc', 'DC Bias')} Min(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Max(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Unif.(%)`,
+    `${getAlias('matcher_vdc', 'DC Bias')} Min(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Max(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Max-Min(V)`,
     `${getAlias('tv_press', 'Pres.')} Min(mTorr)`, `${getAlias('tv_press', 'Pres.')} ΔMin(%)`, `${getAlias('tv_press', 'Pres.')} Max(mTorr)`, `${getAlias('tv_press', 'Pres.')} ΔMax(%)`,
-    `${getAlias('tv_pos', 'T/V')} Min(%)`, `${getAlias('tv_pos', 'T/V')} Max(%)`, `${getAlias('tv_pos', 'T/V')} Unif.(%)`,
+    `${getAlias('tv_pos', 'T/V')} Min(%)`, `${getAlias('tv_pos', 'T/V')} Max(%)`, `${getAlias('tv_pos', 'T/V')} Max-Min(%)`,
     `${getAlias('lift_spacing', 'Spacing')} Min(mm)`, `${getAlias('lift_spacing', 'Spacing')} ΔMin(%)`, `${getAlias('lift_spacing', 'Spacing')} Max(mm)`, `${getAlias('lift_spacing', 'Spacing')} ΔMax(%)`,
     `${getAlias('ar', 'Ar')} Min(sccm)`, `${getAlias('ar', 'Ar')} ΔMin(%)`, `${getAlias('ar', 'Ar')} Max(sccm)`, `${getAlias('ar', 'Ar')} ΔMax(%)`,
     `${getAlias('sih4', 'SiH4')} Min(sccm)`, `${getAlias('sih4', 'SiH4')} ΔMin(%)`, `${getAlias('sih4', 'SiH4')} Max(sccm)`, `${getAlias('sih4', 'SiH4')} ΔMax(%)`,
@@ -960,9 +960,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       fmtInt(d.rfForward.min), fmtPct(d.rfForward.minDevPct), fmtInt(d.rfForward.max), fmtPct(d.rfForward.maxDevPct),
       fmtInt(d.matcherVpp.min), fmtInt(d.matcherVpp.max), fmtPct(d.matcherVpp.uniformityPct),
       fmtInt(d.matcherIrms.min), fmtInt(d.matcherIrms.max), fmtPct(d.matcherIrms.uniformityPct),
-      fmtInt(d.matcherDCBias.min), fmtInt(d.matcherDCBias.max), fmtPct(d.matcherDCBias.uniformityPct),
+      fmtInt(d.matcherDCBias.min), fmtInt(d.matcherDCBias.max), fmt(d.matcherDCBias.range, 1),
       fmtInt(d.tvPressure.min), fmtPct(d.tvPressure.minDevPct), fmtInt(d.tvPressure.max), fmtPct(d.tvPressure.maxDevPct),
-      fmt(d.tvPosition.min), fmt(d.tvPosition.max), fmtPct(d.tvPosition.uniformityPct),
+      fmt(d.tvPosition.min), fmt(d.tvPosition.max), fmt(d.tvPosition.range, 1),
       fmtInt(d.liftSpacing.min), fmtPct(d.liftSpacing.minDevPct), fmtInt(d.liftSpacing.max), fmtPct(d.liftSpacing.maxDevPct),
       fmtInt(d.pyroAr.min), fmtPct(d.pyroAr.minDevPct), fmtInt(d.pyroAr.max), fmtPct(d.pyroAr.maxDevPct),
       fmtInt(d.pyroSiH4.min), fmtPct(d.pyroSiH4.minDevPct), fmtInt(d.pyroSiH4.max), fmtPct(d.pyroSiH4.maxDevPct),
@@ -2141,10 +2141,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th className={TINT_MATCHER_TH2}>Max</th>
                       <th className={TINT_MATCHER_TH2}>Unif.</th>
 
-                      {/* Matcher DC Bias */}
+                      {/* Matcher DC Bias: 판정 = Max − Min (V) */}
                       <th className={TINT_MATCHER_TH2}>Min</th>
                       <th className={TINT_MATCHER_TH2}>Max</th>
-                      <th className={TINT_MATCHER_TH2}>Unif.</th>
+                      <th className={TINT_MATCHER_TH2}>Max−Min</th>
                     </>
                   )}
 
@@ -2156,10 +2156,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th className={TINT_PRES_TH2}>Max</th>
                       <th className={TINT_PRES_TH2}>ΔMax</th>
 
-                      {/* T/V */}
+                      {/* T/V: 판정 = Max − Min (%) */}
                       <th className={TINT_PRES_TH2}>Min</th>
                       <th className={TINT_PRES_TH2}>Max</th>
-                      <th className={TINT_PRES_TH2}>Unif.</th>
+                      <th className={TINT_PRES_TH2}>Max−Min</th>
 
                       {/* Spacing */}
                       <th className={TINT_LIFT_TH2}>Min</th>
@@ -2243,7 +2243,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {/* Matcher DC Bias */}
                       <th className={TINT_UNIT_TH}>(V)</th>
                       <th className={TINT_UNIT_TH}>(V)</th>
-                      <th className={TINT_UNIT_TH}>(%)</th>
+                      <th className={TINT_UNIT_TH}>(V)</th>
                     </>
                   )}
 
@@ -2378,10 +2378,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherIrms.max)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherIrms.uniformityPct, 1), d.matcherIrms.alarmLevel)}</td>
 
-                          {/* Matcher DC Bias: Min, Max, Unif. (rfMatcher 탭 시 마지막 컬럼) */}
+                          {/* Matcher DC Bias: Min, Max, Max−Min (rfMatcher 탭 시 마지막 컬럼) */}
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.min)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'rfMatcher')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherDCBias.uniformityPct, 1), d.matcherDCBias.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'rfMatcher')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherDCBias.range, 1), d.matcherDCBias.alarmLevel)}</td>
                         </>
                       )}
 
@@ -2394,10 +2394,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.tvPressure.max)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.tvPressure, 'max')}</td>
 
-                          {/* T/V Pos: Min, Max, Unif. */}
+                          {/* T/V Pos: Min, Max, Max−Min */}
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(d.tvPosition.min)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(d.tvPosition.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.tvPosition.uniformityPct, 1), d.tvPosition.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.tvPosition.range, 1), d.tvPosition.alarmLevel)}</td>
 
                           {/* Lift Spacing: Min, Min 편차, Max, Max 편차 (presLift 탭 시 마지막 컬럼) */}
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.liftSpacing.min)}</td>

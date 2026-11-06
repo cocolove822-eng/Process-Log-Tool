@@ -44,8 +44,13 @@ const SECTIONS: GuideSection[] = [
           <Formula>편차% = (실측 − Set) ÷ Set × 100</Formula>
         </Item>
         <Item title="Max · Unif. (상한)">
-          기준값 이상으로 올라갈 때만 표시합니다. RF Reflect(W), Matcher Vpp·Irms·Vdc, T/V Position에 적용됩니다.
+          기준값 이상으로 올라갈 때만 표시합니다. RF Reflect(W), Matcher Vpp·Irms에 적용됩니다.
           <Formula>Unif.% = (Max − Min) ÷ (2 × |평균|) × 100</Formula>
+        </Item>
+        <Item title="Max − Min (상한)">
+          분석 구간의 최댓값과 최솟값 차이로 판정합니다. Matcher Vdc(V, 기본 15·30 V), T/V Position(%, 기본 1·2 %)에
+          적용됩니다.
+          <Formula>편차 = Max − Min</Formula>
         </Item>
       </>
     ),

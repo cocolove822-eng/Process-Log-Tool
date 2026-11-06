@@ -73,12 +73,14 @@ export const DEFAULT_SETTINGS: AnalyzerSettings = {
   ecRfForwardAlarmPct: 3.0, // 양방향 (±3%)
   ecRfReflectWarningW: 100, // 상한 (100 W)
   ecRfReflectAlarmW: 200, // 상한 (200 W)
-  ecMatcherWarningPct: 2.0, // 상한 (2% - Vpp, Irms, DC Bias)
-  ecMatcherAlarmPct: 3.0, // 상한 (3% - Vpp, Irms, DC Bias)
+  ecMatcherWarningPct: 2.0, // 상한 (2% - Vpp, Irms Unif.)
+  ecMatcherAlarmPct: 3.0, // 상한 (3% - Vpp, Irms Unif.)
+  ecVdcWarningV: 15, // 상한 (DC Bias Max−Min 15 V)
+  ecVdcAlarmV: 30, // 상한 (DC Bias Max−Min 30 V)
   ecPressureWarningPct: 2.0, // 양방향 (±2%)
   ecPressureAlarmPct: 5.0, // 양방향 (±5%)
-  ecPositionWarningPct: 0.5, // 상한 (0.5%)
-  ecPositionAlarmPct: 1.0, // 상한 (1.0%)
+  ecPositionWarningPct: 1.0, // 상한 (T/V Position Max−Min 1%)
+  ecPositionAlarmPct: 2.0, // 상한 (T/V Position Max−Min 2%)
   ecLiftSpacingWarningPct: null, // 미설정
   ecLiftSpacingAlarmPct: null, // 미설정
   ecGasWarningPct: 3.0, // 양방향 (±3%)
@@ -2288,7 +2290,8 @@ export function analyzeLogFile(
   const buildUniformityStat = (
     getter: (r: RawLogRow) => number,
     warningPct: number | null | undefined,
-    alarmPct: number | null | undefined
+    alarmPct: number | null | undefined,
+    mode: 'unif' | 'range' = 'unif'
   ): DeviationStat => {
     if (windowRows.length === 0) {
       return { min: null, max: null, alarmLevel: 'normal' };
@@ -2309,13 +2312,16 @@ export function analyzeLogFile(
       uniformityPct = Math.round(((max - min) / (2 * absAvg)) * 1000) / 10;
     }
 
-    const alarmLevel = evaluateLevel(uniformityPct, 'upper', warningPct, alarmPct);
+    const range = Math.round((max - min) * 10) / 10;
+    // 판정값: 'unif' = Unif.%, 'range' = Max − Min 편차 절대값 (Vdc: V, T/V Position: %)
+    const alarmLevel = evaluateLevel(mode === 'range' ? range : uniformityPct, 'upper', warningPct, alarmPct);
 
     return {
       min: Math.round(min * 10) / 10,
       max: Math.round(max * 10) / 10,
       avg: Math.round(avg * 10) / 10,
       uniformityPct,
+      range,
       alarmLevel,
       isWarning: alarmLevel === 'warning',
       isAlarm: alarmLevel === 'alarm',
@@ -2456,14 +2462,14 @@ export function analyzeLogFile(
     rfReflect: rfReflectStat,
     matcherVpp: buildUniformityStat(r => r.matcherVpp, settings.ecMatcherWarningPct, settings.ecMatcherAlarmPct),
     matcherIrms: buildUniformityStat(r => r.matcherIrms, settings.ecMatcherWarningPct, settings.ecMatcherAlarmPct),
-    matcherDCBias: buildUniformityStat(r => Math.abs(r.matcherDCBias), settings.ecMatcherWarningPct, settings.ecMatcherAlarmPct),
+    matcherDCBias: buildUniformityStat(r => Math.abs(r.matcherDCBias), settings.ecVdcWarningV ?? 15, settings.ecVdcAlarmV ?? 30, 'range'),
     tvPressure: buildDevStatPct(
       r => r.tvPressure,
       processData.tvPressureSet,
       settings.ecPressureWarningPct,
       settings.ecPressureAlarmPct
     ),
-    tvPosition: buildUniformityStat(r => r.tvPosition, settings.ecPositionWarningPct, settings.ecPositionAlarmPct),
+    tvPosition: buildUniformityStat(r => r.tvPosition, settings.ecPositionWarningPct, settings.ecPositionAlarmPct, 'range'),
     liftSpacing: buildDevStatPct(
       r => r.liftSpacing,
       processData.liftSpacingSet,
