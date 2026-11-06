@@ -57,3 +57,28 @@ body, button, input, select, textarea, code, pre, kbd, samp {
 .pd-grid > thead > tr > th > div > span {
   vertical-align: top;
 }
+
+/* ============================================================================
+   원본 로그 표 (raw-grid)
+   ============================================================================ */
+/* 항목 머리글: 같은 너비의 칸 안에서 긴 이름은 두 줄로 */
+.raw-grid > thead > tr:nth-child(2) > th {
+  white-space: normal;
+  line-height: 13px;
+  word-break: keep-all;
+}
+/* 칸보다 긴 값은 말줄임 */
+.raw-grid > tbody > tr > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 클릭한 행: 파란 2px 테두리 (box-shadow라 행 높이·스크롤에 영향 없음) */
+.raw-grid > tbody > tr.raw-row-selected > td {
+  box-shadow: inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
+}
+.raw-grid > tbody > tr.raw-row-selected > td:first-child {
+  box-shadow: inset 2px 0 0 #2563eb, inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
+}
+.raw-grid > tbody > tr.raw-row-selected > td:last-child {
+  box-shadow: inset -2px 0 0 #2563eb, inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
+}

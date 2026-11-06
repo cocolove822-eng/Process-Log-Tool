@@ -38,6 +38,9 @@ const CANDIDATE_GASES: GasDef[] = [
 ];
 
 const ROW_HEIGHT = 30; // Pixel-precise row height
+// 열 너비: Step & Time 5열은 각자 너비, 나머지 묶음(Gas·Lift·T/V·Matcher·RF·Susceptor)의 모든 열은 같은 너비
+const STEP_TIME_COL_WIDTHS = [100, 150, 84, 70, 44]; // Step Name, Time, Step All Time, Step Time, Step
+const UNIFORM_COL_WIDTH = 76;
 const OVERSCAN = 25;   // Pre-rendered buffer rows above & below viewport for 60fps scrolling
 
 // ============================================================================
@@ -86,6 +89,8 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
+  // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Virtual Scrolling State
@@ -109,6 +114,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   // When activeFile changes via '공정 Run 매니저', reset step filter to 'all'
   useEffect(() => {
     setSelectedStepFilter('all');
+    setSelectedRowIndex(null);
   }, [activeFile?.id]);
 
   // Measure container viewport height
@@ -667,7 +673,23 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
             onScroll={handleScroll}
             className="overflow-auto max-h-[calc(100vh-170px)] min-h-[500px] scrollbar-thin relative bg-white"
           >
-            <table className="w-full text-xs text-center border-collapse font-sans whitespace-nowrap border border-slate-400">
+            <table
+              className="raw-grid table-fixed text-xs text-center border-collapse font-sans whitespace-nowrap border border-slate-400"
+              style={{
+                width:
+                  STEP_TIME_COL_WIDTHS.reduce((a, b) => a + b, 0) +
+                  (usedGases.length * 2 + 4 + 6 + 5 + 5 + activeHeaterZones.length * 2) * UNIFORM_COL_WIDTH,
+                minWidth: '100%',
+              }}
+            >
+              <colgroup>
+                {STEP_TIME_COL_WIDTHS.map((w, i) => (
+                  <col key={`st${i}`} style={{ width: w }} />
+                ))}
+                {Array.from({ length: usedGases.length * 2 + 4 + 6 + 5 + 5 + activeHeaterZones.length * 2 }, (_, i) => (
+                  <col key={`u${i}`} style={{ width: UNIFORM_COL_WIDTH }} />
+                ))}
+              </colgroup>
               {/* Header Tier 1: Group Badges (공정 종합 분석과 동일한 카테고리 틴트 시스템) */}
               <thead className="sticky top-0 z-20 text-[11px] font-bold font-sans">
                 <tr className="border-b border-slate-400">
@@ -793,14 +815,15 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     return (
                       <tr
                         key={r.rowIndex}
-                        className={`group transition-colors h-[30px] ${rowBgClass} hover:bg-blue-50/80 ${
+                        onClick={() => setSelectedRowIndex(prev => (prev === r.rowIndex ? null : r.rowIndex))}
+                        className={`group transition-colors h-[30px] cursor-pointer ${rowBgClass} hover:bg-blue-50/80 ${
                           isStepStart ? '[&>td]:border-t-2 [&>td]:border-t-[#2563EB]' : ''
-                        }`}
+                        } ${selectedRowIndex === r.rowIndex ? 'raw-row-selected' : ''}`}
                         style={{ height: `${ROW_HEIGHT}px` }}
                       >
                         {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0, matching row background) */}
                         <td
-                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 sticky left-0 z-10 truncate max-w-[130px] shadow-xs ${nameCellBg} group-hover:bg-blue-50/80`}
+                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 sticky left-0 z-10 truncate max-w-[130px] shadow-xs ${nameCellBg} group-hover:bg-[#EFF6FF]`}
                           title={`행 #${r.rowIndex.toLocaleString()} | ${r.stepName}`}
                         >
                           {r.stepName}
