@@ -629,8 +629,13 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
         if (rowMaxSet > 0) effectiveSet = rowMaxSet;
       }
 
-      // 공정 스텝 내 Set > 0 또는 최대 실제 유량 >= 10 sccm 인 경우 감지
-      const isDetected = (effectiveSet !== null && effectiveSet > 0) || maxAct >= 10;
+      // 선택한 Step(분석 대상 Step)에서 실제로 흐른 가스만 표시
+      //  - 유량(Act) 데이터가 있는 가스: 이 Step 안에서 Act ≥ 10 sccm인 행이 있어야 함
+      //    (이전 Step의 Set 값이 남아 있거나, 안정화 Step에서만 흐른 가스가 이 Step에 Stable로 그려지는 오류 방지)
+      //  - 유량 데이터가 아예 없는 가스: 이 Step 안의 Set > 0으로 판단
+      const hasActData = rawRows.some(r => cand.getAct(r) > 0);
+      const depoSetMax = depoRows.length > 0 ? Math.max(...depoRows.map(cand.getSet)) : 0;
+      const isDetected = hasActData ? maxDepoAct >= 10 : depoSetMax > 0;
       if (!isDetected) continue;
 
       const setVal = effectiveSet ?? (maxAct > 0 ? Math.round(maxAct) : 0);
