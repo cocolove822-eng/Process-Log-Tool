@@ -252,6 +252,22 @@ export function detectAllDepoSteps(
   const allSteps = Array.from(new Set(rows.map(r => r.step))).sort((a, b) => a - b);
   const depoSteps: number[] = [];
 
+  // RF 방전 행 판정 (Depo Step 판정 공통)
+  //  - RF 명령: Fwd Set > 0, Fwd Set(Act) > 0, 또는 RF On = On/1
+  //  - 실제 방전: Fwd Act ≥ 50W
+  //  - 로그에 RF 명령 열이 없으면 Act만, Act 열이 없으면 명령만으로 판단
+  const rfCmdOf = (r: RawLogRow) =>
+    (r.rfForwardSetValue ?? 0) > 0 ||
+    (r.rfForwardSetValueAct ?? 0) > 0 ||
+    (r.rfOn ?? '').trim().toLowerCase() === 'on' ||
+    (r.rfOn ?? '').trim() === '1';
+  const hasRfCmdInFile = rows.some(rfCmdOf);
+  const hasRfActInFile = rows.some(r => (r.rfForwardPowerAct ?? 0) > 0);
+  const isRfDischargeRow = (r: RawLogRow) => {
+    if (!hasRfActInFile) return rfCmdOf(r);
+    return (r.rfForwardPowerAct ?? 0) >= 50 && (!hasRfCmdInFile || rfCmdOf(r));
+  };
+
   // 사용자가 SiH4를 필수로 포함하는 일반 증착(Deposition) 스텝을 검색 중인지 여부
   const isStandardDepoSearch = criteria.sih4 === 'include';
 
@@ -281,11 +297,12 @@ export function detectAllDepoSteps(
         }
       }
     } else {
-      // SiH4 제외 모드: 순수 비-플라즈마 유휴 스텝(Pump, Vent, Idle, Purge) 중 RF 방전이 없는 스텝은 제외
-      const isPureIdle = stepRows.some(r => r.stepName && /(?:pump|pmp|vent|idle|delay|펌프|배기)/i.test(r.stepName) && !/(?:pl|power_?lift|파워리프트)/i.test(r.stepName));
+      // SiH4 제외 모드: 이름이 Pump·Vent·Evac·Idle 등인 유휴 Step은 RF가 Step 대부분(50% 이상) 방전하지 않으면 제외
+      // (앞 Step(PL 등)에서 넘어온 RF 꼬리 몇 행이나 Set 잔류 값 때문에 PUMP가 남던 문제 방지)
+      const isPureIdle = stepRows.some(r => r.stepName && /(?:pump|pmp|vent|evac|idle|delay|펌프|배기)/i.test(r.stepName) && !/(?:pl|power_?lift|파워리프트)/i.test(r.stepName));
       if (isPureIdle) {
-        const hasAnyRf = stepRows.some(r => (r.rfForwardPowerAct ?? 0) >= 50 || (r.rfForwardSetValue ?? 0) > 0);
-        if (!hasAnyRf) continue;
+        const dischargeCnt = stepRows.filter(isRfDischargeRow).length;
+        if (dischargeCnt < stepRows.length * 0.5) continue;
       }
     }
 
@@ -295,11 +312,11 @@ export function detectAllDepoSteps(
     const hasSiH4Sustained = siH4ActiveRows.length >= 3 || (siH4ActiveRows.length > 0 && siH4ActiveRows.length >= stepRows.length * 0.2);
     const hasSiH4 = hasSiH4Set || hasSiH4Sustained;
 
-    // 2. RF 플라즈마 방전 감지: Set값 > 0, RF On Flag, 또는 실제 지속 방전(>=3행)
-    const hasRfSet = stepRows.some(r => (r.rfForwardSetValue ?? 0) > 0 || (r.rfOn ?? '').trim().toLowerCase() === 'on' || (r.rfOn ?? '').trim() === '1');
-    const rfActiveRows = stepRows.filter(r => (r.rfForwardPowerAct ?? 0) >= 50);
-    const hasRfSustained = rfActiveRows.length >= 3 || (rfActiveRows.length > 0 && rfActiveRows.length >= stepRows.length * 0.2);
-    const hasRf = hasRfSet || hasRfSustained;
+    // 2. RF 플라즈마 방전 감지: 'RF 명령(Fwd Set > 0 또는 RF On)이 있고 Act ≥ 50W인 행'이
+    //    1초(10행) 이상 또는 Step 행 수의 30% 이상일 때만 방전 Step으로 인정
+    //    (Set 값만 남은 행, 앞 Step에서 넘어온 몇 행짜리 RF 꼬리는 방전으로 보지 않음)
+    const rfDischargeCnt = stepRows.filter(isRfDischargeRow).length;
+    const hasRf = rfDischargeCnt >= 10 || (rfDischargeCnt > 0 && rfDischargeCnt >= stepRows.length * 0.3);
 
     // 3. Ar 가스 공급 감지 (실제 유량 >= 10 sccm 또는 Set값 > 0)
     const hasAr = stepRows.some(r => {
