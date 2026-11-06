@@ -246,6 +246,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     });
     return out;
   }, [files, selectedRecipeIds]);
+  const setRecipeSelected = (id: string, on: boolean) =>
+    setSelectedRecipeIds(prev => (on ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter(x => x !== id)));
   const toggleRecipeSelect = (id: string) =>
     setSelectedRecipeIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   // 묶음 제목 클릭: 묶음 전체가 이미 선택돼 있으면 해제, 아니면 묶음 전체를 선택에 추가
@@ -675,6 +677,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   onChangeValueSort={setValueSort}
                   selectedRecipeIds={selectedRecipeIds}
                   onToggleRecipe={toggleRecipeSelect}
+                  onSetRecipeSelected={setRecipeSelected}
                   onToggleRecipeGroup={toggleRecipeGroup}
                   onClearRecipeSelection={clearRecipeSelection}
                 />
@@ -723,6 +726,7 @@ interface TrendChartCardProps {
   onChangeValueSort: (v: ValueSort) => void;
   selectedRecipeIds: string[];
   onToggleRecipe: (id: string) => void;
+  onSetRecipeSelected: (id: string, on: boolean) => void;
   onToggleRecipeGroup: (ids: string[]) => void;
   onClearRecipeSelection: () => void;
 }
@@ -832,6 +836,7 @@ interface CursorValuePanelProps {
   onHighlight: (id: string | null) => void;
   selectedIds: string[];
   onToggle: (id: string) => void;
+  onSetSelected: (id: string, on: boolean) => void;
   onToggleGroup: (ids: string[]) => void;
   onClearSelection: () => void;
 }
@@ -871,10 +876,20 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   onHighlight,
   selectedIds,
   onToggle,
+  onSetSelected,
   onToggleGroup,
   onClearSelection,
 }) => {
   const hasSelection = selectedIds.length > 0;
+  // 드래그 선택: 처음 누른 행이 선택 안 됨이면 '선택', 선택됨이면 '해제' 모드로 지나가는 행 모두 적용
+  const dragModeRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const end = () => {
+      dragModeRef.current = null;
+    };
+    window.addEventListener('mouseup', end);
+    return () => window.removeEventListener('mouseup', end);
+  }, []);
   // 모든 Recipe를 표시 (선택 안 된 Recipe는 흐리게 → 다시 클릭해 추가 가능) (커서 값이 없을 때도 행 자리를 유지)
   const rows: CursorValue[] = useMemo(() => {
     const byId = new Map((values ?? []).map(v => [v.fileId, v]));
@@ -902,11 +917,6 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
         return bv - av || a.fileNo - b.fileNo;
       });
     }
-    // 선택이 있으면 선택된 Recipe를 위로
-    if (selectedIds.length > 0) {
-      const sel = new Set(selectedIds);
-      list.sort((a, b) => Number(sel.has(b.fileId)) - Number(sel.has(a.fileId)));
-    }
     return list;
   }, [files, results, visibleFileIds, values, sort, selectedIds]);
   const hiddenRows = rows.filter(v => visibleFileIds[v.fileId] === false);
@@ -925,19 +935,29 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
           <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
         </span>
-        {hasSelection && (
-          <button
-            type="button"
-            onClick={onClearSelection}
-            className="w-full flex items-center justify-between px-1.5 py-[1px] rounded-md bg-[#EFF6FF] border border-[#BFDBFE] text-[9.5px] font-bold text-[#1D4ED8] hover:bg-[#DBEAFE] cursor-pointer"
-            title="선택을 모두 해제하고 전체 Recipe를 표시합니다"
-          >
-            <span>선택 {selectedIds.length}개</span>
-            <span className="flex items-center gap-0.5">
-              전체 보기 <X className="w-3 h-3" />
-            </span>
-          </button>
-        )}
+        {/* 선택 상태 줄: 선택이 없어도 자리를 유지해 행 위치가 밀리지 않음 (드래그 선택 중 오선택 방지) */}
+        <button
+          type="button"
+          onClick={onClearSelection}
+          disabled={!hasSelection}
+          className={`w-full flex items-center justify-between px-1.5 py-[1px] rounded-md border text-[9.5px] font-bold ${
+            hasSelection
+              ? 'bg-[#EFF6FF] border-[#BFDBFE] text-[#1D4ED8] hover:bg-[#DBEAFE] cursor-pointer'
+              : 'bg-transparent border-transparent text-[#94A3B8] cursor-default'
+          }`}
+          title={hasSelection ? '선택을 모두 해제하고 전체 Recipe를 표시합니다' : '행을 클릭하거나 누른 채 끌어서 Recipe를 선택합니다'}
+        >
+          {hasSelection ? (
+            <>
+              <span>선택 {selectedIds.length}개</span>
+              <span className="flex items-center gap-0.5">
+                전체 보기 <X className="w-3 h-3" />
+              </span>
+            </>
+          ) : (
+            <span>클릭·드래그로 선택</span>
+          )}
+        </button>
         <div className="flex items-center gap-0.5">
           <div className="flex-1 flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-lg">
             <SegBtn active={view === 'list'} onClick={() => onChangeView('list')} title="Recipe별로 한 줄씩 표시">
@@ -973,13 +993,21 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                 return (
                   <tr
                     key={v.fileId}
-                    onMouseEnter={() => onHighlight(dim ? null : v.fileId)}
-                    onClick={() => onToggle(v.fileId)}
+                    onMouseEnter={() => {
+                      onHighlight(dim ? null : v.fileId);
+                      if (dragModeRef.current !== null) onSetSelected(v.fileId, dragModeRef.current);
+                    }}
+                    onMouseDown={e => {
+                      if (e.button !== 0) return;
+                      e.preventDefault(); // 드래그 중 글자 선택 방지
+                      dragModeRef.current = !sel;
+                      onSetSelected(v.fileId, !sel);
+                    }}
                     aria-selected={sel}
-                    className={`cursor-pointer ${dim ? 'opacity-45' : ''} ${
+                    className={`cursor-pointer select-none ${dim ? 'opacity-45' : ''} ${
                       sel ? 'bg-[#DBEAFE]' : hi ? 'bg-[#EFF6FF]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'
                     }`}
-                    title={`#${v.fileNo} ${v.rcpName} (클릭: ${sel ? '선택 해제' : '이 Recipe 선택'})`}
+                    title={`#${v.fileNo} ${v.rcpName} (클릭: ${sel ? '선택 해제' : '선택'} · 누른 채 위아래로 끌면 여러 개)`}
                   >
                     <td className="pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap overflow-hidden">
                       <span className="flex items-center gap-1 min-w-0">
@@ -1159,6 +1187,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   onChangeValueSort,
   selectedRecipeIds,
   onToggleRecipe,
+  onSetRecipeSelected,
   onToggleRecipeGroup,
   onClearRecipeSelection,
 }) => {
@@ -2440,6 +2469,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           onHighlight={setHighlightFileId}
           selectedIds={selectedRecipeIds}
           onToggle={onToggleRecipe}
+          onSetSelected={onSetRecipeSelected}
           onToggleGroup={onToggleRecipeGroup}
           onClearSelection={onClearRecipeSelection}
         />
