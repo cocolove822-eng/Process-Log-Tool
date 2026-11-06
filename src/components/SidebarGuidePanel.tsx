@@ -106,7 +106,7 @@ export const SidebarGuidePanel: React.FC<SidebarGuidePanelProps> = ({ onOpenSett
   const [openSection, setOpenSection] = useState<string | null>(null);
 
   return (
-    <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin text-xs text-[#0F172A] bg-[#F1F5F9]">
+    <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin text-xs text-[#0F172A] bg-[#E6EBF1]">
       {/* 머리글 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#0F172A]">

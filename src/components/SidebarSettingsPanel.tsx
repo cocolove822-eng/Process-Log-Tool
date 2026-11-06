@@ -101,7 +101,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-2 space-y-2.5 scrollbar-thin text-xs text-[#0F172A] bg-[#F1F5F9]">
+    <div className="flex-1 overflow-y-auto p-2 space-y-2.5 scrollbar-thin text-xs text-[#0F172A] bg-[#E6EBF1]">
       {/* Header with Quick Guide Link & Reset */}
       <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
         <div className="flex items-center gap-1.5">

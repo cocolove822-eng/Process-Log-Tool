@@ -208,7 +208,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
         onDragOver={handleSidebarDragOver}
         onDragLeave={handleSidebarDragLeave}
         onDrop={handleSidebarDrop}
-        className={`h-[calc(100vh-60px)] sticky top-[57px] flex flex-col bg-[#F1F5F9] border-r ${
+        className={`h-[calc(100vh-60px)] sticky top-[57px] flex flex-col bg-[#E6EBF1] border-r ${
           isDraggingSidebar ? 'border-[#2563EB] ring-2 ring-[#2563EB]/40 bg-blue-50/20' : 'border-slate-400'
         } transition-all duration-200 select-none shrink-0 z-20 ${sidebarWidthClass} relative`}
       >
@@ -351,7 +351,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
           <>
             {!isCollapsed ? (
               <div
-                className="px-1.5 py-1.5 border-b border-slate-300 bg-[#F1F5F9] flex items-center gap-1.5"
+                className="px-1.5 py-1.5 border-b border-slate-300 bg-[#E6EBF1] flex items-center gap-1.5"
                 onDragOver={e => {
                   e.preventDefault();
                   e.stopPropagation();
