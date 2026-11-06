@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, Eye, EyeOff, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow } from 'lucide-react';
+import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 
 export interface AlignedStepSegment {
@@ -208,6 +208,9 @@ export function getRfOnOffsetSec(file: ParsedLogFile, res?: AnalysisFileResult):
   return 0;
 }
 
+// Recipe 선택 상태: 탭을 옮겨 TrendTab이 다시 그려져도 유지되도록 모듈 변수에 보관
+let persistedRecipeSelection: string[] = [];
+
 export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   const [timeAlignment, setTimeAlignment] = useState<'elapsed' | 'rfOn'>('elapsed');
   // Default 4 metrics requested by user
@@ -217,7 +220,41 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     'tvPressure',
     'matcherDCBias',
   ]);
-  const [visibleFileIds, setVisibleFileIds] = useState<Record<string, boolean>>({});
+  // 선택한 Recipe id 목록. 비어 있으면 전체 표시, 있으면 선택한 Recipe만 그래프에 표시
+  const [selectedRecipeIds, setSelectedRecipeIdsState] = useState<string[]>(() => persistedRecipeSelection);
+  const setSelectedRecipeIds = (next: string[] | ((prev: string[]) => string[])) => {
+    setSelectedRecipeIdsState(prev => {
+      const v = typeof next === 'function' ? next(prev) : next;
+      persistedRecipeSelection = v;
+      return v;
+    });
+  };
+  // 파일이 바뀌면 없어진 Recipe만 선택에서 뺌 (선택은 유지)
+  useEffect(() => {
+    setSelectedRecipeIds(prev => {
+      const ids = new Set(files.map(f => f.id));
+      const kept = prev.filter(id => ids.has(id));
+      return kept.length === prev.length ? prev : kept;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files]);
+  const visibleFileIds = useMemo(() => {
+    const sel = new Set(selectedRecipeIds);
+    const out: Record<string, boolean> = {};
+    files.forEach(f => {
+      out[f.id] = sel.size === 0 || sel.has(f.id);
+    });
+    return out;
+  }, [files, selectedRecipeIds]);
+  const toggleRecipeSelect = (id: string) =>
+    setSelectedRecipeIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  // 묶음 제목 클릭: 묶음 전체가 이미 선택돼 있으면 해제, 아니면 묶음 전체를 선택에 추가
+  const toggleRecipeGroup = (ids: string[]) =>
+    setSelectedRecipeIds(prev => {
+      const all = ids.every(id => prev.includes(id));
+      return all ? prev.filter(x => !ids.includes(x)) : [...prev, ...ids.filter(id => !prev.includes(id))];
+    });
+  const clearRecipeSelection = () => setSelectedRecipeIds([]);
   const [resetAllKey, setResetAllKey] = useState<number>(0);
   const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
@@ -230,17 +267,12 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     return files.filter(f => visibleFileIds[f.id] !== false);
   }, [files, visibleFileIds]);
 
-  // Keep stepRefFileId valid and synchronized with visible files
+  // Step 기준 Run은 Recipe 선택과 상관없이 유지 (없는 파일일 때만 첫 파일로)
   useEffect(() => {
-    if (visibleFiles.length > 0) {
-      // If currently selected stepRefFileId is not among visible files, auto-switch to first visible file!
-      if (!visibleFiles.some(f => f.id === stepRefFileId)) {
-        setStepRefFileId(visibleFiles[0].id);
-      }
-    } else if (files.length > 0 && (!stepRefFileId || !files.some(f => f.id === stepRefFileId))) {
+    if (files.length > 0 && (!stepRefFileId || !files.some(f => f.id === stepRefFileId))) {
       setStepRefFileId(files[0].id);
     }
-  }, [visibleFiles, files, stepRefFileId]);
+  }, [files, stepRefFileId]);
 
   // Global X axis sync when user requests "Apply X axis to all graphs"
   const [globalXFormat, setGlobalXFormat] = useState<{
@@ -265,26 +297,12 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     setResetAllKey(k => k + 1);
   }, [visibleFileIds]);
 
-  useEffect(() => {
-    const initial: Record<string, boolean> = {};
-    files.forEach(f => {
-      initial[f.id] = true;
-    });
-    setVisibleFileIds(initial);
-  }, [files]);
 
   // Step reference file:
   // 1. If currently selected stepRefFileId is visible, use it.
   // 2. Otherwise use the first visible file.
   // 3. Fallback to stepRefFileId or first file.
-  const refFile = useMemo(() => {
-    if (visibleFiles.length > 0) {
-      const activeSelected = visibleFiles.find(f => f.id === stepRefFileId);
-      if (activeSelected) return activeSelected;
-      return visibleFiles[0];
-    }
-    return files.find(f => f.id === stepRefFileId) || files[0];
-  }, [files, visibleFiles, stepRefFileId]);
+  const refFile = useMemo(() => files.find(f => f.id === stepRefFileId) || files[0], [files, stepRefFileId]);
 
   // Aligned Step timing segments relative to current timeAlignment
   const alignedSteps: AlignedStepSegment[] = useMemo(() => {
@@ -355,12 +373,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     );
   };
 
-  const toggleFileVisibility = (fileId: string) => {
-    setVisibleFileIds(prev => ({
-      ...prev,
-      [fileId]: !prev[fileId],
-    }));
-  };
 
   const handleApplyGlobalXFormat = (fmt: {
     xMin: number | null;
@@ -471,9 +483,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
               onChange={e => {
                 const nextId = e.target.value;
                 setStepRefFileId(nextId);
-                if (visibleFileIds[nextId] === false) {
-                  setVisibleFileIds(prev => ({ ...prev, [nextId]: true }));
-                }
               }}
               className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
             >
@@ -494,27 +503,24 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              3. 레시피 필터 ({files.filter(f => visibleFileIds[f.id] !== false).length}/{files.length})
+              3. 레시피 필터 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                const allVisible = files.every(f => visibleFileIds[f.id] !== false);
-                const next: Record<string, boolean> = {};
-                files.forEach(f => {
-                  next[f.id] = !allVisible;
-                });
-                setVisibleFileIds(next);
-              }}
-              className="text-[9.5px] text-[#2563EB] font-semibold hover:underline cursor-pointer"
-            >
-              {files.every(f => visibleFileIds[f.id] !== false) ? '전체 해제' : '전체 선택'}
-            </button>
+            {selectedRecipeIds.length > 0 && (
+              <button
+                type="button"
+                onClick={clearRecipeSelection}
+                className="text-[9.5px] text-[#2563EB] font-semibold hover:underline cursor-pointer"
+                title="선택을 모두 해제하고 전체 Recipe를 표시합니다"
+              >
+                전체 보기
+              </button>
+            )}
           </div>
 
           <div className="space-y-1 max-h-[170px] overflow-y-auto scrollbar-thin pr-0.5">
             {files.map((file, idx) => {
               const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+              const isSelected = selectedRecipeIds.includes(file.id);
               const isVisible = visibleFileIds[file.id] !== false;
               const rcpName =
                 results.find(r => r.fileId === file.id)?.rcpName ||
@@ -523,55 +529,36 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
               const isStepRef = refFile?.id === file.id;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={file.id}
-                  onClick={() => toggleFileVisibility(file.id)}
-                  className={`w-full flex items-center justify-between px-2 py-1 text-[10.5px] rounded-lg border transition-all cursor-pointer ${
-                    isVisible
-                      ? 'bg-white border-[#2563EB] text-[#1E40AF] shadow-2xs font-semibold'
-                      : 'bg-slate-200/60 border-slate-300 text-[#64748B]'
+                  onClick={() => toggleRecipeSelect(file.id)}
+                  aria-pressed={isSelected}
+                  className={`w-full flex items-center justify-between gap-1 px-2 py-1 text-[10.5px] rounded-lg border transition-all cursor-pointer text-left ${
+                    isSelected
+                      ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1E40AF] shadow-2xs font-bold'
+                      : isVisible
+                      ? 'bg-white border-slate-300 text-[#334155] font-semibold hover:border-[#2563EB]'
+                      : 'bg-slate-200/60 border-slate-300 text-[#94A3B8] hover:border-[#2563EB]'
                   }`}
-                  title={`${rcpName} (클릭: 표시/숨김 토글)`}
+                  title={`${rcpName} (클릭: 선택/해제)`}
                 >
-                  <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="flex items-center gap-1.5 min-w-0">
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: isVisible ? color : '#94A3B8' }}
                     />
-                    <span className="truncate text-left" title={rcpName}>
+                    <span className="truncate">
                       #{idx + 1} {rcpName}
                     </span>
-                    {isStepRef && isVisible && (
+                    {isStepRef && (
                       <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-1 py-0.2 rounded shrink-0">
                         기준
                       </span>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-1">
-                    <button
-                      type="button"
-                      onClick={e => {
-                        e.stopPropagation();
-                        // Solo view: only this file visible!
-                        const next: Record<string, boolean> = {};
-                        files.forEach(f => {
-                          next[f.id] = f.id === file.id;
-                        });
-                        setVisibleFileIds(next);
-                        setStepRefFileId(file.id);
-                      }}
-                      className="px-1.5 py-0.5 text-[8.5px] font-bold rounded bg-slate-100 hover:bg-[#2563EB] hover:text-white text-[#475569] border border-slate-300 transition-all cursor-pointer"
-                      title={`#${idx + 1} ${rcpName}만 단독 보기`}
-                    >
-                      단독
-                    </button>
-                    {isVisible ? (
-                      <Eye className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
-                    ) : (
-                      <EyeOff className="w-3.5 h-3.5 text-[#94A3B8] shrink-0" />
-                    )}
-                  </div>
-                </div>
+                  </span>
+                  {isSelected && <Check className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />}
+                </button>
               );
             })}
           </div>
@@ -686,6 +673,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   onChangeValueView={setValueView}
                   valueSort={valueSort}
                   onChangeValueSort={setValueSort}
+                  selectedRecipeIds={selectedRecipeIds}
+                  onToggleRecipe={toggleRecipeSelect}
+                  onToggleRecipeGroup={toggleRecipeGroup}
+                  onClearRecipeSelection={clearRecipeSelection}
                 />
               );
             })}
@@ -730,6 +721,10 @@ interface TrendChartCardProps {
   onChangeValueView: (v: ValueView) => void;
   valueSort: ValueSort;
   onChangeValueSort: (v: ValueSort) => void;
+  selectedRecipeIds: string[];
+  onToggleRecipe: (id: string) => void;
+  onToggleRecipeGroup: (ids: string[]) => void;
+  onClearRecipeSelection: () => void;
 }
 
 type ValueView = 'list' | 'group';
@@ -835,6 +830,10 @@ interface CursorValuePanelProps {
   onChangeSort: (v: ValueSort) => void;
   highlightFileId: string | null;
   onHighlight: (id: string | null) => void;
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  onToggleGroup: (ids: string[]) => void;
+  onClearSelection: () => void;
 }
 
 const SegBtn: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode; title?: string }> = ({
@@ -870,15 +869,19 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   onChangeSort,
   highlightFileId,
   onHighlight,
+  selectedIds,
+  onToggle,
+  onToggleGroup,
+  onClearSelection,
 }) => {
-  // 표시 중인 Recipe 목록 (커서 값이 없을 때도 행 자리를 유지)
+  const hasSelection = selectedIds.length > 0;
+  // 모든 Recipe를 표시 (선택 안 된 Recipe는 흐리게 → 다시 클릭해 추가 가능) (커서 값이 없을 때도 행 자리를 유지)
   const rows: CursorValue[] = useMemo(() => {
     const byId = new Map((values ?? []).map(v => [v.fileId, v]));
     const list: CursorValue[] = [];
     files.forEach((file, idx) => {
-      if (visibleFileIds[file.id] === false) return;
       const res = results.find(r => r.fileId === file.id) || results[idx];
-      const hit = byId.get(file.id);
+      const hit = visibleFileIds[file.id] === false ? undefined : byId.get(file.id);
       list.push(
         hit ?? {
           shortName: shortRecipeName(file.meta.recipeName || res?.rcpName || file.fileName),
@@ -899,8 +902,14 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
         return bv - av || a.fileNo - b.fileNo;
       });
     }
+    // 선택이 있으면 선택된 Recipe를 위로
+    if (selectedIds.length > 0) {
+      const sel = new Set(selectedIds);
+      list.sort((a, b) => Number(sel.has(b.fileId)) - Number(sel.has(a.fileId)));
+    }
     return list;
-  }, [files, results, visibleFileIds, values, sort]);
+  }, [files, results, visibleFileIds, values, sort, selectedIds]);
+  const hiddenRows = rows.filter(v => visibleFileIds[v.fileId] === false);
 
   const groups = useMemo(() => groupCursorValues((values ?? []).filter(v => Number.isFinite(v.numVal))), [values]);
   const hasValues = !!values && values.length > 0;
@@ -916,6 +925,19 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
           <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
         </span>
+        {hasSelection && (
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="w-full flex items-center justify-between px-1.5 py-[1px] rounded-md bg-[#EFF6FF] border border-[#BFDBFE] text-[9.5px] font-bold text-[#1D4ED8] hover:bg-[#DBEAFE] cursor-pointer"
+            title="선택을 모두 해제하고 전체 Recipe를 표시합니다"
+          >
+            <span>선택 {selectedIds.length}개</span>
+            <span className="flex items-center gap-0.5">
+              전체 보기 <X className="w-3 h-3" />
+            </span>
+          </button>
+        )}
         <div className="flex items-center gap-0.5">
           <div className="flex-1 flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-lg">
             <SegBtn active={view === 'list'} onClick={() => onChangeView('list')} title="Recipe별로 한 줄씩 표시">
@@ -946,16 +968,26 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
             <tbody>
               {rows.map((v, i) => {
                 const hi = highlightFileId === v.fileId;
+                const sel = selectedIds.includes(v.fileId);
+                const dim = hasSelection && !sel;
                 return (
                   <tr
                     key={v.fileId}
-                    onMouseEnter={() => onHighlight(v.fileId)}
-                    className={`cursor-default ${hi ? 'bg-[#DBEAFE]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'}`}
-                    title={`#${v.fileNo} ${v.rcpName}`}
+                    onMouseEnter={() => onHighlight(dim ? null : v.fileId)}
+                    onClick={() => onToggle(v.fileId)}
+                    aria-selected={sel}
+                    className={`cursor-pointer ${dim ? 'opacity-45' : ''} ${
+                      sel ? 'bg-[#DBEAFE]' : hi ? 'bg-[#EFF6FF]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'
+                    }`}
+                    title={`#${v.fileNo} ${v.rcpName} (클릭: ${sel ? '선택 해제' : '이 Recipe 선택'})`}
                   >
                     <td className="pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap overflow-hidden">
                       <span className="flex items-center gap-1 min-w-0">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
+                        {sel ? (
+                          <Check className="w-2.5 h-2.5 shrink-0 text-[#2563EB]" strokeWidth={3.5} />
+                        ) : (
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
+                        )}
                         <span className="font-bold text-[#334155] tabular-nums shrink-0">#{v.fileNo}</span>
                         <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
                       </span>
@@ -976,34 +1008,68 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
             {groups.map((g, gi) => {
               const lo = formatCursorValue(g.lo);
               const hiV = formatCursorValue(g.hi);
+              const ids = g.items.map(v => v.fileId);
+              const allSel = ids.every(id => selectedIds.includes(id));
               return (
                 <div key={gi} className="px-1 py-1 space-y-0.5">
-                  <div className="flex items-baseline justify-between gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onToggleGroup(ids)}
+                    className={`w-full flex items-baseline justify-between gap-1 rounded px-0.5 cursor-pointer text-left ${
+                      allSel && hasSelection ? 'bg-[#DBEAFE]' : 'hover:bg-[#EFF6FF]'
+                    }`}
+                    title={allSel && hasSelection ? '클릭: 이 묶음 선택 해제' : '클릭: 이 묶음 전체 선택'}
+                  >
                     <span className="text-[12px] font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
                       {lo === hiV ? hiV : `${lo} ~ ${hiV}`}
                       {unit && <span className="ml-0.5 text-[10px] font-semibold text-[#64748B]">{unit}</span>}
                     </span>
                     <span className="text-[10px] font-semibold text-[#475569] whitespace-nowrap">{g.items.length}개</span>
-                  </div>
+                  </button>
                   <div className="flex flex-wrap gap-1">
                     {g.items.map(v => (
-                      <span
+                      <button
+                        type="button"
                         key={v.fileId}
                         onMouseEnter={() => onHighlight(v.fileId)}
-                        title={`${v.rcpName}: ${v.formatted}${unit ? ' ' + unit : ''}`}
-                        className={`inline-flex items-center gap-0.5 px-1 py-[1px] max-w-full min-w-0 rounded border text-[10px] font-bold tabular-nums cursor-default ${
-                          highlightFileId === v.fileId ? 'bg-[#DBEAFE] border-[#2563EB] text-[#1E3A8A]' : 'bg-[#F8FAFC] border-slate-300 text-[#334155]'
+                        onClick={() => onToggle(v.fileId)}
+                        title={`${v.rcpName}: ${v.formatted}${unit ? ' ' + unit : ''} (클릭: 선택/해제)`}
+                        className={`inline-flex items-center gap-0.5 px-1 py-[1px] max-w-full min-w-0 rounded border text-[10px] font-bold tabular-nums cursor-pointer ${
+                          selectedIds.includes(v.fileId)
+                            ? 'bg-[#DBEAFE] border-[#2563EB] text-[#1E3A8A]'
+                            : highlightFileId === v.fileId
+                            ? 'bg-[#EFF6FF] border-[#93C5FD] text-[#1E3A8A]'
+                            : 'bg-[#F8FAFC] border-slate-300 text-[#334155]'
                         }`}
                       >
                         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
                         <span className="shrink-0">#{v.fileNo}</span>
                         <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
-                      </span>
+                      </button>
                     ))}
                   </div>
                 </div>
               );
             })}
+            {hiddenRows.length > 0 && (
+              <div className="px-1 py-1 space-y-0.5 bg-[#F8FAFC]">
+                <div className="text-[10px] font-semibold text-[#94A3B8]">선택 안 됨 · {hiddenRows.length}개</div>
+                <div className="flex flex-wrap gap-1">
+                  {hiddenRows.map(v => (
+                    <button
+                      type="button"
+                      key={v.fileId}
+                      onClick={() => onToggle(v.fileId)}
+                      title={`${v.rcpName} (클릭: 선택에 추가)`}
+                      className="inline-flex items-center gap-0.5 px-1 py-[1px] max-w-full min-w-0 rounded border border-dashed border-slate-300 text-[10px] font-bold text-[#94A3B8] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
+                    >
+                      <span className="shrink-0">#{v.fileNo}</span>
+                      <span className="truncate">{v.shortName}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <p className="px-1.5 py-2 text-[10px] text-[#64748B] leading-relaxed">
@@ -1091,6 +1157,10 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   onChangeValueView,
   valueSort,
   onChangeValueSort,
+  selectedRecipeIds,
+  onToggleRecipe,
+  onToggleRecipeGroup,
+  onClearRecipeSelection,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2368,6 +2438,10 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           onChangeSort={onChangeValueSort}
           highlightFileId={highlightFileId}
           onHighlight={setHighlightFileId}
+          selectedIds={selectedRecipeIds}
+          onToggle={onToggleRecipe}
+          onToggleGroup={onToggleRecipeGroup}
+          onClearSelection={onClearRecipeSelection}
         />
 
         {/* 4. [축 서식] 컴팩트 팝오버 (그래프 오른쪽 위, 그래프를 가리지 않는 작은 창) */}
