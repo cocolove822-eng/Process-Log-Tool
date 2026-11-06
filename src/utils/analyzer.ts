@@ -1756,7 +1756,11 @@ export function analyzeLogFile(
     if (lastActiveBaseRow) {
       const activeIdx = rows.findIndex(r => r === lastActiveBaseRow);
       if (activeIdx !== -1 && activeIdx < rows.length - 1) {
-        return { rowIdx: activeIdx + 1, stepAllTime: rows[activeIdx + 1].stepAllTime };
+        // 다음 행이 다른 Step이면(Step 끝에서 RF가 꺼짐) 그 행의 Step All Time은 다음 Step 기준이므로
+        // 현재 Step 기준 시간(마지막 RF 행 + 0.1초)으로 환산
+        const nx = rows[activeIdx + 1];
+        const t = nx.step === baseStep ? nx.stepAllTime : Math.round(((lastActiveBaseRow.stepAllTime ?? 0) + 0.1) * 10) / 10;
+        return { rowIdx: activeIdx + 1, stepAllTime: t };
       }
       return { rowIdx: activeIdx, stepAllTime: lastActiveBaseRow.stepAllTime };
     }
