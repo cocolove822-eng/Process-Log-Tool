@@ -861,12 +861,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     'No.',
     'RCP Name',
     // Start (12 cols)
+    `Start Depo. Stable: ${getAlias('sih4', 'SiH4')}`,
     `Start Depo. Stable: ${getAlias('ar', 'Ar')}`,
     `Start Depo. Stable: ${getAlias('n2o', 'N2O')}`,
     `Start Depo. Stable: ${getAlias('nh3', 'NH3')}`,
     `Start Depo. Stable: ${getAlias('pn2', 'PN2')}`,
     `Start Depo. Stable: ${getAlias('h2', 'H2')}`,
-    `Start Depo. Stable: ${getAlias('sih4', 'SiH4')}`,
     `Start Depo. Stable: ${getAlias('tv_mode', 'T/V')}`,
     `Start Depo.: ${getAlias('rf_power', 'Power')}`,
     `Start PL Stable: ${getAlias('ar', 'Ar')}`,
@@ -893,12 +893,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     return [
       s.no,
       s.rcpName,
+      fmtSec(s.depoStable_pyroSiH4, true),
       fmtSec(s.depoStable_pyroAr, true),
       fmtSec(s.depoStable_pyroN2O, true),
       fmtSec(s.depoStable_pyroNH3, true),
       fmtSec(s.depoStable_pyroPN2, true),
       fmtSec(s.depoStable_pyroH2, true),
-      fmtSec(s.depoStable_pyroSiH4, true),
       fmtSec(s.depoStable_tvCtrlMode, true),
       fmtSec(s.depo_rfForwardAct, true),
       fmtSec(s.plStable_pyroAr, true),
@@ -1725,12 +1725,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   {/* Tier 2 Header - Subtle Parameter Sub-headers */}
                   <tr className="border-b border-slate-400 text-[11px] font-sans font-semibold text-[#1E293B]">
                     {/* Start Depo. Stable */}
+                    <th className={TINT_RF_TH2}>{getAlias('sih4', 'SiH4')}</th>
                     <th className={TINT_RF_TH2}>{getAlias('ar', 'Ar')}</th>
                     <th className={TINT_RF_TH2}>{getAlias('n2o', 'N2O')}</th>
                     <th className={TINT_RF_TH2}>{getAlias('nh3', 'NH3')}</th>
                     <th className={TINT_RF_TH2}>{getAlias('pn2', 'PN2')}</th>
                     <th className={TINT_RF_TH2}>{getAlias('h2', 'H2')}</th>
-                    <th className={TINT_RF_TH2}>{getAlias('sih4', 'SiH4')}</th>
                     <th className={TINT_RF_TH2}>{getAlias('tv_mode', 'T/V')}</th>
                     {/* Start Depo. Power */}
                     <th className={`${TINT_RF_TH2} font-bold text-[#1E3A8A]`}>{getAlias('rf_power', 'Power')}</th>
@@ -1852,12 +1852,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           </div>
                         </td>
                         {/* Start Depo. Stable (7 cols) */}
+                        {renderCleanTd(s.depoStable_pyroSiH4)}
                         {renderCleanTd(s.depoStable_pyroAr)}
                         {renderCleanTd(s.depoStable_pyroN2O)}
                         {renderCleanTd(s.depoStable_pyroNH3)}
                         {renderCleanTd(s.depoStable_pyroPN2)}
                         {renderCleanTd(s.depoStable_pyroH2)}
-                        {renderCleanTd(s.depoStable_pyroSiH4)}
                         {renderCleanTd(s.depoStable_tvCtrlMode)}
                         {/* Start Depo. Power (1 col) */}
                         {renderCleanTd(s.depo_rfForwardAct)}

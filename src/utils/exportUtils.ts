@@ -114,7 +114,7 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
   // 3. HW Control Start
   const startHeaders = [
     'No.', 'RCP Name',
-    'Depo Stable: N2O', 'Depo Stable: NH3', 'Depo Stable: PN2', 'Depo Stable: H2', 'Depo Stable: SiH4', 'Depo Stable: T/V',
+    'Depo Stable: SiH4', 'Depo Stable: Ar', 'Depo Stable: N2O', 'Depo Stable: NH3', 'Depo Stable: PN2', 'Depo Stable: H2', 'Depo Stable: T/V',
     'Depo: RF Power(Act)',
     'PL Stable: Ar', 'PL Stable: H2', 'PL Stable: T/V',
     'PL: RF Power(Act)'
@@ -123,7 +123,7 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     const s = r.hwStart;
     return [
       s.no, s.rcpName,
-      s.depoStable_pyroN2O ?? '-', s.depoStable_pyroNH3 ?? '-', s.depoStable_pyroPN2 ?? '-', s.depoStable_pyroH2 ?? '-', s.depoStable_pyroSiH4 ?? '-', s.depoStable_tvCtrlMode ?? '-',
+      s.depoStable_pyroSiH4 ?? '-', s.depoStable_pyroAr ?? '-', s.depoStable_pyroN2O ?? '-', s.depoStable_pyroNH3 ?? '-', s.depoStable_pyroPN2 ?? '-', s.depoStable_pyroH2 ?? '-', s.depoStable_tvCtrlMode ?? '-',
       s.depo_rfForwardAct ?? '-',
       s.plStable_pyroAr ?? '-', s.plStable_pyroH2 ?? '-', s.plStable_tvCtrlMode ?? '-',
       s.pl_rfForwardAct ?? '-'
