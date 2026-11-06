@@ -158,9 +158,9 @@ export const TINT_FIXED_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DDE3EA
 export const TINT_RF_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C2D7EF] text-[#1E3A8A] font-bold text-[11px] font-sans align-middle';
 export const TINT_RF_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D7E5F4] text-[#1E3A8A] font-bold text-[11px] font-sans align-middle';
 
-// 3) Pressure, Spacing & Throttle Valve (T/V) 계통 - 세이지/틸 틴트
-export const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C6E1DB] text-[#115E59] font-bold text-[11px] font-sans align-middle';
-export const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DBECE7] text-[#115E59] font-bold text-[11px] font-sans align-middle';
+// 3) Pressure, Spacing & Throttle Valve (T/V) 계통 - 연두·올리브 틴트 (원본 로그 탭과 동일, Matcher 민트와 구분)
+export const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#DCE3B0] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
+export const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAEFCC] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
 
 // 4) Gas MFC 계통 - 앰버/샌드 틴트
 export const TINT_GAS_TH1 = 'py-1 px-1 border border-slate-400 bg-[#EEDBB8] text-[#78350F] font-bold text-[11px] font-sans align-middle';
