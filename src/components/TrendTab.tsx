@@ -759,11 +759,20 @@ export const RECIPE_KEYWORDS = [
   'GI_SIN', 'GI_SIO', 'a-Si', '3Layer',
 ];
 
+/**
+ * 우선 키워드: 한 Recipe Name에 여러 키워드가 함께 있으면 이 목록을 먼저 확인한다.
+ * 예) A4_a-Si_3layer_sih4 → a-Si (3Layer보다 우선)
+ * 나머지 키워드는 긴 단어부터 확인한다 (YILD2_B → YILD2).
+ */
+export const RECIPE_KEYWORD_PRIORITY = ['a-Si', 'GI_SIN', 'GI_SIO'];
+
 /** 키워드 안의 '-', '.' 같은 문자를 정규식에서 글자 그대로 찾도록 처리 */
 const escapeRegExp = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const RECIPE_KEYWORD_RES = [...RECIPE_KEYWORDS]
-  .sort((x, y) => y.length - x.length)
+const RECIPE_KEYWORD_RES = [
+  ...RECIPE_KEYWORD_PRIORITY,
+  ...RECIPE_KEYWORDS.filter(k => !RECIPE_KEYWORD_PRIORITY.includes(k)).sort((x, y) => y.length - x.length),
+]
   .map(k => ({ k, re: new RegExp(`(?<![A-Za-z])${escapeRegExp(k)}(?![A-Za-z])`, 'i') }));
 
 /**
