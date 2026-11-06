@@ -438,72 +438,63 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 1-2: Step 타임라인 설정 */}
-        <div className="space-y-1.5 pt-1 border-t border-slate-300">
+        {/* Section 2: Step 타임라인 표시 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
-            <span className="font-bold text-[#334155] flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-[#2563EB]" />
-              Step 타임라인
-            </span>
-            <label className="flex items-center gap-1 text-[10px] text-[#334155] font-bold cursor-pointer select-none">
+            <label htmlFor="step-timeline-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              2. Step 타임라인 표시
+            </label>
+            <span className="flex items-center gap-1.5">
+              {showStepTimeline && alignedSteps.length > 0 && (
+                <span
+                  className="text-[9.5px] font-bold text-[#2563EB] tabular-nums"
+                  title="기준 Run의 Step 수"
+                >
+                  {alignedSteps.length} Step
+                </span>
+              )}
               <input
+                id="step-timeline-toggle"
                 type="checkbox"
                 checked={showStepTimeline}
                 onChange={e => setShowStepTimeline(e.target.checked)}
                 className="w-3.5 h-3.5 rounded border-slate-400 text-[#2563EB] focus:ring-0 cursor-pointer"
               />
-              <span>표시</span>
-            </label>
+            </span>
           </div>
 
-          {showStepTimeline && (
-            <div className="p-1.5 bg-[#E2E8F0] rounded-xl border border-slate-300 space-y-1 text-[10px]">
-              <div className="flex items-center justify-between text-[#475569]">
-                <span>스텝 수:</span>
-                <span className="font-mono font-bold text-[#0F172A]">{alignedSteps.length}개 Step</span>
-              </div>
-              {files.length > 1 && (
-                <div>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[#64748B] font-medium">기준 Run:</span>
-                    {refFile && (
-                      <span className="text-[9px] font-mono text-[#2563EB] font-bold">
-                        {alignedSteps.length}개 Step
-                      </span>
-                    )}
-                  </div>
-                  <select
-                    value={refFile?.id || stepRefFileId}
-                    onChange={e => {
-                      const nextId = e.target.value;
-                      setStepRefFileId(nextId);
-                      if (visibleFileIds[nextId] === false) {
-                        setVisibleFileIds(prev => ({ ...prev, [nextId]: true }));
-                      }
-                    }}
-                    className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
-                  >
-                    {files.map((f, idx) => {
-                      const isVis = visibleFileIds[f.id] !== false;
-                      const rcpName = results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName;
-                      return (
-                        <option key={f.id} value={f.id}>
-                          #{idx + 1} {rcpName} {!isVis ? '(숨김)' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              )}
-            </div>
+          {showStepTimeline && files.length > 1 && (
+            <select
+              aria-label="Step 기준 Run"
+              title="Step 기준 Run: 이 Run의 Step 구간으로 위쪽 Step 띠와 구분선을 그립니다"
+              value={refFile?.id || stepRefFileId}
+              onChange={e => {
+                const nextId = e.target.value;
+                setStepRefFileId(nextId);
+                if (visibleFileIds[nextId] === false) {
+                  setVisibleFileIds(prev => ({ ...prev, [nextId]: true }));
+                }
+              }}
+              className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
+            >
+              {files.map((f, idx) => {
+                const isVis = visibleFileIds[f.id] !== false;
+                const rcpName = results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName;
+                return (
+                  <option key={f.id} value={f.id}>
+                    기준 #{idx + 1} {rcpName} {!isVis ? '(숨김)' : ''}
+                  </option>
+                );
+              })}
+            </select>
           )}
         </div>
 
-        {/* Section 2: 레시피 필터 */}
+        {/* Section 3: 레시피 필터 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              2. 레시피 필터 ({files.filter(f => visibleFileIds[f.id] !== false).length}/{files.length})
+              3. 레시피 필터 ({files.filter(f => visibleFileIds[f.id] !== false).length}/{files.length})
             </span>
             <button
               type="button"
@@ -590,7 +581,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              3. 파라미터 ({selectedMetrics.length})
+              4. 파라미터 ({selectedMetrics.length})
             </span>
             <div className="flex items-center gap-1 text-[9.5px]">
               <button
