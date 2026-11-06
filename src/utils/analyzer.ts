@@ -51,6 +51,7 @@ export const DEFAULT_SETTINGS: AnalyzerSettings = {
   rampUpPostOffsetSec: 3.0, // Ramping Up 실제 도달 후 시작 시점 n초 (기본값: 3.0초)
   rfRampDownTimeSec: 1.0,
   rsdPreOffsetSec: 1.0, // RSD 진입 전 Time (기본값: 1.0초)
+  rsdBandW: 300, // RSD 유지 판정 범위: RSD Power ± 300 W
   rfTolerancePct: 2.0,
   rfOnThresholdDepo: 300,
   rfOnThresholdPL: 500,
@@ -869,64 +870,65 @@ export function analyzeLogFile(
     r => r.rfForwardPowerAct > rsdThr && (baseSet <= 0 || r.rfForwardPowerAct < baseSet * 0.85)
   );
 
-  // RSD 판정 (꺼지는 중인 Ramp Down 샘플을 RSD로 오인하지 않도록 두 가지 근거 중 하나가 있어야 함)
-  //  A) Set 기준: RF Set이 0이 아닌 낮은 값(주방전의 85% 미만)으로 내려간 행이 2개 이상 (장비가 의도적으로 스텝다운)
-  //  B) 파워 기준: Set 기록이 없어도, 낮아진 파워가 3행 이상 연속으로 평평하게 유지 (최대/최소 ≤ 1.3)
-  //  ※ Set이 0이 된 뒤 10,150 → 3,191 → 372 W처럼 떨어지는 과도 구간은 A·B 모두 해당하지 않음 → RSD 아님
-  const isSetDownRow = (r: RawLogRow) =>
-    baseSet > 0 &&
-    ((r.rfForwardSetValue > 0 && r.rfForwardSetValue < baseSet * 0.85) ||
-      (r.rfForwardSetValueAct > 0 && r.rfForwardSetValueAct < baseSet * 0.85));
-  const setDownRows = rsdShelfRows.filter(isSetDownRow);
-  const setDownPwrRows = setDownRows.filter(r => r.rfForwardPowerAct > rsdThr);
-
-  // B) depoRows 상에서 연속된 pwrShelfRows 중, 값이 평평한 가장 긴 구간
-  let plateauRows: RawLogRow[] = [];
+  // RSD 판정 (사용자 정의 기준)
+  //  1) RSD Power: 주방전 Set을 유지하다가 0이 아닌 낮은 값(주방전 85% 미만)으로 내려간 Fwd Set 값
+  //     - Fwd Set이 0으로 기록되는 장비는 Fwd Set(A) 값을 사용, 단일 샘플 글리치를 막기 위해 같은 값이 2행 이상일 때만 인정
+  //  2) Start: Set을 내린 뒤 Fwd Act가 'RSD Power ± rsdBandW(기본 300W)' 범위에 처음 들어온 시점
+  //  3) End: Start 이후 범위를 2행 연속 벗어난 첫 시점 (다음 Step까지 이어서 탐색, 최대 15초)
+  //  4) RSD Time = End - Start (파일 경과 시간 기준), Act가 범위에 들어오지 않으면 0.0초
+  //  ※ Set이 0으로 떨어진 뒤 파워가 꺼지는 과정(예: 10,150 → 3,191 → 372 W)은 낮은 Set이 없으므로 RSD 아님
+  const rsdBandW = settings.rsdBandW ?? 300;
+  const effSet = (r: RawLogRow) => (r.rfForwardSetValue > 0 ? r.rfForwardSetValue : r.rfForwardSetValueAct);
+  let rsdSetDropTime: number | null = null;
   {
-    const idx = new Map(depoRows.map((r, i) => [r, i]));
-    let run: RawLogRow[] = [];
-    const flush = () => {
-      if (run.length > plateauRows.length) plateauRows = run;
-      run = [];
-    };
-    for (const r of pwrShelfRows) {
-      const prev = run[run.length - 1];
-      const consecutive = prev !== undefined && (idx.get(r) ?? -2) === (idx.get(prev) ?? -9) + 1;
-      if (prev !== undefined && !consecutive) flush();
-      const cand = [...run, r];
-      const vals = cand.map(x => x.rfForwardPowerAct);
-      if (Math.max(...vals) <= Math.min(...vals) * 1.3) run = cand;
-      else {
-        flush();
-        run = [r];
+    const reachIdx = depoRows.findIndex(r => r.rfForwardPowerAct >= setReachThreshold);
+    let dropIdx = -1;
+    if (baseSet > 0 && reachIdx >= 0) {
+      for (let i = reachIdx + 1; i < depoRows.length - 1; i++) {
+        const v = effSet(depoRows[i]);
+        if (v > 0 && v < baseSet * 0.85) {
+          const nv = effSet(depoRows[i + 1]);
+          if (Math.abs(nv - v) <= Math.max(1, v * 0.01)) {
+            dropIdx = i;
+            break;
+          }
+        }
       }
     }
-    flush();
-  }
-
-  const useSetEvidence = setDownRows.length >= 2 && setDownPwrRows.length >= 1;
-  const usePlateau = !useSetEvidence && plateauRows.length >= 3;
-
-  if (useSetEvidence || usePlateau) {
-    const targetRowsForStats = useSetEvidence ? (setDownPwrRows.length >= 2 ? setDownPwrRows : setDownRows) : plateauRows;
-    const avgPwr = targetRowsForStats.reduce((a, b) => a + b.rfForwardPowerAct, 0) / targetRowsForStats.length;
-
-    // RSD 유지 시간 산출:
-    // 주방전 직후 파워 하강 시작점(lastHighPowerRow의 시점)부터 마지막 잔류 방전 유지 행(lastPwrTime)까지의 실제 방전 유지 시간
-    const lastPwrTime = targetRowsForStats[targetRowsForStats.length - 1].stepAllTime;
-    const firstPwrTime = targetRowsForStats[0].stepAllTime;
-
-    // lastHighPowerRow 시점부터 하강 완료까지의 총 전이 및 유지 시간 (예: 11.8s - 10.7s = 1.1s)
-    const durationFromHighPwr = lastHighPowerRow ? Math.round((lastPwrTime - lastHighPowerRow.stepAllTime) * 10) / 10 : 0;
-    const durationPureShelf = Math.round((lastPwrTime - firstPwrTime) * 10) / 10;
-    const duration = (durationFromHighPwr >= 0.3 && durationFromHighPwr <= 10.0) ? durationFromHighPwr : durationPureShelf;
-
-    if (duration >= 0.3) {
+    if (dropIdx >= 0) {
+      const dropRow = depoRows[dropIdx];
+      const P = Math.round(effSet(dropRow));
       isRsdDetected = true;
-      const setPwr = setDownRows.find(r => r.rfForwardSetValue > 0 && r.rfForwardSetValue < baseSet * 0.85)?.rfForwardSetValue
-        || setDownRows.find(r => r.rfForwardSetValueAct > 0 && r.rfForwardSetValueAct < baseSet * 0.85)?.rfForwardSetValueAct;
-      rsdPower = setPwr ? setPwr : Math.round(avgPwr);
-      rsdTime = duration;
+      rsdPower = P;
+      rsdSetDropTime = dropRow.stepAllTime;
+
+      const inBand = (r: RawLogRow) => Math.abs(r.rfForwardPowerAct - P) <= rsdBandW;
+      const gi = rows.indexOf(dropRow);
+      const limitSec = dropRow.elapsedSec + 15;
+      let startRow: RawLogRow | null = null;
+      let endRow: RawLogRow | null = null;
+      let lastScanned: RawLogRow | null = null;
+      for (let k = Math.max(0, gi); k < rows.length && rows[k].elapsedSec <= limitSec; k++) {
+        const r = rows[k];
+        lastScanned = r;
+        if (!startRow) {
+          if (inBand(r) && r.rfForwardPowerAct < setReachThreshold) startRow = r;
+          continue;
+        }
+        if (!inBand(r)) {
+          const nx = rows[k + 1];
+          if (!nx || !inBand(nx)) {
+            endRow = r;
+            break;
+          }
+        }
+      }
+      if (startRow) {
+        const endT = (endRow ?? lastScanned ?? startRow).elapsedSec;
+        rsdTime = Math.max(0, Math.round((endT - startRow.elapsedSec) * 10) / 10);
+      } else {
+        rsdTime = 0.0;
+      }
     }
   }
 
@@ -956,11 +958,9 @@ export function analyzeLogFile(
     if (sih4CutoffTime !== null && sih4CutoffTime >= minRsdSearchTime) {
       candidateTimes.push(sih4CutoffTime);
     }
-    if (lastHighPowerRow) {
-      candidateTimes.push(lastHighPowerRow.stepAllTime);
-    }
-    if (rsdShelfRows.length > 0) {
-      candidateTimes.push(rsdShelfRows[0].stepAllTime);
+    // Set을 RSD Power로 내린 시점 (Act 응답 지연과 무관한 지시 시점)
+    if (rsdSetDropTime !== null) {
+      candidateTimes.push(rsdSetDropTime);
     }
     if (candidateTimes.length > 0) {
       rsdEntryTime = Math.min(...candidateTimes);

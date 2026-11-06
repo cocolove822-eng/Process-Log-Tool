@@ -159,6 +159,7 @@ export interface AnalyzerSettings {
   rampUpPostOffsetSec?: number; // Ramping Up 실제 도달 후 시작 시점 n초 (기본값: 3.0초)
   rfRampDownTimeSec: number; // 1.0
   rsdPreOffsetSec: number; // 1.0 (RSD 진입 전 시간 sec, 기본값: 1.0)
+  rsdBandW?: number; // 300 (RSD 유지 판정 범위: RSD Power ± W, 기본값: 300)
   rfTolerancePct: number; // 2%
   rfOnThresholdDepo: number; // 300 W
   rfOnThresholdPL: number; // 500 W

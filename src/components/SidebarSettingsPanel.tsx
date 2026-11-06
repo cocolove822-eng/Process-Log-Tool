@@ -154,6 +154,29 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
                 <div>• 일반: RF Off - {settings.rfRampDownTimeSec ?? 1.0}초</div>
                 <div>• RSD: 진입 - {settings.rsdPreOffsetSec ?? 1.0}초</div>
               </div>
+
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[9.5px] font-medium text-[#475569] leading-tight" title="Fwd Act가 RSD Power ± 이 값 안에 있는 동안을 RSD 유지 시간으로 계산합니다">
+                  RSD 판정 범위:
+                </span>
+                <div className="relative w-16 shrink-0">
+                  <input
+                    id="rsd-band-w"
+                    type="number"
+                    step="50"
+                    min="0"
+                    value={settings.rsdBandW ?? 300}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      onUpdateSettings({ ...settings, rsdBandW: Number.isFinite(val) && val >= 0 ? val : 300 });
+                    }}
+                    className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-lg pl-3 pr-4 py-0.5 text-[11px] text-center focus:outline-none focus:border-[#2563EB] shadow-2xs"
+                    title="RSD Power ± W (기본 300W)"
+                  />
+                  <span className="absolute left-1 top-0.5 text-[9px] text-[#2563EB] font-bold">±</span>
+                  <span className="absolute right-1 top-0.5 text-[9px] text-[#2563EB] font-bold">W</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
