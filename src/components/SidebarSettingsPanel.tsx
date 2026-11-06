@@ -53,11 +53,41 @@ const NumBox: React.FC<{ id: string; value: number; step: number; unit: string; 
         const v = parseFloat(e.target.value);
         onChange(Number.isFinite(v) && v >= 0 ? v : 0);
       }}
-      className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-md pl-1 pr-4 py-[1px] text-[11px] text-right focus:outline-none focus:border-[#2563EB]"
+      className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-md pl-1 pr-4 py-[1px] text-[11px] text-right focus:outline-none focus:border-[#2563EB] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
     />
     <span className="absolute right-1 top-[2px] text-[9px] text-[#2563EB] font-bold pointer-events-none">{unit}</span>
   </div>
 );
+
+/** 주의/경보 숫자 칸 (빈칸 = 판정 안 함) */
+const LevelBox: React.FC<{
+  tone: 'warn' | 'alarm';
+  value: number | null;
+  step: number;
+  unit: string;
+  onChange: (v: number | null) => void;
+}> = ({ tone, value, step, unit, onChange }) => {
+  const c =
+    tone === 'warn'
+      ? 'bg-amber-50 border-amber-300 text-amber-900 focus:border-amber-500'
+      : 'bg-rose-50 border-rose-300 text-rose-900 focus:border-rose-500';
+  const u = tone === 'warn' ? 'text-amber-700' : 'text-rose-700';
+  return (
+    <span className="relative w-[58px] shrink-0" title={tone === 'warn' ? '주의 (Warning) 기준' : '경보 (Alarm) 기준'}>
+      <input
+        type="number"
+        step={step}
+        value={value ?? ''}
+        onChange={e => {
+          const v = parseFloat(e.target.value);
+          onChange(e.target.value === '' || !Number.isFinite(v) ? null : v);
+        }}
+        className={`w-full border rounded-md pl-1 pr-4 py-[1px] text-[11px] font-bold text-right focus:outline-none focus:bg-white [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${c}`}
+      />
+      <span className={`absolute right-1 top-[2px] text-[9px] font-bold pointer-events-none ${u}`}>{unit}</span>
+    </span>
+  );
+};
 
 export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
   settings,
@@ -166,441 +196,99 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* Group 2: 2. 항목별 Warning Alarm 판정 기준 */}
+      {/* Group 2: 항목별 Warning · Alarm 판정 기준 (1번과 같은 한 줄 배치) */}
       {/* ========================================================================= */}
       <div className="space-y-1.5 pt-1 border-t border-slate-300">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-[11px] font-bold text-[#0F172A]">
+        <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
+          <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            <span>2. 항목별 Warning Alarm 판정 기준</span>
+            <span>2. 항목별 판정 기준</span>
           </div>
-          <span className="text-[9px] text-[#64748B] font-semibold">주의 · 경보</span>
+          <span className="flex items-center gap-1.5 text-[9px] font-semibold">
+            <span className="flex items-center gap-0.5 text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-sm bg-amber-400" />주의
+            </span>
+            <span className="flex items-center gap-0.5 text-rose-700">
+              <span className="w-1.5 h-1.5 rounded-sm bg-rose-500" />경보
+            </span>
+          </span>
         </div>
 
-        {/* Compact Legend Box */}
-        <div className="px-2 py-0.5 rounded-md bg-slate-200/60 border border-slate-300 flex items-center justify-between text-[8.5px] text-[#475569]">
-          <span className="font-semibold">입력 규격:</span>
-          <div className="flex items-center gap-2 font-bold">
-            <span className="text-amber-800">⚠️ 좌: 주의 (Warn)</span>
-            <span className="text-slate-400">|</span>
-            <span className="text-rose-800">🚨 우: 경보 (Alarm)</span>
-          </div>
-        </div>
-
-        {/* Compact EC Parameter Cards: 한 열에 2행씩 배치하여 세로 크기 극대화 압축 */}
-        <div className="space-y-1.5">
-          {/* Card 1: RF Forward Power */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1: 항목명 + 판정 기준 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-[#1E40AF] flex items-center gap-1">
-                <Zap className="w-3 h-3 text-[#2563EB]" />
-                <span>RF Forward Power</span>
+        <div className="bg-white px-2 py-1.5 rounded-xl border border-slate-300 shadow-2xs space-y-1">
+          {(
+            [
+              { label: 'RF Forward', hint: 'Set ±', unit: '%', w: 'ecRfForwardWarningPct', a: 'ecRfForwardAlarmPct', step: 0.5, dot: 'bg-[#2563EB]' },
+              { label: 'RF Reflect', hint: 'Max', unit: 'W', w: 'ecRfReflectWarningW', a: 'ecRfReflectAlarmW', step: 10, dot: 'bg-[#7C3AED]' },
+              { label: 'Matcher', hint: 'Unif.', unit: '%', w: 'ecMatcherWarningPct', a: 'ecMatcherAlarmPct', step: 0.5, dot: 'bg-[#059669]' },
+              { label: 'T/V Press', hint: 'Set ±', unit: '%', w: 'ecPressureWarningPct', a: 'ecPressureAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
+              { label: 'T/V Pos.', hint: 'Unif.', unit: '%', w: 'ecPositionWarningPct', a: 'ecPositionAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
+              { label: 'Gas 유량', hint: 'Set ±', unit: '%', w: 'ecGasWarningPct', a: 'ecGasAlarmPct', step: 0.5, dot: 'bg-[#D97706]' },
+              { label: 'Heater', hint: '온도차 ±', unit: '℃', w: 'ecHeaterWarningC', a: 'ecHeaterAlarmC', step: 1, dot: 'bg-[#E11D48]' },
+            ] as const
+          ).map(row => (
+            <div key={row.label} className="flex items-center justify-between gap-1 whitespace-nowrap">
+              <span className="flex items-center gap-1 min-w-0">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.dot}`} />
+                <span className="text-[10.5px] font-bold text-[#0F172A]">{row.label}</span>
+                <span className="text-[9px] text-[#64748B] truncate">{row.hint}</span>
               </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">Set 편차 ±%</span>
-            </div>
-            {/* Row 2: 좌(주의) / 우(경보) 2행 입력 필드 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecRfForwardWarningPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecRfForwardWarningPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="2.0"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
+              <span className="flex items-center gap-1 shrink-0">
+                <LevelBox
+                  tone="warn"
+                  value={(settings as any)[row.w] ?? null}
+                  step={row.step}
+                  unit={row.unit}
+                  onChange={v => onUpdateSettings({ ...settings, [row.w]: v })}
                 />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">%</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecRfForwardAlarmPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecRfForwardAlarmPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="3.0"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
+                <LevelBox
+                  tone="alarm"
+                  value={(settings as any)[row.a] ?? null}
+                  step={row.step}
+                  unit={row.unit}
+                  onChange={v => onUpdateSettings({ ...settings, [row.a]: v })}
                 />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 2: RF Reflect Power */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-purple-700 flex items-center gap-1">
-                <Activity className="w-3 h-3 text-purple-600" />
-                <span>RF Reflect Power</span>
               </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">구간 Max W</span>
             </div>
-            {/* Row 2 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="10"
-                  value={settings.ecRfReflectWarningW ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecRfReflectWarningW: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="100"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">W</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="10"
-                  value={settings.ecRfReflectAlarmW ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecRfReflectAlarmW: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="200"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">W</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Matcher (Vpp/Irms/DC Bias) */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-emerald-700 flex items-center gap-1">
-                <Gauge className="w-3 h-3 text-emerald-600" />
-                <span>Matcher (Vpp/Irms/DC)</span>
-              </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">Uniformity Max%</span>
-            </div>
-            {/* Row 2 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecMatcherWarningPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecMatcherWarningPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="2.0"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">%</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecMatcherAlarmPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecMatcherAlarmPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="3.0"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 4: T/V Pressure (압력) */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-amber-700 flex items-center gap-1">
-                <Wind className="w-3 h-3 text-amber-600" />
-                <span>T/V Pressure (압력)</span>
-              </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">Set 편차 ±%</span>
-            </div>
-            {/* Row 2 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecPressureWarningPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecPressureWarningPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="2.0"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">%</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecPressureAlarmPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecPressureAlarmPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="5.0"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 5: T/V Position (개도율) */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-amber-700 flex items-center gap-1">
-                <Gauge className="w-3 h-3 text-amber-600" />
-                <span>T/V Position (개도율)</span>
-              </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">Uniformity Max%</span>
-            </div>
-            {/* Row 2 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={settings.ecPositionWarningPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecPositionWarningPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="0.5"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">%</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={settings.ecPositionAlarmPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecPositionAlarmPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="1.0"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 6: Gas Flow (전 종류) */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-orange-700 flex items-center gap-1">
-                <Wind className="w-3 h-3 text-orange-600" />
-                <span>Gas 유량 (전 종류)</span>
-              </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">Set 편차 ±%</span>
-            </div>
-            {/* Row 2 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecGasWarningPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecGasWarningPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="3.0"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">%</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={settings.ecGasAlarmPct ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecGasAlarmPct: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="5.0"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 7: Heater Zone (온도) */}
-          <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-            {/* Row 1 */}
-            <div className="flex items-center justify-between text-[10.5px] mb-1">
-              <span className="font-bold text-red-700 flex items-center gap-1">
-                <Thermometer className="w-3 h-3 text-red-600" />
-                <span>Heater Zone (온도)</span>
-              </span>
-              <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">온도차 ±℃</span>
-            </div>
-            {/* Row 2 */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-                <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-                <input
-                  type="number"
-                  step="1"
-                  value={settings.ecHeaterWarningC ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecHeaterWarningC: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="5"
-                  className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">℃</span>
-              </div>
-              <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-                <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-                <input
-                  type="number"
-                  step="1"
-                  value={settings.ecHeaterAlarmC ?? ''}
-                  onChange={e =>
-                    onUpdateSettings({
-                      ...settings,
-                      ecHeaterAlarmC: e.target.value === '' ? null : parseFloat(e.target.value),
-                    })
-                  }
-                  placeholder="10"
-                  className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
-                />
-                <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">℃</span>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* Group 3: 3. RF, Matcher & Gas Delay 기준 설정 (sec) */}
+      {/* Group 3: RF, Matcher & Gas Delay 기준 */}
       {/* ========================================================================= */}
       <div className="space-y-1.5 pt-1 border-t border-slate-300">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-[11px] font-bold text-[#0F172A]">
+        <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
+          <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-            <span>3. RF, Matcher & Gas Delay 기준 설정</span>
+            <span>3. Delay 판정 기준</span>
           </div>
-          <span className="text-[9px] text-[#64748B] font-semibold">지연시간 (sec)</span>
+          <span className="text-[9px] text-[#64748B] font-semibold">초과 시 표시</span>
         </div>
-
-        {/* Card: Delay Warning & Alarm Inputs */}
-        <div className="p-1.5 rounded-lg bg-white border border-slate-300 shadow-2xs hover:border-slate-400 transition-colors">
-          {/* Row 1 */}
-          <div className="flex items-center justify-between text-[10.5px] mb-1">
-            <span className="font-bold text-orange-700 flex items-center gap-1">
-              <Clock className="w-3 h-3 text-orange-600" />
-              <span>Delay 초과 기준 (sec)</span>
+        <div className="bg-white px-2 py-1.5 rounded-xl border border-slate-300 shadow-2xs">
+          <div
+            className="flex items-center justify-between gap-1 whitespace-nowrap"
+            title="RF Delay, Matcher Delay, Gas MFC 5종 Delay에 공통 적용됩니다"
+          >
+            <span className="flex items-baseline gap-1 min-w-0">
+              <span className="text-[10.5px] font-bold text-[#0F172A]">Delay</span>
+              <span className="text-[9px] text-[#64748B] truncate">RF·Matcher·Gas 공통</span>
             </span>
-            <span className="text-[8.5px] text-[#64748B] font-mono bg-slate-100 px-1 py-0.5 rounded">상한 초과</span>
-          </div>
-
-          {/* Row 2 */}
-          <div className="grid grid-cols-2 gap-1.5">
-            <div className="flex items-center bg-amber-50/70 border border-amber-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-amber-500 transition-colors">
-              <span className="text-[9px] font-bold text-amber-800 shrink-0 mr-1">⚠️ 주의</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={settings.ecDelayWarningSec ?? ''}
-                onChange={e =>
-                  onUpdateSettings({
-                    ...settings,
-                    ecDelayWarningSec: e.target.value === '' ? null : parseFloat(e.target.value),
-                  })
-                }
-                placeholder="0.3"
-                className="w-full bg-transparent text-right font-bold text-amber-900 text-[11px] focus:outline-none"
+            <span className="flex items-center gap-1 shrink-0">
+              <LevelBox
+                tone="warn"
+                value={settings.ecDelayWarningSec ?? null}
+                step={0.1}
+                unit="초"
+                onChange={v => onUpdateSettings({ ...settings, ecDelayWarningSec: v as any })}
               />
-              <span className="text-[9px] font-bold text-amber-700 ml-0.5 shrink-0">초</span>
-            </div>
-            <div className="flex items-center bg-rose-50/70 border border-rose-300 rounded px-1.5 py-0.5 shadow-2xs focus-within:bg-white focus-within:border-rose-500 transition-colors">
-              <span className="text-[9px] font-bold text-rose-800 shrink-0 mr-1">🚨 경보</span>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={settings.ecDelayAlarmSec ?? ''}
-                onChange={e =>
-                  onUpdateSettings({
-                    ...settings,
-                    ecDelayAlarmSec: e.target.value === '' ? null : parseFloat(e.target.value),
-                  })
-                }
-                placeholder="0.5"
-                className="w-full bg-transparent text-right font-bold text-rose-900 text-[11px] focus:outline-none"
+              <LevelBox
+                tone="alarm"
+                value={settings.ecDelayAlarmSec ?? null}
+                step={0.1}
+                unit="초"
+                onChange={v => onUpdateSettings({ ...settings, ecDelayAlarmSec: v as any })}
               />
-              <span className="text-[9px] font-bold text-rose-700 ml-0.5 shrink-0">초</span>
-            </div>
-          </div>
-
-          <div className="mt-1 text-[8.5px] text-[#64748B] leading-tight bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-            <div>• {settings.ecDelayWarningSec ?? 0.3}초 초과 ➔ ⚠️ Warning (주의)</div>
-            <div>• {settings.ecDelayAlarmSec ?? 0.5}초 초과 ➔ 🚨 Alarm (경보)</div>
-            <div className="text-[8px] text-[#94A3B8] mt-0.5">(RF, Matcher & Gas MFC 7종 Delay 산출값 공통 적용)</div>
+            </span>
           </div>
         </div>
       </div>
