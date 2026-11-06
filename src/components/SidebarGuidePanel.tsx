@@ -82,7 +82,8 @@ const SECTIONS: GuideSection[] = [
         <Item title="BB Mode (Depo 연속)">
           RF가 꺼지지 않고 다음 Depo Step으로 이어지면(로그의 <b>BB</b> 열 Enable) 행에 <b>BB</b> 배지가 붙고, End는{' '}
           <b>0.0초 = Step 전환 시점</b>으로 계산합니다. 다음 Step에서도 이어지는 가스·T/V는 <b>유지</b>, Power와 바뀐
-          Pressure Set은 새 Set 도달까지 걸린 시간을 <b>전환 x.x</b>로 표시합니다. 다음 Depo의 Start도 이미 켜져 있던
+          Pressure Set은 Set이 다음 Step 값으로 바뀐 시점을 <b>전환 x.x</b>로 표시합니다(미리 바뀌면 음수, Act 도달
+          시간은 마우스를 올리면 표시). 다음 Depo의 Start도 이미 켜져 있던
           항목은 <b>유지</b>입니다. 유지·전환 칸은 주의·경보 판정에서 제외됩니다.
         </Item>
         <Item title="공정 Sequence 타임라인">

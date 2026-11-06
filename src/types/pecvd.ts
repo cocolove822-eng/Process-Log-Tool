@@ -282,7 +282,7 @@ export interface MonitoringDataRow {
 /**
  * H/W Control 칸 상태 (BB Mode / 연속 Depo 전환)
  * - 'keep'  : 이전/다음 Step으로 끊기지 않고 이어짐 → "유지" 표시, 값 없음, 판정 제외
- * - 'trans' : 다음 Step의 새 Set으로 바뀌는 데 걸린 시간 → "전환 x.x" 표시, 판정 제외
+ * - 'trans' : Set이 다음 Step 값으로 바뀐 시점 → "전환 x.x" 표시, 판정 제외 (Act 도달 시간은 툴팁)
  */
 export type HWCellStatus = 'keep' | 'trans';
 
@@ -356,6 +356,8 @@ export interface HWControlEndRFRow {
   bbEnd?: HWBoundaryInfo | null;
   /** 칸별 상태 (키 = 필드 이름). 'keep' = "유지", 'trans' = "전환 x.x" */
   cellStatus?: Partial<Record<string, HWCellStatus>>;
+  /** '전환' 칸의 Act 도달 시간(초, 툴팁용). 표 값은 Set이 바뀐 시점 */
+  actReach?: Partial<Record<string, number | null>>;
 }
 
 export interface HWControlEndStepRow {

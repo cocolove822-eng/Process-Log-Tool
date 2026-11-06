@@ -2005,6 +2005,26 @@ export function analyzeLogFile(
     return on(rows[lastIdx]) && on(rows[firstIdx]);
   };
   const endNextStepRows = endNextIdx >= 0 ? rows.filter(r => r.step === rows[endNextIdx].step) : [];
+  /** '전환' 칸의 Act 도달 시간 (툴팁용, 키 = 필드 이름) */
+  const endActReach: Partial<Record<string, number | null>> = {};
+  /**
+   * Set이 다음 Step 값(target)으로 바뀐 행 찾기
+   * - 다음 Step 첫 행이 이미 target이면, Depo 끝쪽으로 거슬러 올라가 target이 시작된 첫 행 (Step 전환 전에 미리 바뀐 경우 음수)
+   * - 아니면 다음 Step 안에서 target이 처음 나온 행
+   */
+  const findSetChangeIdx = (getter: (r: RawLogRow) => number, target: number): number | null => {
+    if (endNextIdx < 0 || target <= 0) return null;
+    const near = (v: number) => Math.abs(v - target) <= Math.max(1, target * 0.01);
+    if (near(getter(rows[endNextIdx]))) {
+      let k = endNextIdx;
+      while (k - 1 >= depoFirstIdx && near(getter(rows[k - 1]))) k--;
+      return k;
+    }
+    for (let k = endNextIdx + 1; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
+      if (near(getter(rows[k]))) return k;
+    }
+    return null;
+  };
 
   const calcGasEndBb = (field: string, setG: GasGetter, actG: GasGetter): { offset: number | null; cumulativeTime: number | null } => {
     if (isContEnd && gasContinues(setG, actG, depoLastIdx, endNextIdx)) {
@@ -2022,35 +2042,52 @@ export function analyzeLogFile(
         endCellStatus.depo_tvCtrlMode = 'keep';
         return { offset: null, cumulativeTime: null };
       }
-      // Pressure Set 변경: 새 Set ± T/V Pressure 주의 %(기본 2%)에 2행 연속 들어온 시점
+      // Pressure Set 변경: 표 값 = Pressure Set이 다음 Step 값으로 바뀐 시점 (다른 End 칸과 같은 Set 기준)
+      // 툴팁 = Pressure Act가 새 Set ± T/V Pressure 주의 %(기본 2%)에 2행 연속 들어온 시점
       endCellStatus.depo_tvCtrlMode = 'trans';
+      const refIdx = endRefInfo ? endRefInfo.rowIdx : endNextIdx;
       const tolP = (settings.ecPressureWarningPct ?? 2) / 100;
       const inP = (r: RawLogRow | undefined) => !!r && r.step === rows[endNextIdx].step && Math.abs((r.tvPressure ?? 0) - pNext) <= pNext * tolP;
-      const refIdx = endRefInfo ? endRefInfo.rowIdx : endNextIdx;
+      endActReach.depo_tvCtrlMode = null;
       for (let k = endNextIdx; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
         if (inP(rows[k]) && inP(rows[k + 1])) {
-          const off = spanSec(refIdx, k);
-          return { offset: off, cumulativeTime: Math.round(((endRefInfo?.stepAllTime ?? totalDepoStepTime) + off) * 10) / 10 };
+          endActReach.depo_tvCtrlMode = spanSec(refIdx, k);
+          break;
         }
       }
-      return { offset: null, cumulativeTime: null };
+      const setIdx = findSetChangeIdx(r => r.tvPressureSet ?? 0, pNext);
+      if (setIdx === null) return { offset: null, cumulativeTime: null };
+      const off = spanSec(refIdx, setIdx);
+      return { offset: off, cumulativeTime: Math.round(((endRefInfo?.stepAllTime ?? totalDepoStepTime) + off) * 10) / 10 };
     }
     return calcTvEndOffsetByRow(depoStep, endRefInfo);
   };
 
-  // Power: BB 전환이면 다음 Step의 새 Set 도달까지 걸린 시간
+  // Power (BB 전환):
+  //  - 표 값 = Fwd Set이 다음 Step 값으로 바뀐 시점 (0.0초 = Step 전환, 미리 바뀌면 음수). 다음 Step Set이 같으면 '유지'
+  //  - 툴팁 = Fwd Act가 새 Set ± RF Forward 주의 %(기본 2%)에 2행 연속 들어온 시점
   let bbPowerTrans: number | null = null;
   if (isBbEnd) {
-    endCellStatus.depo_rfForwardAct = 'trans';
-    const inRf = (r: RawLogRow | undefined) => {
-      if (!r || r.step !== rows[endNextIdx].step) return false;
-      const sv = rfSetOf(r);
-      return sv > 0 && Math.abs(r.rfForwardPowerAct - sv) <= sv * (rfTolerance / 100);
-    };
-    for (let k = endNextIdx; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
-      if (inRf(rows[k]) && inRf(rows[k + 1])) {
-        bbPowerTrans = spanSec(endNextIdx, k);
-        break;
+    const nextRfSet = modeOf(endNextStepRows.map(rfSetOf));
+    const lastDepoSet = rfSetOf(rows[depoLastIdx - 1] ?? rows[depoLastIdx]);
+    const prevSet = depoLastIdx >= 1 && rows[depoLastIdx - 1].step === depoStep ? lastDepoSet : baseSet;
+    if (nextRfSet > 0 && Math.abs(nextRfSet - prevSet) <= Math.max(1, prevSet * 0.01) && Math.abs(nextRfSet - baseSet) <= Math.max(1, baseSet * 0.01)) {
+      endCellStatus.depo_rfForwardAct = 'keep';
+    } else {
+      endCellStatus.depo_rfForwardAct = 'trans';
+      const setIdx = findSetChangeIdx(rfSetOf, nextRfSet);
+      bbPowerTrans = setIdx !== null ? spanSec(endNextIdx, setIdx) : null;
+      const inRf = (r: RawLogRow | undefined) => {
+        if (!r || r.step !== rows[endNextIdx].step) return false;
+        const sv = rfSetOf(r);
+        return sv > 0 && Math.abs(r.rfForwardPowerAct - sv) <= sv * (rfTolerance / 100);
+      };
+      endActReach.depo_rfForwardAct = null;
+      for (let k = endNextIdx; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
+        if (inRf(rows[k]) && inRf(rows[k + 1])) {
+          endActReach.depo_rfForwardAct = spanSec(endNextIdx, k);
+          break;
+        }
       }
     }
   }
@@ -2092,6 +2129,7 @@ export function analyzeLogFile(
       ? { otherStep: bbEndInfo.otherStep, otherIsDepo: bbEndInfo.otherIsDepo, bbFlag: bbEndInfo.bbFlag, rfContinuous: bbEndInfo.rfContinuous, specificGas: bbEndInfo.specificGas }
       : null,
     cellStatus: endCellStatus,
+    actReach: endActReach,
   };
 
   const totalStepTimeStable = depoStableRows.length > 0 ? (depoStableRows[depoStableRows.length - 1].stepAllTime || 15.0) : 15.0;

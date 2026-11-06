@@ -3,7 +3,7 @@ import type { HWCellStatus, HWControlEndRFRow, HWControlStartRow } from '../type
 /**
  * H/W Control 칸 표시용 공통 헬퍼 (BB Mode / 연속 Depo 전환)
  * - 'keep'  → "유지" (이전/다음 Step으로 끊기지 않고 이어짐, 값 없음)
- * - 'trans' → "전환 x.x" (다음 Step의 새 Set에 도달하기까지 걸린 시간)
+ * - 'trans' → "전환 x.x" (Set이 다음 Step 값으로 바뀐 시점, Act 도달 시간은 툴팁)
  */
 export const hwStatusOf = (
   row: { cellStatus?: Partial<Record<string, HWCellStatus>> } | null | undefined,
@@ -46,6 +46,6 @@ export const hwBoundaryBadge = (
     );
   }
   if (parts.length === 0) return null;
-  parts.push("'유지' = 끊기지 않고 이어짐, '전환' = 새 Set 도달까지 걸린 시간 (두 칸 모두 주의·경보 판정 제외)");
+  parts.push("'유지' = 끊기지 않고 이어짐, '전환' = Set이 다음 Step 값으로 바뀐 시점 (두 칸 모두 주의·경보 판정 제외)");
   return { label: isBb ? 'BB' : '연속', title: parts.join('\n') };
 };

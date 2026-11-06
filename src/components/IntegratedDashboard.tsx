@@ -1818,7 +1818,8 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       isLast = false,
                       isAlarm = false,
                       isWarn = false,
-                      status?: 'keep' | 'trans'
+                      status?: 'keep' | 'trans',
+                      actReach?: number | null
                     ) => {
                       const formatted = fmtSec(val, true);
                       const cellStyle = getSelectedTdStyle(isSelected, false, isLast);
@@ -1829,7 +1830,11 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           <td
                             className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] whitespace-nowrap`}
                             style={cellStyle}
-                            title={status === 'keep' ? '다른 Step으로 끊기지 않고 이어짐 (판정 제외)' : '다음 Step의 새 Set에 도달하기까지 걸린 시간 (판정 제외)'}
+                            title={
+                              status === 'keep'
+                                ? '다른 Step으로 끊기지 않고 이어짐 (판정 제외)'
+                                : `Act 도달 ${actReach !== null && actReach !== undefined && isFinite(actReach) ? actReach.toFixed(1) : '-'}초`
+                            }
                           >
                             <span
                               className={`inline-flex items-center justify-center px-1 py-[1px] rounded border text-[10px] font-semibold leading-none ${
@@ -1914,8 +1919,8 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         {/* Start PL Power (1 col) */}
                         {renderCleanTd(s.pl_rfForwardAct)}
                         {/* End Depo. Step (8 cols) */}
-                        {renderCleanTd(e.depo_rfForwardAct, false, false, false, hwStatusOf(e, 'depo_rfForwardAct'))}
-                        {renderCleanTd(e.depo_tvCtrlMode, false, false, e.depo_tvCtrlMode !== null && e.depo_tvCtrlMode > 3.0, hwStatusOf(e, 'depo_tvCtrlMode'))}
+                        {renderCleanTd(e.depo_rfForwardAct, false, false, false, hwStatusOf(e, 'depo_rfForwardAct'), e.actReach?.depo_rfForwardAct)}
+                        {renderCleanTd(e.depo_tvCtrlMode, false, false, e.depo_tvCtrlMode !== null && e.depo_tvCtrlMode > 3.0, hwStatusOf(e, 'depo_tvCtrlMode'), e.actReach?.depo_tvCtrlMode)}
                         {renderCleanTd(e.depo_pyroSiH4, false, e.depo_pyroSiH4 !== null && e.depo_pyroSiH4 > 0.1, false, hwStatusOf(e, 'depo_pyroSiH4'))}
                         {renderCleanTd(e.depo_pyroAr, false, false, false, hwStatusOf(e, 'depo_pyroAr'))}
                         {renderCleanTd(e.depo_pyroN2O, false, false, false, hwStatusOf(e, 'depo_pyroN2O'))}
