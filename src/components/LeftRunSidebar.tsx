@@ -438,7 +438,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                     <span>Step · 날짜</span>
                   </div>
 
-                  <div className="bg-white rounded-lg border border-slate-300 overflow-hidden divide-y divide-slate-200">
+                  <div className="bg-[#F1F5F9] rounded-lg border border-slate-400 overflow-hidden divide-y divide-slate-300">
                   {files.map((file, idx) => {
                     const fileResults = results.filter(r => r.fileId === file.id);
                     const firstResult = fileResults[0];
@@ -464,7 +464,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                         key={`${file.id}_${idx}`}
                         onClick={() => onSelectRunIdx(isSelected ? null : (primaryResultIdx !== -1 ? primaryResultIdx : idx))}
                         className={`flex items-center gap-1 pl-1 pr-0.5 h-[26px] cursor-pointer group transition-colors ${
-                          isSelected ? 'bg-[#DBEAFE]' : 'hover:bg-[#F1F5F9]'
+                          isSelected ? 'bg-[#DBEAFE]' : idx % 2 ? 'bg-[#E2E8F0] hover:bg-[#D5DEE9]' : 'bg-[#EEF2F6] hover:bg-[#D5DEE9]'
                         }`}
                         title={`#${idx + 1} ${rcpDisplay}${file.meta.date ? ` · ${file.meta.date.slice(0, 10)}` : ''}`}
                       >
@@ -492,10 +492,10 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                               ? 'border-[#2563EB] text-[#1D4ED8] bg-blue-50'
                               : 'border-slate-200 text-[#2563EB] bg-white hover:border-slate-300'
                           }`}
-                          title="분석할 Step 선택 (Auto: 조건 기반 자동 감지)"
+                          title="분석할 Step 선택 (첫 항목: 조건 기반 자동 감지)"
                         >
                           <option value="all">
-                            {detectedDepo.length > 1 ? `Auto ×${detectedDepo.length}` : `Auto S${detectedDepo[0] ?? 3}`}
+                            {detectedDepo.length > 1 ? `Step ×${detectedDepo.length}` : `Step ${detectedDepo[0] ?? 3}`}
                           </option>
                           {detectedDepo.length > 0 && (
                             <optgroup label="조건 감지 Step">
@@ -506,7 +506,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                                   '';
                                 return (
                                   <option key={`auto_${stepNum}`} value={String(stepNum)}>
-                                    S{stepNum} {sName}
+                                    Step {stepNum} {sName}
                                   </option>
                                 );
                               })}
@@ -515,7 +515,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                           <optgroup label={`전체 Step (${allRecipeSteps.length})`}>
                             {allRecipeSteps.map(st => (
                               <option key={`all_${st.step}`} value={String(st.step)}>
-                                S{st.step} {st.name}
+                                Step {st.step} {st.name}
                                 {st.duration !== undefined && st.duration !== null ? ` · ${st.duration.toFixed(0)}s` : ''}
                                 {detectedDepo.includes(st.step) ? ' ★' : ''}
                               </option>
