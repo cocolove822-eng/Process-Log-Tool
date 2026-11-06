@@ -672,27 +672,27 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
               <thead className="sticky top-0 z-20 text-[11px] font-bold font-sans">
                 <tr className="border-b border-slate-400">
                   <th colSpan={5} className={TINT_FIXED_TH1}>
-                    시퀀스 기본 정보
-                  </th>
-                  <th colSpan={5} className={TINT_RF_TH1}>
-                    RF 특성 (W)
-                  </th>
-                  <th colSpan={5} className={TINT_MATCHER_TH1}>
-                    Matcher 특성
-                  </th>
-                  <th colSpan={6} className={TINT_PRES_TH1}>
-                    T/V & Pressure 제어
-                  </th>
-                  <th colSpan={4} className={TINT_LIFT_TH1}>
-                    Lift Spacing
+                    Step & Time
                   </th>
                   {usedGases.length > 0 && (
                     <th colSpan={usedGases.length * 2} className={TINT_GAS_TH1}>
-                      공정 가스 MFC (Set & Real)
+                      Process Gas (sccm)
                     </th>
                   )}
+                  <th colSpan={4} className={TINT_LIFT_TH1}>
+                    Lift Spacing
+                  </th>
+                  <th colSpan={6} className={TINT_PRES_TH1}>
+                    T/V & Pressure
+                  </th>
+                  <th colSpan={5} className={TINT_MATCHER_TH1}>
+                    Matcher Parameter
+                  </th>
+                  <th colSpan={5} className={TINT_RF_TH1}>
+                    RF Power (W)
+                  </th>
                   <th colSpan={Math.max(2, activeHeaterZones.length * 2)} className={TINT_HEAT_TH1}>
-                    Heater Zones 온도 (℃)
+                    Susceptor Zone 온도 (℃)
                   </th>
                 </tr>
 
@@ -707,36 +707,6 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                   <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step Time</th>
                   <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step</th>
 
-                  {/* 2. RF */}
-                  <th className={TINT_RF_TH2}>RF On</th>
-                  <th className={TINT_RF_TH2}>Fwd Set</th>
-                  <th className={TINT_RF_TH2}>Fwd Set(A)</th>
-                  <th className={`${TINT_RF_TH2} text-[#1D4ED8] font-bold`}>Fwd Act</th>
-                  <th className={`${TINT_RF_TH2} text-[#BE123C] font-bold`}>Reflect</th>
-
-                  {/* 3. Matcher */}
-                  <th className={TINT_MATCHER_TH2}>Load</th>
-                  <th className={TINT_MATCHER_TH2}>Tune</th>
-                  <th className={TINT_MATCHER_TH2}>Vpp</th>
-                  <th className={TINT_MATCHER_TH2}>Irms</th>
-                  <th className={`${TINT_MATCHER_TH2} text-[#047857] font-bold`}>Vdc</th>
-
-                  {/* 4. T/V & Pressure */}
-                  <th className={TINT_PRES_TH2}>T/V Mode</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold bg-[#F4E7CE]`} title="Mode가 Pressure면 Pressure, Position이면 Position 표시">
-                    T/V Active 제어
-                  </th>
-                  <th className={TINT_PRES_TH2}>Press Set</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold`}>Press Act</th>
-                  <th className={TINT_PRES_TH2}>Pos Set</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412]`}>Pos Act</th>
-
-                  {/* 5. Lift */}
-                  <th className={TINT_LIFT_TH2}>Spacing Set</th>
-                  <th className={`${TINT_LIFT_TH2} text-[#4338CA] font-bold`}>Spacing Act</th>
-                  <th className={TINT_LIFT_TH2} title="Lift Velocity (또는 Velcovity)">Lift Velocity</th>
-                  <th className={TINT_LIFT_TH2}>Lift Acc/Dec</th>
-
                   {/* 6. Used Gases */}
                   {usedGases.map(g => (
                     <React.Fragment key={g.key}>
@@ -748,6 +718,36 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                       </th>
                     </React.Fragment>
                   ))}
+
+                  {/* 5. Lift */}
+                  <th className={TINT_LIFT_TH2}>Spacing Set</th>
+                  <th className={`${TINT_LIFT_TH2} text-[#4338CA] font-bold`}>Spacing Act</th>
+                  <th className={TINT_LIFT_TH2} title="Lift Velocity (또는 Velcovity)">Lift Velocity</th>
+                  <th className={TINT_LIFT_TH2}>Lift Acc/Dec</th>
+
+                  {/* 4. T/V & Pressure */}
+                  <th className={TINT_PRES_TH2}>T/V Mode</th>
+                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold bg-[#F4E7CE]`} title="Mode가 Pressure면 Pressure, Position이면 Position 표시">
+                    T/V Active 제어
+                  </th>
+                  <th className={TINT_PRES_TH2}>Press Set</th>
+                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold`}>Press Act</th>
+                  <th className={TINT_PRES_TH2}>Pos Set</th>
+                  <th className={`${TINT_PRES_TH2} text-[#9A3412]`}>Pos Act</th>
+
+                  {/* 3. Matcher */}
+                  <th className={TINT_MATCHER_TH2}>Load</th>
+                  <th className={TINT_MATCHER_TH2}>Tune</th>
+                  <th className={TINT_MATCHER_TH2}>Vpp</th>
+                  <th className={TINT_MATCHER_TH2}>Irms</th>
+                  <th className={`${TINT_MATCHER_TH2} text-[#047857] font-bold`}>Vdc</th>
+
+                  {/* 2. RF */}
+                  <th className={TINT_RF_TH2}>RF On</th>
+                  <th className={TINT_RF_TH2}>Fwd Set</th>
+                  <th className={TINT_RF_TH2}>Fwd Set(A)</th>
+                  <th className={`${TINT_RF_TH2} text-[#1D4ED8] font-bold`}>Fwd Act</th>
+                  <th className={`${TINT_RF_TH2} text-[#BE123C] font-bold`}>Reflect</th>
 
                   {/* 7. Dynamic Heater Zones */}
                   {activeHeaterZones.map(zone => (
@@ -818,40 +818,34 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                           {r.step.toLocaleString()}
                         </td>
 
-                        {/* 2. RF */}
-                        <td className="py-1 px-1 text-center border border-slate-400">
-                          <span className={r.rfOn === 'On' ? 'text-[#2563EB] font-bold' : 'text-[#94A3B8] font-medium'}>
-                            {r.rfOn}
-                          </span>
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                          {fmtNum(r.rfForwardSetValue, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
-                          {fmtNum(r.rfForwardSetValueAct, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center font-bold text-[#1D4ED8] border border-slate-400">
-                          {fmtNum(r.rfForwardPowerAct, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#BE123C] font-bold border border-slate-400">
-                          {fmtNum(r.rfReflectPower, 0)}
-                        </td>
+                        {/* 6. Used Gases - 천자리 단위 콤마 적용 */}
+                        {usedGases.map(g => (
+                          <React.Fragment key={g.key}>
+                            <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                              {fmtNum(g.setGetter(r), 0)}
+                            </td>
+                            <td className="py-1 px-1 text-center font-bold text-[#C2410C] border border-slate-400">
+                              {fmtNum(g.actGetter(r), 0)}
+                            </td>
+                          </React.Fragment>
+                        ))}
 
-                        {/* 3. Matcher */}
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherLoad, 2)}
+                        {/* 5. Lift */}
+                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                          {fmtNum(r.liftSpacingSet, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherTune, 2)}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-[#4338CA] font-bold">
+                          {fmtNum(r.liftSpacing, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherVpp, 1)}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
+                          {hasLiftVel && r.liftVelocity !== null && r.liftVelocity !== undefined
+                            ? fmtNum(r.liftVelocity, 0)
+                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherIrms, 1)}
-                        </td>
-                        <td className="py-1 px-1 text-center font-bold text-[#047857] border border-slate-400">
-                          {fmtNum(r.matcherDCBias, 1)}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
+                          {hasLiftAcc && r.liftAccDec !== null && r.liftAccDec !== undefined
+                            ? fmtNum(r.liftAccDec, 0)
+                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
                         </td>
 
                         {/* 4. T/V & Pressure */}
@@ -876,35 +870,41 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                           {fmtNum(r.tvPosition, 1)}%
                         </td>
 
-                        {/* 5. Lift */}
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                          {fmtNum(r.liftSpacingSet, 0)}
+                        {/* 3. Matcher */}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                          {fmtNum(r.matcherLoad, 2)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#4338CA] font-bold">
-                          {fmtNum(r.liftSpacing, 0)}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                          {fmtNum(r.matcherTune, 2)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
-                          {hasLiftVel && r.liftVelocity !== null && r.liftVelocity !== undefined
-                            ? fmtNum(r.liftVelocity, 0)
-                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                          {fmtNum(r.matcherVpp, 1)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
-                          {hasLiftAcc && r.liftAccDec !== null && r.liftAccDec !== undefined
-                            ? fmtNum(r.liftAccDec, 0)
-                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
+                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                          {fmtNum(r.matcherIrms, 1)}
+                        </td>
+                        <td className="py-1 px-1 text-center font-bold text-[#047857] border border-slate-400">
+                          {fmtNum(r.matcherDCBias, 1)}
                         </td>
 
-                        {/* 6. Used Gases - 천자리 단위 콤마 적용 */}
-                        {usedGases.map(g => (
-                          <React.Fragment key={g.key}>
-                            <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                              {fmtNum(g.setGetter(r), 0)}
-                            </td>
-                            <td className="py-1 px-1 text-center font-bold text-[#C2410C] border border-slate-400">
-                              {fmtNum(g.actGetter(r), 0)}
-                            </td>
-                          </React.Fragment>
-                        ))}
+                        {/* 2. RF */}
+                        <td className="py-1 px-1 text-center border border-slate-400">
+                          <span className={r.rfOn === 'On' ? 'text-[#2563EB] font-bold' : 'text-[#94A3B8] font-medium'}>
+                            {r.rfOn}
+                          </span>
+                        </td>
+                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                          {fmtNum(r.rfForwardSetValue, 0)}
+                        </td>
+                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
+                          {fmtNum(r.rfForwardSetValueAct, 0)}
+                        </td>
+                        <td className="py-1 px-1 text-center font-bold text-[#1D4ED8] border border-slate-400">
+                          {fmtNum(r.rfForwardPowerAct, 0)}
+                        </td>
+                        <td className="py-1 px-1 text-center text-[#BE123C] font-bold border border-slate-400">
+                          {fmtNum(r.rfReflectPower, 0)}
+                        </td>
 
                         {/* 7. Dynamic Heater Zones - 천자리 단위 콤마 적용 */}
                         {activeHeaterZones.map(zone => {
