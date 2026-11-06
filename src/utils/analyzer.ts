@@ -1947,15 +1947,24 @@ export function analyzeLogFile(
 
   // ─────────────────────────────────────────────────────────────
   // BB / 연속 Depo 전환 시 End 기준점과 칸 상태
-  //  - BB 전환(RF가 꺼지지 않고 다음 Step으로 이어짐): 0.0초 = 다음 Step 전환 시점(다음 Step 첫 행)
+  //  - BB 전환(RF가 꺼지지 않고 다음 Step으로 이어짐): 0.0초 = 다음 Step 전환 시점(다음 Step의 Step All Time 0.0에 해당하는 행)
   //    · Power: 다음 Step의 새 Set ± 허용오차(RF Forward 주의 %)에 2행 연속 들어온 시점 → '전환'
   //  - 연속 경계(BB 전환 또는 바로 다음 Step도 Depo):
   //    · Gas: 경계 앞뒤 행 모두에서 흐르고 있으면 '유지' (값 없음), 아니면 실제 차단 시점
   //    · T/V: 경계 앞뒤 모두 PRESSURE 제어면 Pressure Set이 같을 때 '유지', 다르면 새 Set 도달까지 '전환'
   //  - '유지'/'전환' 칸은 주의·경보 판정에서 제외 (화면에서 처리)
   // ─────────────────────────────────────────────────────────────
+  // BB 전환 기준 행(0.0초): 다음 Step의 Step All Time 0.0 시점에 해당하는 행
+  //  - 다음 Step 첫 행이 Step All Time 0.1로 기록되는 로그(#9 등)는 그 직전 행(Depo 마지막 행)이 0.0초
+  //    → 다음 Step 행들의 시간이 원본 로그의 Step All Time과 같은 숫자로 표시됨
+  //  - 첫 행이 0.0이면 다음 Step 첫 행이 0.0초
+  const bbRefIdx = (() => {
+    if (!isBbEnd) return -1;
+    const lead = rows[endNextIdx].stepAllTime ?? 0;
+    return lead > 0.05 && lead <= 0.15 && endNextIdx - 1 >= depoFirstIdx ? endNextIdx - 1 : endNextIdx;
+  })();
   const endRefInfo: { rowIdx: number; stepAllTime: number } | null = isBbEnd
-    ? { rowIdx: endNextIdx, stepAllTime: totalDepoStepTime }
+    ? { rowIdx: bbRefIdx, stepAllTime: totalDepoStepTime }
     : depoRfOffInfo;
   const endCellStatus: Partial<Record<string, HWCellStatus>> = {};
 
@@ -2064,7 +2073,7 @@ export function analyzeLogFile(
   };
 
   // Power (BB 전환):
-  //  - 표 값 = Fwd Set이 다음 Step 값으로 바뀐 시점 (0.0초 = Step 전환, 미리 바뀌면 음수). 다음 Step Set이 같으면 '유지'
+  //  - 표 값 = Fwd Set이 다음 Step 값으로 바뀐 시점 (0.0초 = Step 전환 기준 행, 미리 바뀌면 음수). 다음 Step Set이 같으면 '유지'
   //  - 툴팁 = Fwd Act가 새 Set ± RF Forward 주의 %(기본 2%)에 2행 연속 들어온 시점
   let bbPowerTrans: number | null = null;
   if (isBbEnd) {
@@ -2076,7 +2085,7 @@ export function analyzeLogFile(
     } else {
       endCellStatus.depo_rfForwardAct = 'trans';
       const setIdx = findSetChangeIdx(rfSetOf, nextRfSet);
-      bbPowerTrans = setIdx !== null ? spanSec(endNextIdx, setIdx) : null;
+      bbPowerTrans = setIdx !== null ? spanSec(bbRefIdx, setIdx) : null;
       const inRf = (r: RawLogRow | undefined) => {
         if (!r || r.step !== rows[endNextIdx].step) return false;
         const sv = rfSetOf(r);
@@ -2085,7 +2094,7 @@ export function analyzeLogFile(
       endActReach.depo_rfForwardAct = null;
       for (let k = endNextIdx; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
         if (inRf(rows[k]) && inRf(rows[k + 1])) {
-          endActReach.depo_rfForwardAct = spanSec(endNextIdx, k);
+          endActReach.depo_rfForwardAct = spanSec(bbRefIdx, k);
           break;
         }
       }
