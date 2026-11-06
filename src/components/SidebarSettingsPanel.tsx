@@ -19,6 +19,46 @@ interface SidebarSettingsPanelProps {
   onOpenGuide?: () => void;
 }
 
+/** 설정 한 줄: 왼쪽 항목 이름 + 설명, 오른쪽 숫자 입력 */
+const SettingRow: React.FC<{ label: string; hint: string; title: string; children: React.ReactNode }> = ({
+  label,
+  hint,
+  title,
+  children,
+}) => (
+  <div className="flex items-center justify-between gap-1.5 whitespace-nowrap" title={title}>
+    <span className="flex items-baseline gap-1 min-w-0">
+      <span className="text-[10.5px] font-bold text-[#0F172A]">{label}</span>
+      <span className="text-[9px] text-[#64748B] truncate">{hint}</span>
+    </span>
+    {children}
+  </div>
+);
+
+const NumBox: React.FC<{ id: string; value: number; step: number; unit: string; onChange: (v: number) => void }> = ({
+  id,
+  value,
+  step,
+  unit,
+  onChange,
+}) => (
+  <div className="relative w-[64px] shrink-0">
+    <input
+      id={id}
+      type="number"
+      step={step}
+      min={0}
+      value={value}
+      onChange={e => {
+        const v = parseFloat(e.target.value);
+        onChange(Number.isFinite(v) && v >= 0 ? v : 0);
+      }}
+      className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-md pl-1 pr-4 py-[1px] text-[11px] text-right focus:outline-none focus:border-[#2563EB]"
+    />
+    <span className="absolute right-1 top-[2px] text-[9px] text-[#2563EB] font-bold pointer-events-none">{unit}</span>
+  </div>
+);
+
 export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
   settings,
   onUpdateSettings,
@@ -74,111 +114,54 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
           <span className="text-[9px] text-[#64748B] font-semibold">분석 구간 제어</span>
         </div>
 
-        {/* 시작시점과 종료시점을 가로 2단 그리드로 배치하여 세로 크기 극대화 압축 */}
-        <div className="grid grid-cols-2 gap-1.5">
-          {/* 1-1. 분석 구간 설정 (시작시점) - Ramping Up 실제 도달 기준 + n초 */}
-          <div className="bg-white p-2 rounded-xl border border-slate-300 shadow-2xs flex flex-col justify-between space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-[#0F172A] truncate">구간 시작시점</span>
-              <span className="text-[8.5px] font-bold text-[#2563EB] bg-blue-50 px-1 py-0.5 rounded border border-blue-200 shrink-0">
-                실제 도달
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[9.5px] font-medium text-[#475569] leading-tight">도달 후 버퍼:</span>
-                <div className="relative w-16 shrink-0">
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={settings.rampUpPostOffsetSec ?? settings.rfStableTimeSec ?? 3.0}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0;
-                      onUpdateSettings({
-                        ...settings,
-                        rampUpPostOffsetSec: val,
-                        rfStableTimeSec: val,
-                        analysisIntervalMode: 'set_reached',
-                      });
-                    }}
-                    className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-lg pl-1.5 pr-4 py-0.5 text-[11px] text-center focus:outline-none focus:border-[#2563EB] shadow-2xs"
-                    title="Ramping Up 실제 목표 도달 후 데이터 수집을 시작할 버퍼 시간(초)"
-                  />
-                  <span className="absolute right-1 top-0.5 text-[9px] text-[#2563EB] font-bold">초</span>
-                </div>
-              </div>
-
-              <div className="text-[9px] text-[#64748B] leading-tight bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-                <div className="font-semibold text-[#1E40AF] truncate">• 목표(98%) 도달 기준</div>
-                <div>+ {settings.rampUpPostOffsetSec ?? settings.rfStableTimeSec ?? 3.0}초 후 수집 시작</div>
-              </div>
-            </div>
-          </div>
-
-          {/* 1-2. 분석 구간 설정 (종료시점) - 종료 전 제외 버퍼 */}
-          <div className="bg-white p-2 rounded-xl border border-slate-300 shadow-2xs flex flex-col justify-between space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-[#0F172A] truncate">구간 종료시점</span>
-              <span className="text-[8.5px] font-semibold text-[#64748B] bg-slate-100 px-1 py-0.5 rounded border border-slate-200 shrink-0">
-                종료 전 버퍼
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[9.5px] font-medium text-[#475569] leading-tight">종료 전 버퍼:</span>
-                <div className="relative w-16 shrink-0">
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={settings.rfRampDownTimeSec ?? 1.0}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0;
-                      onUpdateSettings({
-                        ...settings,
-                        rfRampDownTimeSec: val,
-                        rsdPreOffsetSec: val,
-                      });
-                    }}
-                    className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-lg pl-1.5 pr-4 py-0.5 text-[11px] text-center focus:outline-none focus:border-[#2563EB] shadow-2xs"
-                    title="공정 종료 전(RF Off 직전 또는 RSD 진입 직전) 제외할 버퍼 시간 (초)"
-                  />
-                  <span className="absolute right-1 top-0.5 text-[9px] text-[#2563EB] font-bold">초</span>
-                </div>
-              </div>
-
-              <div className="text-[9px] text-[#64748B] leading-tight bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-                <div>• 일반: RF Off - {settings.rfRampDownTimeSec ?? 1.0}초</div>
-                <div>• RSD: 진입 - {settings.rsdPreOffsetSec ?? 1.0}초</div>
-              </div>
-
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[9.5px] font-medium text-[#475569] leading-tight" title="Fwd Act가 RSD Power ± 이 값 안에 있는 동안을 RSD 유지 시간으로 계산합니다">
-                  RSD 판정 범위:
-                </span>
-                <div className="relative w-16 shrink-0">
-                  <input
-                    id="rsd-band-w"
-                    type="number"
-                    step="50"
-                    min="0"
-                    value={settings.rsdBandW ?? 300}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value);
-                      onUpdateSettings({ ...settings, rsdBandW: Number.isFinite(val) && val >= 0 ? val : 300 });
-                    }}
-                    className="w-full bg-white border border-slate-300 text-[#2563EB] font-bold rounded-lg pl-3 pr-4 py-0.5 text-[11px] text-center focus:outline-none focus:border-[#2563EB] shadow-2xs"
-                    title="RSD Power ± W (기본 300W)"
-                  />
-                  <span className="absolute left-1 top-0.5 text-[9px] text-[#2563EB] font-bold">±</span>
-                  <span className="absolute right-1 top-0.5 text-[9px] text-[#2563EB] font-bold">W</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* 분석 구간: 한 카드에 한 줄씩 (시작 · 종료 · RSD 판정 범위) */}
+        <div className="bg-white px-2 py-1.5 rounded-xl border border-slate-300 shadow-2xs space-y-1">
+          <SettingRow
+            label="구간 시작"
+            hint="목표(98%) 도달 후"
+            title="Ramping Up 실제 목표(98%) 도달 후 데이터 수집을 시작할 버퍼 시간(초)"
+          >
+            <NumBox
+              id="set-start-buffer"
+              value={settings.rampUpPostOffsetSec ?? settings.rfStableTimeSec ?? 3.0}
+              step={0.5}
+              unit="초"
+              onChange={val =>
+                onUpdateSettings({
+                  ...settings,
+                  rampUpPostOffsetSec: val,
+                  rfStableTimeSec: val,
+                  analysisIntervalMode: 'set_reached',
+                })
+              }
+            />
+          </SettingRow>
+          <SettingRow
+            label="구간 종료"
+            hint="RF Off·RSD 진입 전"
+            title="공정 종료 전(RF Off 직전 또는 RSD 진입 직전) 제외할 버퍼 시간(초)"
+          >
+            <NumBox
+              id="set-end-buffer"
+              value={settings.rfRampDownTimeSec ?? 1.0}
+              step={0.5}
+              unit="초"
+              onChange={val => onUpdateSettings({ ...settings, rfRampDownTimeSec: val, rsdPreOffsetSec: val })}
+            />
+          </SettingRow>
+          <SettingRow
+            label="RSD 판정"
+            hint="RSD Power ±"
+            title="Fwd Act가 RSD Power ± 이 값 안에 있는 동안을 RSD 유지 시간으로 계산합니다 (기본 300W)"
+          >
+            <NumBox
+              id="rsd-band-w"
+              value={settings.rsdBandW ?? 300}
+              step={50}
+              unit="W"
+              onChange={val => onUpdateSettings({ ...settings, rsdBandW: val })}
+            />
+          </SettingRow>
         </div>
       </div>
 
