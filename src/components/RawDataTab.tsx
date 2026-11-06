@@ -39,7 +39,10 @@ const CANDIDATE_GASES: GasDef[] = [
 
 const ROW_HEIGHT = 30; // Pixel-precise row height
 // 열 너비: Step & Time 5열은 각자 너비, 나머지 묶음(Gas·Lift·T/V·Matcher·RF·Susceptor)의 모든 열은 같은 너비
-const STEP_TIME_COL_WIDTHS = [84, 140, 64, 58, 36]; // Step Name, Time, Step All Time, Step Time, Step
+const STEP_TIME_COL_WIDTHS = [150, 58, 58, 58, 84, 36]; // Time, Step Time, All Time, Time Set, Name, No.
+// Step & Time 6열 틀 고정: 각 열의 왼쪽 위치(px) = 앞 열 너비의 합
+const STEP_TIME_STICKY_LEFT = STEP_TIME_COL_WIDTHS.map((_, i) => STEP_TIME_COL_WIDTHS.slice(0, i).reduce((a, b) => a + b, 0));
+const stickyStyle = (i: number): React.CSSProperties => ({ position: 'sticky', left: STEP_TIME_STICKY_LEFT[i] });
 const UNIFORM_COL_WIDTH = 64;
 const OVERSCAN = 25;   // Pre-rendered buffer rows above & below viewport for 60fps scrolling
 
@@ -716,7 +719,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
               {/* Header Tier 1: Group Badges (공정 종합 분석과 동일한 카테고리 틴트 시스템) */}
               <thead className="sticky top-0 z-20 text-[11px] font-bold font-sans">
                 <tr className="border-b border-slate-400">
-                  <th colSpan={5} className={TINT_FIXED_TH1}>
+                  <th colSpan={6} className={`${TINT_FIXED_TH1} z-30`} style={stickyStyle(0)}>
                     Step & Time
                   </th>
                   {usedGases.length > 0 && (
@@ -744,13 +747,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 {/* Header Tier 2: Individual Column Names */}
                 <tr className="border-b border-slate-400 text-[11px] font-sans font-semibold text-[#1E293B]">
                   {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0) */}
-                  <th className={`${TINT_FIXED_TH2} sticky left-0 z-30 shadow-xs`}>
-                    Step Name
-                  </th>
-                  <th className={TINT_FIXED_TH2}>Time</th>
-                  <th className={TINT_FIXED_TH2}>Step All Time</th>
-                  <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step Time</th>
-                  <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step</th>
+                  {/* Step & Time 6열은 좌우 스크롤해도 보이도록 틀 고정 */}
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(0)}>Time</th>
+                  <th className={`${TINT_FIXED_TH2} z-30 text-[#1D4ED8]`} style={stickyStyle(1)}>Step Time</th>
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(2)} title="Step All Time">All Time</th>
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(3)} title="Step Time Set">Time Set</th>
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(4)} title="Step Name">Name</th>
+                  <th className={`${TINT_FIXED_TH2} z-30 raw-sticky-edge`} style={stickyStyle(5)} title="Step No.">No.</th>
 
                   {/* 6. Used Gases */}
                   {usedGases.map(g => (
@@ -840,27 +843,49 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         key={r.rowIndex}
                         onClick={() => setSelectedRowIndex(prev => (prev === r.rowIndex ? null : r.rowIndex))}
                         className={`group transition-colors h-[30px] cursor-pointer ${rowBgClass} hover:bg-blue-50/80 ${
-                          isStepStart ? '[&>td]:border-t-2 [&>td]:border-t-[#2563EB]' : ''
+                          isStepStart ? 'raw-step-start' : ''
                         } ${selectedRowIndex === r.rowIndex ? 'raw-row-selected' : ''}`}
                         style={{ height: `${ROW_HEIGHT}px` }}
                       >
                         {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0, matching row background) */}
                         <td
-                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 sticky left-0 z-10 truncate max-w-[130px] shadow-xs ${nameCellBg} group-hover:bg-[#EFF6FF]`}
+                          className={`py-1 px-2 text-center text-slate-900 font-medium border border-slate-400 text-[11px] whitespace-nowrap z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(0)}
+                        >
+                          {r.timeStr}
+                        </td>
+                        {/* Step Time: 0.1s 이상일 때만 파란 강조 */}
+                        <td
+                          className={`py-1 px-1 text-center font-bold border border-slate-400 z-10 ${
+                            r.stepTime >= 0.05 ? 'text-[#2563EB]' : 'text-slate-700'
+                          } ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(1)}
+                        >
+                          {fmtNum(r.stepTime, 1)}s
+                        </td>
+                        <td
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(2)}
+                        >
+                          {fmtNum(r.stepAllTime, 1)}s
+                        </td>
+                        <td
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(3)}
+                        >
+                          {r.stepTimeSet > 0 ? `${fmtNum(r.stepTimeSet, 1)}s` : '-'}
+                        </td>
+                        <td
+                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 z-10 truncate ${nameCellBg} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(4)}
                           title={`행 #${r.rowIndex.toLocaleString()} | ${r.stepName}`}
                         >
                           {r.stepName}
                         </td>
-                        <td className="py-1 px-2 text-center text-slate-900 font-medium border border-slate-400 text-[11px] whitespace-nowrap">
-                          {r.timeStr}
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
-                          {fmtNum(r.stepAllTime, 1)}s
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
-                          {fmtNum(r.stepTime, 1)}s
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
+                        <td
+                          className={`py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400 z-10 raw-sticky-edge ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(5)}
+                        >
                           {r.step.toLocaleString()}
                         </td>
 
