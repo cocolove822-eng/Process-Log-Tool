@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { AnalysisFileResult, AnalyzerSettings } from '../types/pecvd';
+import { fmtHwStatus, hwStatusOf } from './hwStatus';
 
 /**
  * Copy 2D array / table data to clipboard in TSV format
@@ -111,6 +112,17 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
   const wsMon = XLSX.utils.aoa_to_sheet([monHeaders, ...monRows]);
   XLSX.utils.book_append_sheet(wb, wsMon, 'Monitoring Data');
 
+  /** BB / 연속 Depo 칸: '유지' / '전환 x.x', 그 외 값 또는 '-' */
+  const hx = (
+    row: { cellStatus?: Partial<Record<string, 'keep' | 'trans'>> },
+    field: string,
+    val: number | null | undefined
+  ): string | number => {
+    const st = hwStatusOf(row, field);
+    if (st) return fmtHwStatus(st, val);
+    return val ?? '-';
+  };
+
   // 3. HW Control Start
   const startHeaders = [
     'No.', 'RCP Name',
@@ -123,8 +135,8 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     const s = r.hwStart;
     return [
       s.no, s.rcpName,
-      s.depoStable_pyroAr ?? '-', s.depoStable_pyroN2O ?? '-', s.depoStable_pyroNH3 ?? '-', s.depoStable_pyroPN2 ?? '-', s.depoStable_pyroH2 ?? '-', s.depoStable_pyroSiH4 ?? '-', s.depoStable_tvCtrlMode ?? '-',
-      s.depo_rfForwardAct ?? '-',
+      hx(s, 'depoStable_pyroAr', s.depoStable_pyroAr), hx(s, 'depoStable_pyroN2O', s.depoStable_pyroN2O), hx(s, 'depoStable_pyroNH3', s.depoStable_pyroNH3), hx(s, 'depoStable_pyroPN2', s.depoStable_pyroPN2), hx(s, 'depoStable_pyroH2', s.depoStable_pyroH2), hx(s, 'depoStable_pyroSiH4', s.depoStable_pyroSiH4), hx(s, 'depoStable_tvCtrlMode', s.depoStable_tvCtrlMode),
+      hx(s, 'depo_rfForwardAct', s.depo_rfForwardAct),
       s.plStable_pyroAr ?? '-', s.plStable_pyroH2 ?? '-', s.plStable_tvCtrlMode ?? '-',
       s.pl_rfForwardAct ?? '-'
     ];
@@ -136,14 +148,15 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
   const endRFHeaders = [
     'No.', 'RCP Name',
     'Depo: RF Power(A)', 'Depo: T/V', 'Depo: SiH4', 'Depo: Ar', 'Depo: N2O', 'Depo: NH3', 'Depo: PN2', 'Depo: H2',
-    'PL: RF Power(A)', 'PL: T/V', 'PL: Ar', 'PL: H2'
+    'PL: RF Power(A)', 'PL: T/V', 'PL: Ar', 'PL: H2', 'End 기준 (0.0sec)'
   ];
   const endRFRows = results.map(r => {
     const e = r.hwEndRF;
     return [
       e.no, e.rcpName,
-      e.depo_rfForwardAct ?? '-', e.depo_tvCtrlMode ?? '-', e.depo_pyroSiH4 ?? '-', e.depo_pyroAr ?? '-', e.depo_pyroN2O ?? '-', e.depo_pyroNH3 ?? '-', e.depo_pyroPN2 ?? '-', e.depo_pyroH2 ?? '-',
-      e.pl_rfForwardAct ?? '-', e.pl_tvCtrlMode ?? '-', e.pl_pyroAr ?? '-', e.pl_pyroH2 ?? '-'
+      hx(e, 'depo_rfForwardAct', e.depo_rfForwardAct), hx(e, 'depo_tvCtrlMode', e.depo_tvCtrlMode), hx(e, 'depo_pyroSiH4', e.depo_pyroSiH4), hx(e, 'depo_pyroAr', e.depo_pyroAr), hx(e, 'depo_pyroN2O', e.depo_pyroN2O), hx(e, 'depo_pyroNH3', e.depo_pyroNH3), hx(e, 'depo_pyroPN2', e.depo_pyroPN2), hx(e, 'depo_pyroH2', e.depo_pyroH2),
+      e.pl_rfForwardAct ?? '-', e.pl_tvCtrlMode ?? '-', e.pl_pyroAr ?? '-', e.pl_pyroH2 ?? '-',
+      e.endRef === 'stepChange' ? 'Step 전환(BB)' : 'RF Off'
     ];
   });
   const wsEndRF = XLSX.utils.aoa_to_sheet([endRFHeaders, ...endRFRows]);
@@ -243,7 +256,7 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     return [
       s.no, s.rcpName,
       s.totalStepTimeDepo ?? '-', s.totalStepTimePL ?? '-',
-      s.depo_rfOffTime ?? '-', s.depo_rfForwardAct ?? '-', s.depo_tvCtrlMode ?? '-', s.depo_pyroSiH4 ?? '-', s.depo_pyroAr ?? '-', s.depo_pyroN2O ?? '-', s.depo_pyroNH3 ?? '-', s.depo_pyroPN2 ?? '-', s.depo_pyroH2 ?? '-',
+      s.depo_rfOffTime ?? '-', hx(s, 'depo_rfForwardAct', s.depo_rfForwardAct), hx(s, 'depo_tvCtrlMode', s.depo_tvCtrlMode), hx(s, 'depo_pyroSiH4', s.depo_pyroSiH4), hx(s, 'depo_pyroAr', s.depo_pyroAr), hx(s, 'depo_pyroN2O', s.depo_pyroN2O), hx(s, 'depo_pyroNH3', s.depo_pyroNH3), hx(s, 'depo_pyroPN2', s.depo_pyroPN2), hx(s, 'depo_pyroH2', s.depo_pyroH2),
       s.pl_rfOffTime ?? '-', s.pl_rfForwardAct ?? '-', s.pl_tvCtrlMode ?? '-', s.pl_pyroAr ?? '-', s.pl_pyroH2 ?? '-'
     ];
   });

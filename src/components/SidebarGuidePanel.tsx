@@ -79,6 +79,12 @@ const SECTIONS: GuideSection[] = [
       <>
         <Item title="Start 시점">0.0초 = 해당 Step 시작. 각 가스·T/V·RF가 제어를 시작한 시점입니다.</Item>
         <Item title="End 시점">0.0초 = RF Power Off. 각 부품이 차단된 시점입니다.</Item>
+        <Item title="BB Mode (Depo 연속)">
+          RF가 꺼지지 않고 다음 Depo Step으로 이어지면(로그의 <b>BB</b> 열 Enable) 행에 <b>BB</b> 배지가 붙고, End는{' '}
+          <b>0.0초 = Step 전환 시점</b>으로 계산합니다. 다음 Step에서도 이어지는 가스·T/V는 <b>유지</b>, Power와 바뀐
+          Pressure Set은 새 Set 도달까지 걸린 시간을 <b>전환 x.x</b>로 표시합니다. 다음 Depo의 Start도 이미 켜져 있던
+          항목은 <b>유지</b>입니다. 유지·전환 칸은 주의·경보 판정에서 제외됩니다.
+        </Item>
         <Item title="공정 Sequence 타임라인">
           Run 하나를 골라 Lift·SiH4·공정 가스·T/V·RF의 Ramp/Stable/Down 구간을 한 화면에서 비교합니다.
         </Item>

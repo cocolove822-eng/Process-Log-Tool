@@ -70,6 +70,10 @@ export interface RawLogRow {
   rfReflectPower: number;
   rfRampValueUp: number;
   rfRampTimeUp: number;
+  /** RF BB Mode 플래그 ('BB'가 들어간 열, Enable/True = true). 열이 없거나 값을 읽을 수 없으면 null */
+  bbMode?: boolean | null;
+  /** Specific.Gas.Adj 플래그 (Enable/True = true). 열이 없으면 null */
+  specificGasAdj?: boolean | null;
 
   // RPSC
   rpscForward: number;
@@ -275,6 +279,27 @@ export interface MonitoringDataRow {
   dynamicHeaterActs?: Record<string, number | null>;
 }
 
+/**
+ * H/W Control 칸 상태 (BB Mode / 연속 Depo 전환)
+ * - 'keep'  : 이전/다음 Step으로 끊기지 않고 이어짐 → "유지" 표시, 값 없음, 판정 제외
+ * - 'trans' : 다음 Step의 새 Set으로 바뀌는 데 걸린 시간 → "전환 x.x" 표시, 판정 제외
+ */
+export type HWCellStatus = 'keep' | 'trans';
+
+/** Step 경계(이전 Step → Depo 또는 Depo → 다음 Step)의 BB / 연속 전환 정보 */
+export interface HWBoundaryInfo {
+  /** 경계 건너편 Step 번호 */
+  otherStep: number;
+  /** 경계 건너편 Step이 Depo Step인지 (연속 Depo) */
+  otherIsDepo: boolean;
+  /** 로그의 BB 열이 Enable/True인지 (열이 없으면 null) */
+  bbFlag: boolean | null;
+  /** RF가 꺼지지 않고 Step 경계를 넘어감 */
+  rfContinuous: boolean;
+  /** Specific.Gas.Adj 값 (열이 없으면 null) */
+  specificGas: boolean | null;
+}
+
 export interface HWControlStartRow {
   fileId: string;
   fileName: string;
@@ -297,6 +322,10 @@ export interface HWControlStartRow {
   plStable_tvCtrlMode: number | null;
   // PL Step
   pl_rfForwardAct: number | null;
+  /** 이전 Step(Depo)에서 이어져 들어온 경우의 경계 정보 (없으면 일반 Start) */
+  bbStart?: HWBoundaryInfo | null;
+  /** 칸별 상태 (키 = 필드 이름). 'keep'이면 "유지" */
+  cellStatus?: Partial<Record<string, HWCellStatus>>;
 }
 
 export interface HWControlEndRFRow {
@@ -318,6 +347,15 @@ export interface HWControlEndRFRow {
   pl_tvCtrlMode: number | null;
   pl_pyroAr: number | null;
   pl_pyroH2: number | null;
+  /**
+   * End 기준점: 'rfOff' = 0.0초가 RF Power Off (기본),
+   * 'stepChange' = BB 전환으로 RF가 꺼지지 않아 0.0초가 다음 Step 전환 시점
+   */
+  endRef?: 'rfOff' | 'stepChange';
+  /** 다음 Step(Depo)으로 이어지는 경우의 경계 정보 (없으면 일반 End) */
+  bbEnd?: HWBoundaryInfo | null;
+  /** 칸별 상태 (키 = 필드 이름). 'keep' = "유지", 'trans' = "전환 x.x" */
+  cellStatus?: Partial<Record<string, HWCellStatus>>;
 }
 
 export interface HWControlEndStepRow {
@@ -345,6 +383,10 @@ export interface HWControlEndStepRow {
   pl_tvCtrlMode: number | null;
   pl_pyroAr: number | null;
   pl_pyroH2: number | null;
+  /** End 기준점 (HWControlEndRFRow.endRef와 동일) */
+  endRef?: 'rfOff' | 'stepChange';
+  /** 칸별 상태 (HWControlEndRFRow.cellStatus와 동일) */
+  cellStatus?: Partial<Record<string, HWCellStatus>>;
 }
 
 export interface DelaysRow {
