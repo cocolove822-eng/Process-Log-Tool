@@ -55,8 +55,9 @@ const TINT_RF_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D7E5F4] text-[#1
 const TINT_MATCHER_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C1E2D4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
 const TINT_MATCHER_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D8EDE4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
 
-const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C6E1DB] text-[#115E59] font-bold text-[11px] font-sans align-middle';
-const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DBECE7] text-[#115E59] font-bold text-[11px] font-sans align-middle';
+// T/V & Pressure: 연두·올리브 계열 (Matcher 민트, Gas 호박색과 구분)
+const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#DCE3B0] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
+const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAEFCC] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
 
 const TINT_LIFT_TH1 = 'py-1 px-1 border border-slate-400 bg-[#D9D7F1] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
 const TINT_LIFT_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAE8F8] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
@@ -397,28 +398,28 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     if (mode.includes('PRESS')) {
       const pressVal = Math.round(r.tvPressure).toLocaleString();
       return (
-        <span className="text-[#9A3412] font-bold" title="Pressure 제어 모드 (정수)">
-          {pressVal} <span className="text-[10px] text-[#C2410C] font-sans font-semibold">(P)</span>
+        <span className="text-[#3F4A0A] font-bold" title="Pressure 제어 모드 (정수)">
+          {pressVal} <span className="text-[10px] text-[#65750F] font-sans font-semibold">(P)</span>
         </span>
       );
     }
     if (mode.includes('POS')) {
       const posVal = fmtNum(r.tvPosition, 1);
       return (
-        <span className="text-[#9A3412] font-bold" title="Position 제어 모드">
-          {posVal}% <span className="text-[10px] text-[#C2410C] font-sans font-semibold">(Pos)</span>
+        <span className="text-[#3F4A0A] font-bold" title="Position 제어 모드 (T/V 위치 %)">
+          {posVal}%{/* '%'로 Position 값임을 구분 (Pressure는 '(P)'), 64px 칸에서 잘리지 않도록 '(Pos)' 생략 */}
         </span>
       );
     }
     if (mode.includes('OPEN')) {
       return (
-        <span className="text-[#9A3412] font-bold" title="Valve Open">
+        <span className="text-[#3F4A0A] font-bold" title="Valve Open">
           OPEN
         </span>
       );
     }
     return (
-      <span className="text-[#9A3412] font-bold">
+      <span className="text-[#3F4A0A] font-bold">
         {r.tvPressure > 0 ? `${Math.round(r.tvPressure).toLocaleString()} (P)` : `${fmtNum(r.tvPosition, 1)}%`}
       </span>
     );
@@ -747,7 +748,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     Step Name
                   </th>
                   <th className={TINT_FIXED_TH2}>Time</th>
-                  <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step All Time</th>
+                  <th className={TINT_FIXED_TH2}>Step All Time</th>
                   <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step Time</th>
                   <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step</th>
 
@@ -771,13 +772,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
                   {/* 4. T/V & Pressure */}
                   <th className={TINT_PRES_TH2}>T/V Mode</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold bg-[#F4E7CE]`} title="Mode가 Pressure면 Pressure, Position이면 Position 표시">
+                  <th className={`${TINT_PRES_TH2} !text-[#3F4A0A] font-bold !bg-[#D6DE9E]`} title="Mode가 Pressure면 Pressure, Position이면 Position 표시">
                     T/V Active 제어
                   </th>
                   <th className={TINT_PRES_TH2}>Press Set</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold`}>Press Act</th>
+                  <th className={`${TINT_PRES_TH2} text-[#556B0B] font-bold`}>Press Act</th>
                   <th className={TINT_PRES_TH2}>Pos Set</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412]`}>Pos Act</th>
+                  <th className={`${TINT_PRES_TH2} text-[#556B0B]`}>Pos Act</th>
 
                   {/* 3. Matcher */}
                   <th className={TINT_MATCHER_TH2}>Load</th>
@@ -853,10 +854,10 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         <td className="py-1 px-2 text-center text-slate-900 font-medium border border-slate-400 text-[11px] whitespace-nowrap">
                           {r.timeStr}
                         </td>
-                        <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
+                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
                           {fmtNum(r.stepAllTime, 1)}s
                         </td>
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
+                        <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
                           {fmtNum(r.stepTime, 1)}s
                         </td>
                         <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
@@ -897,33 +898,33 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]">
                           {r.tvCtrlModeSet || r.tvCtrlMode || '-'}
                         </td>
-                        {/* T/V Active 제어 (공정 종합 분석과 동일한 TINT_GAS 계열 틴트) */}
-                        <td className="py-1 px-1.5 text-center font-mono font-bold bg-[#F4E7CE]/40 group-hover:bg-[#F4E7CE]/70 border border-slate-400">
+                        {/* T/V Active 제어 (T/V & Pressure 묶음과 같은 올리브 계열 강조) */}
+                        <td className="py-1 px-1.5 text-center font-bold tabular-nums bg-[#EEF2D6]/70 group-hover:bg-[#E3EABD] border border-slate-400">
                           {renderActiveTVControl(r)}
                         </td>
                         <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
                           {fmtNum(r.tvPressureSet, 0)}
                         </td>
                         {/* Press Act: 소숫점 없이 정수 콤마 표시 */}
-                        <td className="py-1 px-1 text-center text-[#9A3412] font-bold border border-slate-400">
+                        <td className="py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400">
                           {fmtNum(r.tvPressure, 0)}
                         </td>
                         <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
                           {fmtNum(r.tvPositionSet, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center text-[#9A3412] font-bold border border-slate-400">
+                        <td className="py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400">
                           {fmtNum(r.tvPosition, 1)}%
                         </td>
 
                         {/* 3. Matcher */}
                         <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherLoad, 2)}
+                          {fmtNum(r.matcherLoad, 1)}
                         </td>
                         <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherTune, 2)}
+                          {fmtNum(r.matcherTune, 1)}
                         </td>
                         <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherVpp, 1)}
+                          {fmtNum(r.matcherVpp, 0)}
                         </td>
                         <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
                           {fmtNum(r.matcherIrms, 1)}
