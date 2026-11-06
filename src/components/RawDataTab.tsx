@@ -39,11 +39,19 @@ const CANDIDATE_GASES: GasDef[] = [
 
 const ROW_HEIGHT = 30; // Pixel-precise row height
 // 열 너비: Step & Time 5열은 각자 너비, 나머지 묶음(Gas·Lift·T/V·Matcher·RF·Susceptor)의 모든 열은 같은 너비
-const STEP_TIME_COL_WIDTHS = [150, 58, 58, 58, 84, 36]; // Time, Step Time, All Time, Time Set, Name, No.
+const STEP_TIME_COL_WIDTHS = [144, 40, 40, 40, 68, 28]; // Time, Step Time, All Time, Time Set, Name, No.
 // Step & Time 6열 틀 고정: 각 열의 왼쪽 위치(px) = 앞 열 너비의 합
 const STEP_TIME_STICKY_LEFT = STEP_TIME_COL_WIDTHS.map((_, i) => STEP_TIME_COL_WIDTHS.slice(0, i).reduce((a, b) => a + b, 0));
 const stickyStyle = (i: number): React.CSSProperties => ({ position: 'sticky', left: STEP_TIME_STICKY_LEFT[i] });
-const UNIFORM_COL_WIDTH = 64;
+const UNIFORM_COL_WIDTH = 54;
+
+/** T/V Mode 짧은 표시: PRESSURE → PRESS, POSITION → POS (원래 값은 툴팁) */
+const shortTvMode = (m: string): string => {
+  const u = (m || '').toUpperCase();
+  if (u.includes('PRESS')) return 'PRESS';
+  if (u.includes('POS')) return 'POS';
+  return m || '-';
+};
 const OVERSCAN = 25;   // Pre-rendered buffer rows above & below viewport for 60fps scrolling
 
 // ============================================================================
@@ -402,7 +410,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
       const pressVal = Math.round(r.tvPressure).toLocaleString();
       return (
         <span className="text-[#3F4A0A] font-bold" title="Pressure 제어 모드 (정수)">
-          {pressVal} <span className="text-[10px] text-[#65750F] font-sans font-semibold">(P)</span>
+          {pressVal}<span className="ml-px text-[9px] text-[#65750F] font-sans font-semibold">(P)</span>
         </span>
       );
     }
@@ -920,8 +928,11 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         </td>
 
                         {/* 4. T/V & Pressure */}
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]">
-                          {r.tvCtrlModeSet || r.tvCtrlMode || '-'}
+                        <td
+                          className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]"
+                          title={r.tvCtrlModeSet || r.tvCtrlMode || ''}
+                        >
+                          {shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '')}
                         </td>
                         {/* T/V Active 제어 (T/V & Pressure 묶음과 같은 올리브 계열 강조) */}
                         <td className="py-1 px-1.5 text-center font-bold tabular-nums bg-[#EEF2D6]/70 group-hover:bg-[#E3EABD] border border-slate-400">
