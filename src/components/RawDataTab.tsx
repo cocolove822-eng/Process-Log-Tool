@@ -39,7 +39,7 @@ const CANDIDATE_GASES: GasDef[] = [
 
 const ROW_HEIGHT = 30; // Pixel-precise row height
 // 열 너비: Step & Time 5열은 각자 너비, 나머지 묶음(Gas·Lift·T/V·Matcher·RF·Susceptor)의 모든 열은 같은 너비
-const STEP_TIME_COL_WIDTHS = [144, 40, 40, 40, 68, 28]; // Time, Step Time, All Time, Time Set, Name, No.
+const STEP_TIME_COL_WIDTHS = [140, 45, 45, 45, 60, 30]; // Time, Step Time, All Time, Time Set, Name, No.
 // Step & Time 6열 틀 고정: 각 열의 왼쪽 위치(px) = 앞 열 너비의 합
 const STEP_TIME_STICKY_LEFT = STEP_TIME_COL_WIDTHS.map((_, i) => STEP_TIME_COL_WIDTHS.slice(0, i).reduce((a, b) => a + b, 0));
 const stickyStyle = (i: number): React.CSSProperties => ({ position: 'sticky', left: STEP_TIME_STICKY_LEFT[i] });
