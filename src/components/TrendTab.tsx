@@ -402,7 +402,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   return (
     <div className="flex flex-col lg:flex-row gap-3 items-start w-full">
       {/* 1. Left Vertical Control Panel (그래프 제어 설정) */}
-      <aside className="w-full lg:w-[250px] shrink-0 bg-[#F1F5F9] border border-slate-400 rounded-2xl p-2.5 shadow-xs space-y-3 lg:sticky lg:top-[68px]">
+      <aside className="w-full lg:w-[250px] shrink-0 bg-[#F1F5F9] border border-slate-400 rounded-2xl p-2.5 shadow-xs space-y-3 lg:sticky lg:top-[68px] lg:z-20 lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto scrollbar-thin">
         {/* Panel Header */}
         <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
           <span className="text-xs font-extrabold text-[#0F172A] flex items-center gap-1.5">

@@ -168,7 +168,7 @@ function AppContent() {
           />
 
           {/* Main Dashboard & Tabs Area */}
-          <main className="flex-1 min-w-0 p-2 lg:p-3 space-y-2 overflow-y-auto">
+          <main className="flex-1 min-w-0 p-2 lg:p-3 space-y-2 overflow-x-clip">
             {/* Error notification banner if any */}
             {errorMessage && (
               <div className="p-4 bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs rounded-2xl flex items-center justify-between shadow-xs">
