@@ -487,9 +487,9 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 2: 시간 축 기준 */}
+        {/* Section 2: 시간축 기준 설정 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
-          <span className="text-[10.5px] font-bold text-[#334155] block">2. 시간축 기준</span>
+          <span className="text-[10.5px] font-bold text-[#334155] block">2. 시간축 기준 설정</span>
           <div className="grid grid-cols-1 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300">
             <button
               type="button"
@@ -516,11 +516,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 3: Step 타임라인 표시 */}
+        {/* Section 3: 타임라인 표시 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <label htmlFor="step-timeline-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
-              3. Step 타임라인 표시
+              3. 타임라인 표시
             </label>
             <span className="flex items-center gap-1.5">
               {showStepTimeline && alignedSteps.length > 0 && (
@@ -565,113 +565,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           )}
         </div>
 
-        {/* Section 4: 구간 통계 (구간 선택 모드 · 현재 구간) */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
-          <div className="flex items-center justify-between text-[10.5px]">
-            <label htmlFor="range-select-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
-              4. 구간 통계
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer select-none" title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그)">
-              <span className={`text-[10px] font-semibold ${rangeSelectMode ? 'text-[#B45309]' : 'text-[#64748B]'}`}>구간 선택</span>
-              <span className="relative inline-flex">
-                <input
-                  id="range-select-toggle"
-                  type="checkbox"
-                  role="switch"
-                  checked={rangeSelectMode}
-                  onChange={e => setRangeSelectMode(e.target.checked)}
-                  className="peer sr-only"
-                />
-                <span className="w-7 h-4 rounded-full bg-slate-300 peer-checked:bg-[#F59E0B] transition-colors" />
-                <span className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-2xs transition-transform peer-checked:translate-x-3" />
-              </span>
-            </label>
-          </div>
-          {statRange ? (
-            <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] text-[10.5px]" data-range-summary>
-              <span className="min-w-0">
-                <span className="font-bold text-[#0F172A] tabular-nums">
-                  {statRange[0].toFixed(1)} ~ {statRange[1].toFixed(1)} s
-                </span>
-                <span className="ml-1 text-[#B45309] tabular-nums">({(statRange[1] - statRange[0]).toFixed(1)} s)</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setStatRange(null)}
-                className="shrink-0 flex items-center gap-0.5 px-1 py-[1px] rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
-                title="구간 해제 (모든 그래프)"
-              >
-                <X className="w-3 h-3" />
-                해제
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {/* Section 5: 겹쳐 보기 (그래프별 두 번째 파라미터, 오른쪽 축 점선) */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
-          <div className="flex items-center justify-between text-[10.5px]">
-            <span className="font-bold text-[#334155]">5. 겹쳐 보기</span>
-            {Object.values(overlayMap).some(Boolean) && (
-              <button
-                type="button"
-                onClick={() => setOverlayMap({})}
-                className="text-[10px] font-semibold text-[#64748B] hover:text-[#DC2626] cursor-pointer"
-                title="모든 그래프의 겹쳐 보기 끄기"
-              >
-                모두 끄기
-              </button>
-            )}
-          </div>
-          {selectedMetrics.length === 0 ? (
-            <p className="px-0.5 text-[10px] text-[#94A3B8]">표시 중인 그래프가 없습니다.</p>
-          ) : (
-            <div className="space-y-1" data-overlay-list>
-              {selectedMetrics.map(mid => {
-                const m = STANDARD_METRICS.find(x => x.id === mid);
-                if (!m) return null;
-                const cur = overlayMap[mid] && overlayMap[mid] !== mid ? overlayMap[mid] : '';
-                const cs = CATEGORY_STYLES[m.category];
-                return (
-                  <div key={mid} className="flex items-center gap-1">
-                    <span
-                      className="w-[78px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
-                      title={`${m.name} 그래프`}
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cs.dotColor }} />
-                      <span className="truncate">{m.name.replace(/\(Act\)$/, '')}</span>
-                    </span>
-                    <span className="relative flex-1 min-w-0">
-                      <select
-                        aria-label={`${m.name} 겹쳐 보기`}
-                        value={cur}
-                        onChange={e => setOverlayMap(prev => ({ ...prev, [mid]: e.target.value }))}
-                        className={`w-full appearance-none h-[22px] pl-1 pr-4 rounded-md border text-[10px] font-semibold cursor-pointer focus:outline-none ${
-                          cur ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#64748B]'
-                        }`}
-                        title={cur ? `점선(오른쪽 축): ${STANDARD_METRICS.find(x => x.id === cur)?.name}` : '겹칠 항목 고르기'}
-                      >
-                        <option value="">없음</option>
-                        {STANDARD_METRICS.filter(x => x.id !== mid).map(x => (
-                          <option key={x.id} value={x.id}>
-                            + {x.name} [{x.unit}]
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${cur ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Section 6: 레시피 필터 */}
+        {/* Section 4: Recipe 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              6. 레시피 필터 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
+              4. Recipe 선택 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
             </span>
             {selectedRecipeIds.length > 0 && (
               <button
@@ -732,11 +630,113 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 7: 파라미터 선택 */}
+        {/* Section 5: 구간 통계 (구간 선택 모드 · 현재 구간) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <label htmlFor="range-select-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              5. 구간 통계
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none" title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그)">
+              <span className={`text-[10px] font-semibold ${rangeSelectMode ? 'text-[#B45309]' : 'text-[#64748B]'}`}>구간 선택</span>
+              <span className="relative inline-flex">
+                <input
+                  id="range-select-toggle"
+                  type="checkbox"
+                  role="switch"
+                  checked={rangeSelectMode}
+                  onChange={e => setRangeSelectMode(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <span className="w-7 h-4 rounded-full bg-slate-300 peer-checked:bg-[#F59E0B] transition-colors" />
+                <span className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-2xs transition-transform peer-checked:translate-x-3" />
+              </span>
+            </label>
+          </div>
+          {statRange ? (
+            <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] text-[10.5px]" data-range-summary>
+              <span className="min-w-0">
+                <span className="font-bold text-[#0F172A] tabular-nums">
+                  {statRange[0].toFixed(1)} ~ {statRange[1].toFixed(1)} s
+                </span>
+                <span className="ml-1 text-[#B45309] tabular-nums">({(statRange[1] - statRange[0]).toFixed(1)} s)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatRange(null)}
+                className="shrink-0 flex items-center gap-0.5 px-1 py-[1px] rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
+                title="구간 해제 (모든 그래프)"
+              >
+                <X className="w-3 h-3" />
+                해제
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Section 6: 동시 비교 (그래프별 두 번째 파라미터, 오른쪽 축 점선) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <span className="font-bold text-[#334155]">6. 동시 비교</span>
+            {Object.values(overlayMap).some(Boolean) && (
+              <button
+                type="button"
+                onClick={() => setOverlayMap({})}
+                className="text-[10px] font-semibold text-[#64748B] hover:text-[#DC2626] cursor-pointer"
+                title="모든 그래프의 동시 비교 끄기"
+              >
+                모두 끄기
+              </button>
+            )}
+          </div>
+          {selectedMetrics.length === 0 ? (
+            <p className="px-0.5 text-[10px] text-[#94A3B8]">표시 중인 그래프가 없습니다.</p>
+          ) : (
+            <div className="space-y-1" data-overlay-list>
+              {selectedMetrics.map(mid => {
+                const m = STANDARD_METRICS.find(x => x.id === mid);
+                if (!m) return null;
+                const cur = overlayMap[mid] && overlayMap[mid] !== mid ? overlayMap[mid] : '';
+                const cs = CATEGORY_STYLES[m.category];
+                return (
+                  <div key={mid} className="flex items-center gap-1">
+                    <span
+                      className="w-[78px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
+                      title={`${m.name} 그래프`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cs.dotColor }} />
+                      <span className="truncate">{m.name.replace(/\(Act\)$/, '')}</span>
+                    </span>
+                    <span className="relative flex-1 min-w-0">
+                      <select
+                        aria-label={`${m.name} 동시 비교`}
+                        value={cur}
+                        onChange={e => setOverlayMap(prev => ({ ...prev, [mid]: e.target.value }))}
+                        className={`w-full appearance-none h-[22px] pl-1 pr-4 rounded-md border text-[10px] font-semibold cursor-pointer focus:outline-none ${
+                          cur ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#64748B]'
+                        }`}
+                        title={cur ? `점선(오른쪽 축): ${STANDARD_METRICS.find(x => x.id === cur)?.name}` : '겹칠 항목 고르기'}
+                      >
+                        <option value="">없음</option>
+                        {STANDARD_METRICS.filter(x => x.id !== mid).map(x => (
+                          <option key={x.id} value={x.id}>
+                            + {x.name} [{x.unit}]
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${cur ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Section 7: Parameter 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              7. 파라미터 ({selectedMetrics.length})
+              7. Parameter 선택 ({selectedMetrics.length})
             </span>
             <div className="flex items-center gap-1 text-[9.5px]">
               <button
@@ -1173,7 +1173,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                         <span className="ml-0.5 text-[9px] font-semibold text-[#64748B]">{unit}</span>
                       )}
                       {v.formatted2 !== undefined && (
-                        <div className="text-[9.5px] leading-tight font-semibold text-[#7C3AED]" title="겹쳐 보기 항목 값">
+                        <div className="text-[9.5px] leading-tight font-semibold text-[#7C3AED]" title="동시 비교 항목 값">
                           {v.formatted2}
                           {unit2 && <span className="ml-0.5 text-[8.5px] text-[#8B5CF6]">{unit2}</span>}
                         </div>
