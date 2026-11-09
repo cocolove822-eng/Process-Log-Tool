@@ -287,12 +287,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     setSelectedRecipeIds(prev => (on ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter(x => x !== id)));
   const toggleRecipeSelect = (id: string) =>
     setSelectedRecipeIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
-  // 묶음 제목 클릭: 묶음 전체가 이미 선택돼 있으면 해제, 아니면 묶음 전체를 선택에 추가
-  const toggleRecipeGroup = (ids: string[]) =>
-    setSelectedRecipeIds(prev => {
-      const all = ids.every(id => prev.includes(id));
-      return all ? prev.filter(x => !ids.includes(x)) : [...prev, ...ids.filter(id => !prev.includes(id))];
-    });
   const clearRecipeSelection = () => setSelectedRecipeIds([]);
   const [resetAllKey, setResetAllKey] = useState<number>(0);
   // 구간 통계: 한 그래프에서 고른 시간 구간을 모든 그래프에 함께 적용 [시작, 끝] (그래프 x축 기준 초)
@@ -303,7 +297,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   const [overlayMap, setOverlayMap] = useState<Record<string, string>>({});
   const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
-  const [valueView, setValueView] = useState<ValueView>('list');
   const [valueSort, setValueSort] = useState<ValueSort>('no');
   const [stepRefFileId, setStepRefFileId] = useState<string>(files[0]?.id || '');
 
@@ -612,11 +605,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                 해제
               </button>
             </div>
-          ) : (
-            <p className="px-0.5 text-[10px] text-[#64748B] leading-snug">
-              {rangeSelectMode ? '그래프를 드래그해 구간을 고르세요.' : '구간 선택을 켜거나 Shift+드래그로 구간을 고르면 모든 그래프 아래에 구간 통계가 나옵니다.'}
-            </p>
-          )}
+          ) : null}
         </div>
 
         {/* Section 5: 겹쳐 보기 (그래프별 두 번째 파라미터, 오른쪽 축 점선) */}
@@ -674,7 +663,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   </div>
                 );
               })}
-              <p className="px-0.5 text-[9.5px] text-[#94A3B8] leading-snug">고른 항목은 같은 Run 색의 점선으로, 오른쪽 축(보라)에 표시됩니다.</p>
             </div>
           )}
         </div>
@@ -855,14 +843,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   showStepTimeline={showStepTimeline}
                   alignedSteps={alignedSteps}
                   refFile={refFile}
-                  valueView={valueView}
-                  onChangeValueView={setValueView}
                   valueSort={valueSort}
                   onChangeValueSort={setValueSort}
                   selectedRecipeIds={selectedRecipeIds}
                   onToggleRecipe={toggleRecipeSelect}
                   onSetRecipeSelected={setRecipeSelected}
-                  onToggleRecipeGroup={toggleRecipeGroup}
                   onClearRecipeSelection={clearRecipeSelection}
                   statRange={statRange}
                   onSetStatRange={setStatRange}
@@ -912,14 +897,11 @@ interface TrendChartCardProps {
   showStepTimeline: boolean;
   alignedSteps: AlignedStepSegment[];
   refFile?: ParsedLogFile;
-  valueView: ValueView;
-  onChangeValueView: (v: ValueView) => void;
   valueSort: ValueSort;
   onChangeValueSort: (v: ValueSort) => void;
   selectedRecipeIds: string[];
   onToggleRecipe: (id: string) => void;
   onSetRecipeSelected: (id: string, on: boolean) => void;
-  onToggleRecipeGroup: (ids: string[]) => void;
   onClearRecipeSelection: () => void;
   /** 구간 통계 구간 (모든 그래프 공통) */
   statRange: [number, number] | null;
@@ -930,7 +912,6 @@ interface TrendChartCardProps {
   overlayId: string;
 }
 
-type ValueView = 'list' | 'group';
 type ValueSort = 'no' | 'value';
 
 interface CursorValue {
@@ -986,40 +967,8 @@ export function shortRecipeName(name: string): string {
   return base;
 }
 
-/** 커서 위치 값 서식 (상단 상태바와 같은 규칙) */
-const formatCursorValue = (v: number): string =>
-  Math.abs(v) >= 1000
-    ? Math.round(v).toLocaleString()
-    : Math.abs(v) >= 10
-    ? (Math.round(v * 10) / 10).toLocaleString()
-    : (Math.round(v * 100) / 100).toLocaleString();
-
-/**
- * 같은 값 묶기: 값 순서로 정렬한 뒤, 바로 앞 값과의 차이가
- * (보이는 값 중 최대 절댓값의 0.5%) 이하이면 같은 묶음으로 본다.
- * 예) 10,150 · 10,151 → 한 묶음, 10,860 → 다른 묶음
- */
-function groupCursorValues(values: CursorValue[]): { lo: number; hi: number; items: CursorValue[] }[] {
-  if (!values.length) return [];
-  const sorted = [...values].sort((a, b) => b.numVal - a.numVal);
-  const maxAbs = Math.max(...sorted.map(v => Math.abs(v.numVal)));
-  const tol = Math.max(maxAbs * 0.005, 1e-9);
-  const groups: { lo: number; hi: number; items: CursorValue[] }[] = [];
-  for (const v of sorted) {
-    const g = groups[groups.length - 1];
-    if (g && Math.abs(g.items[g.items.length - 1].numVal - v.numVal) <= tol) {
-      g.items.push(v);
-      g.lo = Math.min(g.lo, v.numVal);
-    } else {
-      groups.push({ lo: v.numVal, hi: v.numVal, items: [v] });
-    }
-  }
-  groups.forEach(g => g.items.sort((a, b) => a.fileNo - b.fileNo));
-  return groups;
-}
-
 // ============================================================================
-// 그래프 오른쪽 커서 값 표 (개별 보기 / 같은 값 묶어 보기)
+// 그래프 오른쪽 커서 값 표 (Run별 한 줄)
 // ============================================================================
 interface CursorValuePanelProps {
   /** 그래프와 같은 높이(px) */
@@ -1035,8 +984,6 @@ interface CursorValuePanelProps {
   timeLabel: string | null; // 예: "61.4 s · Step 2"
   live: boolean; // true = 지금 마우스가 그래프 위에 있음, false = 마지막 위치 값 유지 중
   unit?: string;
-  view: ValueView;
-  onChangeView: (v: ValueView) => void;
   sort: ValueSort;
   onChangeSort: (v: ValueSort) => void;
   highlightFileId: string | null;
@@ -1044,7 +991,6 @@ interface CursorValuePanelProps {
   selectedIds: string[];
   onToggle: (id: string) => void;
   onSetSelected: (id: string, on: boolean) => void;
-  onToggleGroup: (ids: string[]) => void;
   onClearSelection: () => void;
 }
 
@@ -1078,8 +1024,6 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   timeLabel,
   live,
   unit,
-  view,
-  onChangeView,
   sort,
   onChangeSort,
   highlightFileId,
@@ -1087,7 +1031,6 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   selectedIds,
   onToggle,
   onSetSelected,
-  onToggleGroup,
   onClearSelection,
 }) => {
   const hasSelection = selectedIds.length > 0;
@@ -1129,22 +1072,31 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
     }
     return list;
   }, [files, results, visibleFileIds, values, sort, selectedIds]);
-  const hiddenRows = rows.filter(v => visibleFileIds[v.fileId] === false);
 
-  const groups = useMemo(() => groupCursorValues((values ?? []).filter(v => Number.isFinite(v.numVal))), [values]);
-  const hasValues = !!values && values.length > 0;
 
   return (
     <div className="shrink-0 bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" style={below ? { width: '100%', height: 150 } : { width: 160, height }} title={unit ? `단위: ${unit}` : undefined}>
-      {/* 머리글: 시점 / 보기 방식 + 정렬 */}
+      {/* 머리글: 시점 + 정렬 / 선택 상태 */}
       <div className="px-1 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
-        <span
-          className="flex items-center gap-1 min-w-0 px-0.5 text-[10px] font-bold text-[#0F172A]"
-          title={live ? '현재 커서 위치' : '마지막 커서 위치의 값을 유지하고 있습니다'}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
-          <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
-        </span>
+        <div className="flex items-center gap-1">
+          <span
+            className="flex-1 flex items-center gap-1 min-w-0 px-0.5 text-[10px] font-bold text-[#0F172A]"
+            title={live ? '현재 커서 위치' : '마지막 커서 위치의 값을 유지하고 있습니다'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
+            <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => onChangeSort(sort === 'no' ? 'value' : 'no')}
+            title={sort === 'no' ? '현재: 번호순 (누르면 값 큰 순)' : '현재: 값 큰 순 (누르면 번호순)'}
+            aria-label="정렬 바꾸기"
+            className="shrink-0 h-[20px] flex items-center gap-0.5 px-1 rounded-md bg-white border border-slate-300 text-[9.5px] font-semibold text-[#334155] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
+          >
+            {sort === 'no' ? <ArrowDown01 className="w-3 h-3" /> : <ArrowDownWideNarrow className="w-3 h-3" />}
+            {sort === 'no' ? '번호' : '값'}
+          </button>
+        </div>
         {/* 선택 상태 줄: 선택이 없어도 자리를 유지해 행 위치가 밀리지 않음 (드래그 선택 중 오선택 방지) */}
         <button
           type="button"
@@ -1168,32 +1120,11 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
             <span>클릭·드래그로 선택</span>
           )}
         </button>
-        <div className="flex items-center gap-0.5">
-          <div className="flex-1 flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-lg">
-            <SegBtn active={view === 'list'} onClick={() => onChangeView('list')} title="Recipe별로 한 줄씩 표시">
-              개별
-            </SegBtn>
-            <SegBtn active={view === 'group'} onClick={() => onChangeView('group')} title="값이 거의 같은 Recipe끼리 묶어서 표시">
-              묶음
-            </SegBtn>
-          </div>
-          {view === 'list' && (
-            <button
-              type="button"
-              onClick={() => onChangeSort(sort === 'no' ? 'value' : 'no')}
-              title={sort === 'no' ? '현재: 번호순 (누르면 값 큰 순)' : '현재: 값 큰 순 (누르면 번호순)'}
-              aria-label="정렬 바꾸기"
-              className="shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded-md bg-white border border-slate-300 text-[#334155] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
-            >
-              {sort === 'no' ? <ArrowDown01 className="w-3.5 h-3.5" /> : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
-            </button>
-          )}
-        </div>
       </div>
 
       {/* 본문 */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin" onMouseLeave={() => onHighlight(null)}>
-        {view === 'list' ? (
+        {(
           <table className="w-full border-collapse table-fixed text-[10.5px]">
             <tbody>
               {rows.map((v, i) => {
@@ -1253,78 +1184,6 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
               })}
             </tbody>
           </table>
-        ) : hasValues ? (
-          <div className="divide-y divide-slate-200">
-            {groups.map((g, gi) => {
-              const lo = formatCursorValue(g.lo);
-              const hiV = formatCursorValue(g.hi);
-              const ids = g.items.map(v => v.fileId);
-              const allSel = ids.every(id => selectedIds.includes(id));
-              return (
-                <div key={gi} className="px-1 py-1 space-y-0.5">
-                  <button
-                    type="button"
-                    onClick={() => onToggleGroup(ids)}
-                    className={`w-full flex items-baseline justify-between gap-1 rounded px-0.5 cursor-pointer text-left ${
-                      allSel && hasSelection ? 'bg-[#DBEAFE]' : 'hover:bg-[#EFF6FF]'
-                    }`}
-                    title={allSel && hasSelection ? '클릭: 이 묶음 선택 해제' : '클릭: 이 묶음 전체 선택'}
-                  >
-                    <span className="text-[12px] font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
-                      {lo === hiV ? hiV : `${lo} ~ ${hiV}`}
-                      {unit && <span className="ml-0.5 text-[10px] font-semibold text-[#64748B]">{unit}</span>}
-                    </span>
-                    <span className="text-[10px] font-semibold text-[#475569] whitespace-nowrap">{g.items.length}개</span>
-                  </button>
-                  <div className="flex flex-wrap gap-1">
-                    {g.items.map(v => (
-                      <button
-                        type="button"
-                        key={v.fileId}
-                        onMouseEnter={() => onHighlight(v.fileId)}
-                        onClick={() => onToggle(v.fileId)}
-                        title={`${v.rcpName}: ${v.formatted}${unit ? ' ' + unit : ''} (클릭: 선택/해제)`}
-                        className={`inline-flex items-center gap-0.5 px-1 py-[1px] max-w-full min-w-0 rounded border text-[10px] font-bold tabular-nums cursor-pointer ${
-                          selectedIds.includes(v.fileId)
-                            ? 'bg-[#DBEAFE] border-[#2563EB] text-[#1E3A8A]'
-                            : highlightFileId === v.fileId
-                            ? 'bg-[#EFF6FF] border-[#93C5FD] text-[#1E3A8A]'
-                            : 'bg-[#F8FAFC] border-slate-300 text-[#334155]'
-                        }`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
-                        <span className="shrink-0">#{v.fileNo}</span>
-                        <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            {hiddenRows.length > 0 && (
-              <div className="px-1 py-1 space-y-0.5 bg-[#F8FAFC]">
-                <div className="text-[10px] font-semibold text-[#94A3B8]">선택 안 됨 · {hiddenRows.length}개</div>
-                <div className="flex flex-wrap gap-1">
-                  {hiddenRows.map(v => (
-                    <button
-                      type="button"
-                      key={v.fileId}
-                      onClick={() => onToggle(v.fileId)}
-                      title={`${v.rcpName} (클릭: 선택에 추가)`}
-                      className="inline-flex items-center gap-0.5 px-1 py-[1px] max-w-full min-w-0 rounded border border-dashed border-slate-300 text-[10px] font-bold text-[#94A3B8] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
-                    >
-                      <span className="shrink-0">#{v.fileNo}</span>
-                      <span className="truncate">{v.shortName}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="px-1.5 py-2 text-[10px] text-[#64748B] leading-relaxed">
-            그래프 위에 마우스를 올리면 같은 값끼리 묶어 보여 줍니다.
-          </p>
         )}
       </div>
 
@@ -1469,14 +1328,11 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   showStepTimeline,
   alignedSteps,
   refFile,
-  valueView,
-  onChangeValueView,
   valueSort,
   onChangeValueSort,
   selectedRecipeIds,
   onToggleRecipe,
   onSetRecipeSelected,
-  onToggleRecipeGroup,
   onClearRecipeSelection,
   statRange,
   onSetStatRange,
@@ -2999,8 +2855,6 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           }
           live={hoverInfo !== null}
           unit={metric.unit}
-          view={valueView}
-          onChangeView={onChangeValueView}
           sort={valueSort}
           onChangeSort={onChangeValueSort}
           highlightFileId={highlightFileId}
@@ -3008,7 +2862,6 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           selectedIds={selectedRecipeIds}
           onToggle={onToggleRecipe}
           onSetSelected={onSetRecipeSelected}
-          onToggleGroup={onToggleRecipeGroup}
           onClearSelection={onClearRecipeSelection}
         />
 
