@@ -609,7 +609,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
             <div className="p-2.5 flex flex-col gap-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
               {/* 1. 볼 Run 선택 (Recipe 이름 한 줄) */}
               <div className="space-y-1">
-              <ManagerSectionTitle>1. Run 선택</ManagerSectionTitle>
+              <ManagerSectionTitle>1. Recipe 지정</ManagerSectionTitle>
               <select
                 aria-label="볼 Run 선택"
                 value={activeFile.id}
