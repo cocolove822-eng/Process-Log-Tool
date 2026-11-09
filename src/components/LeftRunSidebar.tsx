@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
+import { MANAGER_COLLAPSED_WIDTH, MANAGER_WIDTH } from './ManagerShell';
 import {
   FileSpreadsheet,
   Trash2,
@@ -86,12 +87,8 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
 
 
 
-  // Determine Sidebar Width (280px for run list, 310px for settings & guide for clean side-by-side layout)
-  const sidebarWidthClass = isCollapsed
-    ? 'w-[56px] min-w-[56px] max-w-[56px]'
-    : sidebarTab === 'settings' || sidebarTab === 'guide'
-    ? 'w-[310px] min-w-[310px] max-w-[310px]'
-    : 'w-[280px] min-w-[280px] max-w-[280px]';
+  // 너비: 세 매니저 공통 (펼침 250px · 접힘 56px)
+  const sidebarWidthClass = isCollapsed ? MANAGER_COLLAPSED_WIDTH : MANAGER_WIDTH;
 
   // Drag event handlers for sidebar
   const handleSidebarDragEnter = (e: React.DragEvent) => {
@@ -487,7 +484,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                             const val = e.target.value;
                             onChangeManualDepoStep(file.id, val === 'all' ? null : parseInt(val, 10));
                           }}
-                          className={`w-[64px] shrink-0 border rounded text-[9.5px] font-bold px-0.5 py-0 h-[18px] focus:outline-none focus:border-[#2563EB] cursor-pointer ${
+                          className={`w-[68px] shrink-0 border rounded text-[9.5px] font-bold px-0.5 py-0 h-[18px] focus:outline-none focus:border-[#2563EB] cursor-pointer ${
                             isManual
                               ? 'border-[#2563EB] text-[#1D4ED8] bg-blue-50'
                               : 'border-slate-200 text-[#2563EB] bg-white hover:border-slate-300'

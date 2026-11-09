@@ -73,7 +73,7 @@ const LevelBox: React.FC<{
       : 'bg-rose-50 border-rose-300 text-rose-900 focus:border-rose-500';
   const u = tone === 'warn' ? 'text-amber-700' : 'text-rose-700';
   return (
-    <span className="relative w-[58px] shrink-0" title={tone === 'warn' ? '주의 (Warning) 기준' : '경보 (Alarm) 기준'}>
+    <span className="relative w-[50px] shrink-0" title={tone === 'warn' ? '주의 (Warning) 기준' : '경보 (Alarm) 기준'}>
       <input
         type="number"
         step={step}
@@ -104,11 +104,11 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
     <div className="flex-1 overflow-y-auto p-2 space-y-2.5 scrollbar-thin text-xs text-[#0F172A] bg-[#E6EBF1]">
       {/* Header with Quick Guide Link & Reset */}
       <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 min-w-0">
           <Sliders className="w-3.5 h-3.5 text-[#2563EB]" />
-          <span className="font-extrabold text-[#0F172A] text-xs">분석 기준 & 판정 설정</span>
+          <span className="font-bold text-[#334155] text-[10.5px] whitespace-nowrap">분석 기준 & 판정 설정</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           {onOpenGuide && (
             <button
               type="button"
@@ -136,7 +136,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
       {/* Group 1: 일반 공정 분석 기준 파라미터 (시작시점 / 종료시점 가로 배치 압축) */}
       {/* ========================================================================= */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
+        <div className="flex items-center justify-between gap-1 whitespace-nowrap text-[10.5px] font-bold text-[#334155]">
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
             <span>1. 공정 분석 기본 설정</span>
@@ -199,7 +199,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
       {/* Group 2: 항목별 Warning · Alarm 판정 기준 (1번과 같은 한 줄 배치) */}
       {/* ========================================================================= */}
       <div className="space-y-1.5 pt-1 border-t border-slate-300">
-        <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
+        <div className="flex items-center justify-between gap-1 whitespace-nowrap text-[10.5px] font-bold text-[#334155]">
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
             <span>2. Warning & Alarm 판정 기준</span>
@@ -219,7 +219,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
             [
               { label: 'RF Forward', hint: 'Set ±', unit: '%', w: 'ecRfForwardWarningPct', a: 'ecRfForwardAlarmPct', step: 0.5, dot: 'bg-[#2563EB]' },
               { label: 'RF Reflect', hint: 'Max', unit: 'W', w: 'ecRfReflectWarningW', a: 'ecRfReflectAlarmW', step: 10, dot: 'bg-[#7C3AED]' },
-              { label: 'Matcher', hint: 'Vpp·Irms Unif.', unit: '%', w: 'ecMatcherWarningPct', a: 'ecMatcherAlarmPct', step: 0.5, dot: 'bg-[#059669]' },
+              { label: 'Matcher', hint: 'Unif.', unit: '%', w: 'ecMatcherWarningPct', a: 'ecMatcherAlarmPct', step: 0.5, dot: 'bg-[#059669]' },
               { label: 'Vdc', hint: 'Max−Min', unit: 'V', w: 'ecVdcWarningV', a: 'ecVdcAlarmV', step: 1, dot: 'bg-[#059669]' },
               { label: 'T/V Press', hint: 'Set ±', unit: '%', w: 'ecPressureWarningPct', a: 'ecPressureAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
               { label: 'T/V Pos.', hint: 'Max−Min', unit: '%', w: 'ecPositionWarningPct', a: 'ecPositionAlarmPct', step: 0.5, dot: 'bg-[#65750F]' },
@@ -227,7 +227,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
               { label: 'Heater', hint: '온도차 ±', unit: '℃', w: 'ecHeaterWarningC', a: 'ecHeaterAlarmC', step: 1, dot: 'bg-[#E11D48]' },
             ] as const
           ).map(row => (
-            <div key={row.label} className="flex items-center justify-between gap-1 whitespace-nowrap">
+            <div key={row.label} className="flex items-center justify-between gap-1 whitespace-nowrap" title={`${row.label} (${row.hint}${row.label === 'Matcher' ? ': Vpp·Irms 균일도' : ''}) — 왼쪽 주의 · 오른쪽 경보, 빈칸이면 판정 안 함`}>
               <span className="flex items-center gap-1 min-w-0">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.dot}`} />
                 <span className="text-[10.5px] font-bold text-[#0F172A]">{row.label}</span>
@@ -258,7 +258,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
       {/* Group 3: RF, Matcher & Gas Delay 기준 */}
       {/* ========================================================================= */}
       <div className="space-y-1.5 pt-1 border-t border-slate-300">
-        <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
+        <div className="flex items-center justify-between gap-1 whitespace-nowrap text-[10.5px] font-bold text-[#334155]">
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
             <span>3. Delay 판정 기준</span>
@@ -268,11 +268,11 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
         <div className="bg-white px-2 py-1.5 rounded-xl border border-slate-300 shadow-2xs">
           <div
             className="flex items-center justify-between gap-1 whitespace-nowrap"
-            title="RF Delay, Matcher Delay, Gas MFC 5종 Delay에 공통 적용됩니다"
+            title="RF Delay, Matcher Delay, Gas MFC 5종 Delay에 공통 적용됩니다 (RF·Matcher·Gas 공통)"
           >
             <span className="flex items-baseline gap-1 min-w-0">
               <span className="text-[10.5px] font-bold text-[#0F172A]">Delay</span>
-              <span className="text-[9px] text-[#64748B] truncate">RF·Matcher·Gas 공통</span>
+              <span className="text-[9px] text-[#64748B] truncate">전 항목 공통</span>
             </span>
             <span className="flex items-center gap-1 shrink-0">
               <LevelBox

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow, Ruler, Copy } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
+import { ManagerPortal, ManagerHeader } from './ManagerShell';
 
 export interface AlignedStepSegment {
   step: number;
@@ -28,6 +29,8 @@ export const STEP_PALETTE = [
 interface TrendTabProps {
   files: ParsedLogFile[];
   results: AnalysisFileResult[];
+  /** App이 만든 왼쪽 매니저 자리 (공정 분석 매니저와 같은 위치·모양) */
+  managerHost?: HTMLElement | null;
 }
 
 const RECIPE_COLORS = [
@@ -231,7 +234,8 @@ export function getRfOnOffsetSec(file: ParsedLogFile, res?: AnalysisFileResult):
 // Recipe 선택 상태: 탭을 옮겨 TrendTab이 다시 그려져도 유지되도록 모듈 변수에 보관
 let persistedRecipeSelection: string[] = [];
 
-export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
+export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost = null }) => {
+  const [isManagerCollapsed, setIsManagerCollapsed] = useState<boolean>(false);
   const [timeAlignment, setTimeAlignment] = useState<'elapsed' | 'rfOn'>('elapsed');
   // 그래프 배치: 한 행에 1·2·3개 (보는 사람 브라우저에 기억, 저장이 안 되는 환경이면 기본 2열)
   const [chartCols, setChartColsState] = useState<1 | 2 | 3>(() => {
@@ -438,16 +442,27 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 items-start w-full">
-      {/* 1. Left Vertical Control Panel (그래프 분석 매니저) */}
-      <aside className="w-full lg:w-[250px] shrink-0 bg-[#E6EBF1] border border-slate-400 rounded-2xl p-2.5 shadow-xs space-y-3 lg:sticky lg:top-[68px] lg:z-20 lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto scrollbar-thin">
-        {/* Panel Header */}
-        <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
-          <span className="text-xs font-extrabold text-[#0F172A] flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#2563EB]" />
-            그래프 분석 매니저
-          </span>
-          {/* 전체 초기화 버튼 */}
-          <button
+      {/* 1. 그래프 분석 매니저: 화면 왼쪽 끝 전체 높이 패널 (공정 분석 매니저와 같은 틀) */}
+      <ManagerPortal
+        host={managerHost}
+        collapsed={isManagerCollapsed}
+        dataAttr="data-graph-manager"
+        header={
+          <ManagerHeader
+            icon={<SlidersHorizontal className="w-3.5 h-3.5" />}
+            title="그래프 분석 매니저"
+            collapsed={isManagerCollapsed}
+            onToggleCollapse={() => setIsManagerCollapsed(v => !v)}
+          />
+        }
+      >
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 space-y-3 scrollbar-thin">
+        {/* Section 1: 그래프 배치 (한 행에 1·2·3개) */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[10.5px] font-bold text-[#334155] whitespace-nowrap">1. 그래프 배치</span>
+            {/* 전체 초기화 버튼 (모든 그래프 줌/이동) */}
+            <button
             onClick={() => {
               setGlobalXFormat(null);
               setResetAllKey(k => k + 1);
@@ -458,11 +473,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
             <RefreshCw className="w-3 h-3 text-[#475569]" />
             <span>전체 초기화</span>
           </button>
-        </div>
-
-        {/* Section 1: 그래프 배치 (한 행에 1·2·3개) */}
-        <div className="space-y-1">
-          <span className="text-[10.5px] font-bold text-[#334155] block">1. 그래프 배치</span>
+          </div>
           <div className="grid grid-cols-3 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300" role="radiogroup" aria-label="그래프 배치">
             {([1, 2, 3] as const).map(n => (
               <button
@@ -700,7 +711,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                 return (
                   <div key={mid} className="flex items-center gap-1">
                     <span
-                      className="w-[78px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
+                      className="w-[100px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
                       title={`${m.name} 그래프`}
                     >
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cs.dotColor }} />
@@ -809,7 +820,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
             })}
           </div>
         </div>
-      </aside>
+      </div>
+      </ManagerPortal>
 
       {/* 2. Right Chart Area (그래프 배치: 한 행에 1·2·3개) */}
       <div className="flex-1 min-w-0">

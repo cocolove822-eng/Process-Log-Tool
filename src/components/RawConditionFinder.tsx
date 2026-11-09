@@ -213,12 +213,12 @@ export const RawConditionFinder: React.FC<RawConditionFinderProps> = ({
     'h-[22px] bg-white border border-slate-300 rounded-md px-0.5 text-[10.5px] font-semibold text-[#0F172A] focus:outline-none focus:border-[#2563EB] cursor-pointer';
 
   return (
-    <div data-find-bar className="rounded-lg border border-[#FCD34D] bg-[#FFFBEB]/60 p-1 space-y-1 text-[10.5px]">
-      {/* 머리줄 */}
-      <div className="flex items-center justify-between px-0.5">
-        <span className="flex items-center gap-1 font-bold text-[#92400E]">
+    <div data-find-bar className="space-y-1 text-[10.5px]">
+      {/* 머리줄 (세 매니저 공통 섹션 제목 모양) */}
+      <div className="flex items-center justify-between gap-1 min-h-[16px]">
+        <span className="flex items-center gap-1 text-[10.5px] font-bold text-[#334155] whitespace-nowrap">
+          2. 조건 찾기
           <SearchCheck className="w-3 h-3 text-[#D97706]" />
-          조건 찾기
         </span>
         {anyActive && (
           <button type="button" onClick={onClear} className="text-[10px] font-semibold text-[#64748B] hover:text-[#DC2626] cursor-pointer" title="조건 지우기">

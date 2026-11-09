@@ -10,8 +10,11 @@ import {
 import { AnalysisFileResult, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
 import { evaluateFind, FindCond, FindField, FindPositionBar, newCond, RawConditionFinder } from './RawConditionFinder';
 import { resolveDynamicHeaterChannels } from '../utils/csvParser';
+import { ManagerHeader, ManagerPortal, ManagerSectionTitle } from './ManagerShell';
 
 interface RawDataTabProps {
+  /** App이 만든 왼쪽 매니저 자리 (공정 분석 매니저와 같은 위치·모양) */
+  managerHost?: HTMLElement | null;
   files: ParsedLogFile[];
   results?: AnalysisFileResult[];
   selectedRunIdx?: number | null;
@@ -100,30 +103,12 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   results = [],
   selectedRunIdx = null,
   onSelectRunIdx,
+  managerHost = null,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
   // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  // 왼쪽 'Log 분석 매니저' 카드를 오른쪽 [Raw Data] 카드와 같은 높이로 맞춤 (넓은 화면에서만)
-  const rightPanelRef = useRef<HTMLDivElement>(null);
-  const [sidebarHeight, setSidebarHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const el = rightPanelRef.current;
-    if (!el) return;
-    const update = () => {
-      const wide = window.matchMedia('(min-width: 1024px)').matches;
-      setSidebarHeight(wide ? Math.round(el.getBoundingClientRect().height) : null);
-    };
-    update();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
-    ro?.observe(el);
-    window.addEventListener('resize', update);
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', update);
-    };
-  });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Virtual Scrolling State
@@ -607,43 +592,24 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
   return (
     <div className="flex flex-col lg:flex-row gap-2 items-start w-full">
-      {/* 1. Left Sidebar: 초소형·고밀도 'Log 분석 매니저' (공정 분석 매니저와 연동) */}
-      <div
-        className={`shrink-0 transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-9' : 'w-full lg:w-[160px]'
-        } lg:sticky lg:top-2`}
+      {/* 1. Log 분석 매니저: 화면 왼쪽 끝 전체 높이 패널 (공정 분석 매니저와 같은 틀) */}
+      <ManagerPortal
+        host={managerHost}
+        collapsed={isSidebarCollapsed}
+        dataAttr="data-log-manager"
+        header={
+          <ManagerHeader
+            icon={<Layers className="w-3.5 h-3.5" />}
+            title="Log 분석 매니저"
+            collapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(v => !v)}
+          />
+        }
       >
-        <div
-          className="bg-[#E6EBF1] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]"
-          style={!isSidebarCollapsed && sidebarHeight ? { height: sidebarHeight, maxHeight: 'none' } : undefined}
-        >
-          {/* Sidebar Top Header (공정 종합 분석 카드 스타일) */}
-          <div className="px-2.5 py-1.5 bg-[#E2E8F0] border-b border-slate-400 flex items-center justify-between">
-            {!isSidebarCollapsed ? (
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
-                <h2 className="text-[11px] font-bold text-[#0F172A] truncate">
-                  Log 분석 매니저
-                </h2>
-              </div>
-            ) : (
-              <div className="w-full flex justify-center">
-                <Layers className="w-3.5 h-3.5 text-[#2563EB]" />
-              </div>
-            )}
-
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1 hover:bg-[#CBD5E1] rounded-md text-[#64748B] hover:text-[#0F172A] transition-colors shrink-0 cursor-pointer"
-              title={isSidebarCollapsed ? '패널 펼치기' : '패널 접기'}
-            >
-              {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-
-          {!isSidebarCollapsed && (
-            <div className="p-1.5 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
-              {/* 1-1. 볼 Run 선택 (Recipe 이름 한 줄) */}
+            <div className="p-2.5 flex flex-col gap-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
+              {/* 1. 볼 Run 선택 (Recipe 이름 한 줄) */}
+              <div className="space-y-1">
+              <ManagerSectionTitle>1. Run 선택</ManagerSectionTitle>
               <select
                 aria-label="볼 Run 선택"
                 value={activeFile.id}
@@ -662,6 +628,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                   </option>
                 ))}
               </select>
+              </div>
 
               {/* 1-3. 조건 찾기 (값 조건으로 행 찾기 → 표에 강조·이동) */}
               <RawConditionFinder
@@ -688,20 +655,18 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
               {/* 1-4. Step 필터 & Step 별 요약: 남는 세로 공간을 모두 사용 */}
               <div className="!shrink flex-1 min-h-[120px] flex flex-col gap-1">
-                <div className="flex items-center justify-between text-[10px] font-bold text-[#64748B] px-0.5">
-                  <span className="flex items-center gap-1">
-                    <Filter className="w-3 h-3 text-[#2563EB]" />
-                    Step ({activeFile.stepsSummary.length})
-                  </span>
-                  {selectedStepFilter !== 'all' && (
+                <ManagerSectionTitle
+                  right={selectedStepFilter !== 'all' ? (
                     <button
                       onClick={() => setSelectedStepFilter('all')}
-                      className="text-[#2563EB] hover:underline cursor-pointer"
+                      className="text-[10px] font-semibold text-[#2563EB] hover:underline cursor-pointer whitespace-nowrap"
                     >
-                      전체 해제
+                      전체 보기
                     </button>
-                  )}
-                </div>
+                  ) : undefined}
+                >
+                  3. Step 선택 ({activeFile.stepsSummary.length})
+                </ManagerSectionTitle>
 
                 {/* All Steps Row Button */}
                 <button
@@ -785,12 +750,10 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 </div>
               )}
             </div>
-          )}
-        </div>
-      </div>
+      </ManagerPortal>
 
       {/* 2. Right Content: Raw Data Table (공정 종합 분석과 100% 동일한 고밀도 엑셀 그리드 스타일) */}
-      <div ref={rightPanelRef} className="flex-1 min-w-0 w-full space-y-2">
+      <div className="flex-1 min-w-0 w-full space-y-2">
         {/* Missing Columns Notice if any */}
         {activeFile.missingColumns.length > 0 && (
           <div className="p-2.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl flex items-start gap-2 text-xs text-[#92400E] shadow-xs">

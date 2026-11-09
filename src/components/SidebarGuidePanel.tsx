@@ -157,7 +157,7 @@ export const SidebarGuidePanel: React.FC<SidebarGuidePanelProps> = ({ onOpenSett
                   <span className="block text-[10.5px] font-bold text-[#0F172A] whitespace-nowrap">
                     {i + 1}. {sec.title}
                   </span>
-                  <span className="block text-[9px] text-[#64748B] truncate">{sec.summary}</span>
+                  <span className="block text-[9px] text-[#64748B] leading-snug">{sec.summary}</span>
                 </span>
                 <ChevronRight
                   className={`w-3.5 h-3.5 shrink-0 text-[#94A3B8] transition-transform ${open ? 'rotate-90' : ''}`}

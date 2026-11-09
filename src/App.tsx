@@ -25,6 +25,8 @@ function AppContent() {
   const [ctclMatrix, setCtclMatrix] = useState<CTCLMatrixData | null>(null);
   const [settings, setSettings] = useState<AnalyzerSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<string>('integrated');
+  // 그래프 분석 / Log 분석 매니저가 그려질 왼쪽 자리 (DOM 노드)
+  const [managerHost, setManagerHost] = useState<HTMLElement | null>(null);
   // 원본 로그 탭 맨 위 CTCL Matrix 패널 펼침 여부 (기본 접힘)
   const [isCtclOpen, setIsCtclOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -168,6 +170,9 @@ function AppContent() {
           />
           )}
 
+          {/* 그래프 분석 / Log 분석 매니저 자리: 각 탭이 이 자리에 패널을 그림 (공정 분석 매니저와 같은 위치) */}
+          {activeTab !== 'integrated' && <div ref={setManagerHost} className="contents" />}
+
           {/* Main Dashboard & Tabs Area */}
           <main className="flex-1 min-w-0 p-2 lg:p-3 space-y-2 overflow-x-clip">
             {/* Error notification banner if any */}
@@ -215,7 +220,7 @@ function AppContent() {
 
             {/* Tab 2: 그래프 분석 (Trend) */}
             {activeTab === 'trend' && (
-              <TrendTab files={files} results={results} />
+              <TrendTab files={files} results={results} managerHost={managerHost} />
             )}
 
             {/* Tab 3: 원본 로그 (Raw Data) — 맨 위에 CTCL Matrix 간략 패널(접고 펴기) */}
@@ -237,6 +242,7 @@ function AppContent() {
                   results={results}
                   selectedRunIdx={selectedRunIdx}
                   onSelectRunIdx={setSelectedRunIdx}
+                  managerHost={managerHost}
                 />
               </div>
             )}
