@@ -15,6 +15,8 @@ interface RawDataTabProps {
   files: ParsedLogFile[];
   results?: AnalysisFileResult[];
   selectedRunIdx?: number | null;
+  /** Log 분석 매니저에서 볼 Run(파일) 바꾸기 */
+  onSelectRunIdx?: (idx: number | null) => void;
 }
 
 interface GasDef {
@@ -97,6 +99,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   files,
   results = [],
   selectedRunIdx = null,
+  onSelectRunIdx,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
@@ -640,13 +643,25 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
           {!isSidebarCollapsed && (
             <div className="p-1.5 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
-              {/* 1-1. 선택 Run: Recipe 이름 한 줄 */}
-              <div
-                className="px-1.5 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs text-[11px] font-bold text-[#0F172A] truncate"
-                title={`${activeFile.meta.recipeName || activeFile.fileName} (${activeFile.rows.length.toLocaleString()}행)`}
+              {/* 1-1. 볼 Run 선택 (Recipe 이름 한 줄) */}
+              <select
+                aria-label="볼 Run 선택"
+                value={activeFile.id}
+                onChange={e => {
+                  const fid = e.target.value;
+                  // 공정 종합 분석과 같은 선택 상태(selectedRunIdx)를 바꿈: 그 파일의 첫 분석 결과, 없으면 파일 순서
+                  const ri = results.findIndex(r => r.fileId === fid);
+                  onSelectRunIdx?.(ri >= 0 ? ri : files.findIndex(f => f.id === fid));
+                }}
+                className="w-full px-1 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs text-[11px] font-bold text-[#0F172A] truncate cursor-pointer focus:outline-none focus:border-[#2563EB]"
+                title={`${activeFile.meta.recipeName || activeFile.fileName} (${activeFile.rows.length.toLocaleString()}행) · 눌러서 다른 Run 보기`}
               >
-                {activeFile.meta.recipeName || activeFile.fileName}
-              </div>
+                {files.map((f, i) => (
+                  <option key={f.id} value={f.id}>
+                    #{i + 1} {f.meta.recipeName || f.fileName}
+                  </option>
+                ))}
+              </select>
 
               {/* 1-3. 조건 찾기 (값 조건으로 행 찾기 → 표에 강조·이동) */}
               <RawConditionFinder

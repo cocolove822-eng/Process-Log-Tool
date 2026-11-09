@@ -17,7 +17,6 @@ import { AnalyzerSettings, CTCLMatrixData, ParsedLogFile } from './types/pecvd';
 import { DEFAULT_SETTINGS, analyzeLogFileSteps } from './utils/analyzer';
 import { parseRawLogFile } from './utils/csvParser';
 import { parseCTCLWorkbook } from './utils/ctclParser';
-import { exportResultsToExcel } from './utils/exportUtils';
 import { createSampleCTCLMatrix } from './utils/sampleData';
 
 function AppContent() {
@@ -120,10 +119,6 @@ function AppContent() {
     );
   };
 
-  const handleExportExcel = () => {
-    if (results.length === 0) return;
-    exportResultsToExcel(results, settings, `PECVD_Analysis_R1_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
 
   return (
     <div className={`min-h-screen ${theme.appBg} ${theme.appText} flex flex-col font-sans transition-colors selection:bg-[#3182F6]/20`}>
@@ -132,7 +127,9 @@ function AppContent() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         fileCount={files.length}
-        onExportExcel={handleExportExcel}
+        ctclMatrix={ctclMatrix}
+        onUploadCtclFile={handleUploadCtclFile}
+        onSelectCtclSheet={handleSelectCtclSheet}
       />
 
       {/* Main Content Area */}
@@ -148,7 +145,8 @@ function AppContent() {
         </main>
       ) : (
         <div className="flex-1 flex w-full max-w-[1920px] mx-auto min-h-0 relative">
-          {/* Dedicated Left Run & CTCL Manager Sidebar */}
+          {/* 공정 분석 매니저: '공정 종합 분석' 탭에서만 표시 */}
+          {activeTab === 'integrated' && (
           <LeftRunSidebar
             files={files}
             ctclMatrix={ctclMatrix}
@@ -168,6 +166,7 @@ function AppContent() {
             onChangeManualDepoStep={handleChangeManualDepoStep}
             onSelectCtclSheet={handleSelectCtclSheet}
           />
+          )}
 
           {/* Main Dashboard & Tabs Area */}
           <main className="flex-1 min-w-0 p-2 lg:p-3 space-y-2 overflow-x-clip">
@@ -237,6 +236,7 @@ function AppContent() {
                   files={files}
                   results={results}
                   selectedRunIdx={selectedRunIdx}
+                  onSelectRunIdx={setSelectedRunIdx}
                 />
               </div>
             )}
