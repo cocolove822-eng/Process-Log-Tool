@@ -1622,7 +1622,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             <td
                               style={getSelectedTdStyle(isSelected)}
                               className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
-                              title={rVal !== null ? `Matcher R (저항): ${fmt(rVal, 2)} Ω (클릭 시 원본 로그 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
+                              title={rVal !== null ? `Matcher R (저항): ${fmt(rVal, 2)} Ω (클릭 시 원본 Log Data 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
                               onClick={onNavigateToCtcl ? (e) => { e.stopPropagation(); onSelectRunIdx?.(idx); onNavigateToCtcl(); } : undefined}
                             >
                               <span className={onNavigateToCtcl && rVal !== null ? 'group-hover:text-[#2563EB] group-hover:underline' : ''}>
@@ -1632,7 +1632,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             <td
                               style={getSelectedTdStyle(isSelected)}
                               className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
-                              title={xVal !== null ? `Matcher X (리액턴스): ${fmt(xVal, 2)} Ω (클릭 시 원본 로그 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
+                              title={xVal !== null ? `Matcher X (리액턴스): ${fmt(xVal, 2)} Ω (클릭 시 원본 Log Data 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
                               onClick={onNavigateToCtcl ? (e) => { e.stopPropagation(); onSelectRunIdx?.(idx); onNavigateToCtcl(); } : undefined}
                             >
                               <span className={onNavigateToCtcl && xVal !== null ? 'group-hover:text-[#2563EB] group-hover:underline' : ''}>

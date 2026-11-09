@@ -113,7 +113,7 @@ export const CtclPanel: React.FC<CtclPanelProps> = ({
       >
         <div className="flex items-center gap-2 shrink-0">
           <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
-          <h3 className={`text-[13px] font-bold tracking-tight ${theme.cardTitleColor} whitespace-nowrap`}>[CTCL Matrix] Matcher 임피던스</h3>
+          <h3 className={`text-[13px] font-bold tracking-tight ${theme.cardTitleColor} whitespace-nowrap`}>[CTCL Matrix] 챔버 R,X 값 산출</h3>
         </div>
 
         {ctclMatrix ? (
