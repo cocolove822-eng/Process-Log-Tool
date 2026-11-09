@@ -198,6 +198,9 @@ interface IntegratedDashboardProps {
   onNavigateToCtcl?: () => void;
 }
 
+/** 표 번호 칸: 눌러서 타임라인 보기 (마우스를 올리면 번호가 파랗게) */
+const NO_CELL_LINK_CLASS = 'cursor-pointer hover:[&>span]:text-[#2563EB] hover:[&>span]:underline hover:[&>span]:underline-offset-2';
+
 export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
   results,
   settings,
@@ -215,6 +218,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 }) => {
   const { theme, themeMode } = useTheme();
   const [copiedTable, setCopiedTable] = useState<string | null>(null);
+  // 표 번호 칸 클릭: 그 Recipe를 선택하고 공정 Sequence 타임라인을 펼쳐 보여줌
+  const [ganttFocus, setGanttFocus] = useState<number>(0);
+  const focusTimeline = (idx: number) => {
+    onSelectRunIdx?.(idx);
+    setGanttFocus(k => k + 1);
+  };
   const [isDelaySettingsOpen, setIsDelaySettingsOpen] = useState<boolean>(false);
   const [activeDevTab, setActiveDevTab] = useState<'rfMatcher' | 'presLift' | 'gas' | 'heater' | 'all'>('rfMatcher');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1073,6 +1082,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           files={files}
           externalSelectedRunIdx={selectedRunIdx}
           onSelectRunIdx={onSelectRunIdx}
+          focusSignal={ganttFocus}
         />
 
         {/* --------------------------------------------------------- */}
@@ -1354,7 +1364,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                         } ${theme.tableRowHover}`}
                       >
-                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                           {isMulti ? (
                             <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                               {p.no}
@@ -1569,7 +1579,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {m.no}
@@ -1875,7 +1885,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                         } ${theme.tableRowHover}`}
                       >
-                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                           {isMulti ? (
                             <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                               {s.no}
@@ -2339,7 +2349,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {d.no}
@@ -2603,7 +2613,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {d.no}

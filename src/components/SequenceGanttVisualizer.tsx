@@ -27,6 +27,8 @@ interface SequenceGanttVisualizerProps {
   files?: ParsedLogFile[];
   externalSelectedRunIdx?: number | null;
   onSelectRunIdx?: (idx: number | null) => void;
+  /** 값이 바뀌면 타임라인을 펼치고 화면을 타임라인으로 이동 (표 번호 칸 클릭) */
+  focusSignal?: number;
 }
 
 export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = ({
@@ -35,8 +37,10 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
   files = [],
   externalSelectedRunIdx,
   onSelectRunIdx,
+  focusSignal = 0,
 }) => {
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (externalSelectedRunIdx !== undefined && externalSelectedRunIdx !== null && externalSelectedRunIdx >= 0 && externalSelectedRunIdx < results.length) {
@@ -44,6 +48,13 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
     }
   }, [externalSelectedRunIdx, results.length]);
   const [isCollapsed, setIsCollapsed] = useState<boolean>(true);
+
+  // 표 번호 칸 클릭 → 타임라인 펼치고 화면 이동
+  useEffect(() => {
+    if (!focusSignal) return;
+    setIsCollapsed(false);
+    requestAnimationFrame(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, [focusSignal]);
 
   // Control 시점 인터랙티브 하이라이트 (다중 선택/토글 누적 지원)
   const [selectedMilestoneKeys, setSelectedMilestoneKeys] = useState<string[]>([]);
@@ -70,6 +81,9 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
 
   // Raw file rows for accurate Warning threshold calculation
   const currentFile = files.find(f => f.id === currentResult.fileId) || files[selectedRunIdx];
+  // 같은 Log의 Depo들 (Depo 선택 칩) · Log 번호
+  const siblingResults = results.map((r, idx) => ({ r, idx })).filter(x => x.r.fileId === currentResult.fileId);
+  const currentFileNo = Math.max(1, files.findIndex(f => f.id === currentResult.fileId) + 1);
   const rawRows = currentFile?.rows || [];
 
   // SiH4 가스 실제 공급 여부 판별 (0 sccm 또는 미공급 시에는 트랙에 Idle로 표시)
@@ -1276,7 +1290,7 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
   ];
 
   return (
-    <div className="bg-[#F8FAFC] border border-slate-400 rounded-xl overflow-hidden shadow-xs transition-all">
+    <div ref={rootRef} data-gantt className="bg-[#F8FAFC] border border-slate-400 rounded-xl overflow-hidden shadow-xs transition-all scroll-mt-[68px]">
       {/* Header Bar */}
       <div className="px-3 py-1.5 bg-[#E2E8F0] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1288,6 +1302,42 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
               공정 Sequence 타임라인
             </h3>
           </div>
+          {/* 지금 보는 Recipe (Run 선택은 공정 분석 매니저 · 표 번호 칸) */}
+          <span
+            data-gantt-recipe
+            className="flex items-center gap-1 min-w-0 max-w-[420px] px-1.5 py-0.5 rounded-md bg-white border border-slate-300 text-[11px] font-bold text-[#0F172A]"
+            title={`${currentResult.processData.rcpName} · Run 선택: 왼쪽 공정 분석 매니저 또는 아래 표의 번호 칸`}
+          >
+            <span className="shrink-0 px-1 rounded bg-[#2563EB] text-white text-[9.5px] leading-[15px] tabular-nums">#{currentFileNo}</span>
+            <span className="truncate">{currentResult.processData.rcpName}</span>
+          </span>
+          {/* 한 Log에 Depo가 여러 개일 때만: Depo 선택 칩 */}
+          {siblingResults.length > 1 && (
+            <div data-depo-chips className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-300/70" role="radiogroup" aria-label="Depo 선택">
+              {siblingResults.map(({ r, idx }) => {
+                const on = idx === selectedRunIdx;
+                return (
+                  <button
+                    key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => {
+                      setSelectedRunIdx(idx);
+                      onSelectRunIdx?.(idx);
+                    }}
+                    className={`flex items-center gap-1 px-1.5 h-[20px] rounded-md text-[10.5px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                      on ? 'bg-white text-[#1D4ED8] shadow-2xs' : 'text-[#475569] hover:text-[#0F172A]'
+                    }`}
+                    title={`#${r.displayNo} · Depo ${r.subIndex ?? ''} (Step ${r.depoStep}${r.depoStepName ? ` ${r.depoStepName}` : ''})`}
+                  >
+                    <span>Depo {r.subIndex}</span>
+                    <span className={`text-[9px] font-semibold ${on ? 'text-[#2563EB]' : 'text-[#64748B]'}`}>S{r.depoStep}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* View Controls & Feature Toggles */}
@@ -1351,59 +1401,6 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
         <div className="p-3 bg-[#F1F5F9]">
           {(
             <div className="flex flex-col lg:flex-row gap-4 items-start">
-              {/* 좌측 세로: 분석 레시피 목록 (Samsung/SK hynix 실무 그리드 스타일) */}
-              <aside className="w-full lg:w-56 shrink-0 bg-[#EAEFF5] border border-slate-400 rounded-xl p-2.5 flex flex-col gap-2 shadow-2xs">
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#1E3A8A]" />
-                    <span className="text-xs font-bold text-[#0F172A]">분석 레시피</span>
-                  </div>
-                  <span className="text-[10px] font-mono font-bold text-[#334155] bg-white px-1.5 py-0.2 rounded border border-slate-300">
-                    {results.length}개 Run
-                  </span>
-                </div>
-
-                <div className="flex flex-col gap-1 overflow-y-auto max-h-[640px] pr-0.5 scrollbar-thin">
-                  {results.map((r, idx) => {
-                    const isSelected = selectedRunIdx === idx;
-                    const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
-                    return (
-                      <button
-                        key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                        type="button"
-                        onClick={() => {
-                          setSelectedRunIdx(idx);
-                          onSelectRunIdx?.(idx);
-                        }}
-                        className={`w-full text-left px-2 py-1 rounded-lg text-xs transition-all border cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#DBEAFE] text-[#1E40AF] border-[#2563EB] ring-2 ring-[#2563EB]/40 shadow-xs font-bold'
-                            : 'bg-white text-[#0F172A] hover:bg-slate-100 hover:text-[#0F172A] border-slate-300 shadow-2xs'
-                        }`}
-                      >
-                        {/* 1행: Run 번호 + 레시피 명 + Multi-Step 배지 (Step{n}) */}
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`font-mono text-[9px] px-1 py-0.2 rounded font-bold shrink-0 leading-none ${
-                            isSelected ? 'bg-[#2563EB] text-white' : 'bg-slate-200 text-[#334155] border border-slate-300'
-                          }`}>
-                            #{r.displayNo || idx + 1}
-                          </span>
-                          <span className="font-bold text-[11px] truncate flex-1 min-w-0 leading-tight" title={r.processData.rcpName}>
-                            {r.processData.rcpName}
-                          </span>
-                          {isMulti && (
-                            <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-semibold shrink-0 leading-none ${
-                              isSelected ? 'bg-[#BFDBFE] text-[#1E40AF] border border-[#93C5FD]' : 'bg-slate-200 text-[#475569] border border-slate-300'
-                            }`}>
-                              Step{r.depoStep}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </aside>
 
               {/* 우측 메인: 6-Track 타임라인 영역 */}
               <div className="flex-1 min-w-0 w-full space-y-4">
