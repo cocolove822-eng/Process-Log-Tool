@@ -43,6 +43,26 @@ const RECIPE_COLORS = [
   '#0D9488', // Teal
 ];
 
+/**
+ * 레시피 필터에서 고른 Run 전용 색 (고른 순서대로) — 서로 확실히 구분되는 8가지
+ * 9번째부터는 같은 계열의 진한 색으로 한 바퀴 더
+ */
+const SELECT_PALETTE = ['#2563EB', '#EA580C', '#16A34A', '#DC2626', '#7C3AED', '#0891B2', '#92400E', '#DB2777'];
+const SELECT_PALETTE_DARK = ['#1E3A8A', '#9A3412', '#14532D', '#7F1D1D', '#4C1D95', '#155E75', '#451A03', '#831843'];
+
+/**
+ * Run 색: 고른 Run이 있으면 고른 순서대로 SELECT_PALETTE, 아무것도 고르지 않았으면 파일 순서대로 기본 색
+ * (모든 그래프·범례·값 표·구간 통계·왼쪽 레시피 필터가 같은 색을 쓰도록 이 함수 하나로 결정)
+ */
+export const runColor = (fileId: string, fileIdx: number, selectedIds: string[]): string => {
+  const pos = selectedIds.indexOf(fileId);
+  if (pos >= 0) {
+    const pal = Math.floor(pos / SELECT_PALETTE.length) % 2 === 0 ? SELECT_PALETTE : SELECT_PALETTE_DARK;
+    return pal[pos % SELECT_PALETTE.length];
+  }
+  return RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
+};
+
 interface MetricDefinition {
   id: string;
   name: string;
@@ -679,7 +699,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
 
           <div className="space-y-1 max-h-[170px] overflow-y-auto scrollbar-thin pr-0.5">
             {files.map((file, idx) => {
-              const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+              const color = runColor(file.id, idx, selectedRecipeIds);
               const isSelected = selectedRecipeIds.includes(file.id);
               const isVisible = visibleFileIds[file.id] !== false;
               const rcpName =
@@ -1094,7 +1114,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
           fileIdx: idx,
           fileNo: idx + 1,
           rcpName: res?.rcpName || file.meta.recipeName || file.fileName,
-          color: RECIPE_COLORS[idx % RECIPE_COLORS.length],
+          color: runColor(file.id, idx, selectedIds),
           formatted: '–',
           numVal: NaN,
         }
@@ -1201,11 +1221,17 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                   >
                     <td className="pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap overflow-hidden">
                       <span className="flex items-center gap-1 min-w-0">
-                        {sel ? (
-                          <Check className="w-2.5 h-2.5 shrink-0 text-[#2563EB]" strokeWidth={3.5} />
-                        ) : (
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: v.color }} />
-                        )}
+                        {/* 선택해도 Run 색은 그대로: 색 원 안에 흰 체크 + 바깥 테두리로 선택 표시 */}
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0 flex items-center justify-center"
+                          style={{
+                            // 고른 Run이 있을 때 고르지 않은 Run은 회색 (고른 Run 색과 헷갈리지 않게)
+                            backgroundColor: hasSelection && !sel ? '#CBD5E1' : v.color,
+                            boxShadow: sel ? `0 0 0 1.5px #FFFFFF, 0 0 0 2.5px ${v.color}` : undefined,
+                          }}
+                        >
+                          {sel && <Check className="w-2 h-2 text-white" strokeWidth={4.5} />}
+                        </span>
                         <span className="font-bold text-[#334155] tabular-nums shrink-0">#{v.fileNo}</span>
                         <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
                       </span>
@@ -1394,7 +1420,8 @@ const computeRangeStats = (
   visibleFileIds: Record<string, boolean>,
   timeAlignment: 'elapsed' | 'rfOn',
   lo: number,
-  hi: number
+  hi: number,
+  selectedIds: string[]
 ): RangeStat[] => {
   const out: RangeStat[] = [];
   files.forEach((file, idx) => {
@@ -1420,7 +1447,7 @@ const computeRangeStats = (
       fileId: file.id,
       fileNo: idx + 1,
       name: shortRecipeName(file.meta.recipeName || res?.rcpName || file.fileName),
-      color: RECIPE_COLORS[idx % RECIPE_COLORS.length],
+      color: runColor(file.id, idx, selectedIds),
       n, avg, min: mn, max: mx, sd, unif,
     });
   });
@@ -1565,13 +1592,13 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     return files
       .map((file, idx) => {
         const isVisible = visibleFileIds[file.id] !== false;
-        const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+        const color = runColor(file.id, idx, selectedRecipeIds);
         const res = results.find(r => r.fileId === file.id);
         const rcpName = res?.rcpName || file.meta.recipeName || file.fileName;
         return { file, idx, isVisible, color, rcpName };
       })
       .filter(item => item.isVisible);
-  }, [files, visibleFileIds, results]);
+  }, [files, visibleFileIds, results, selectedRecipeIds]);
 
   // Sync when globalXFormat propagates from another card
   useEffect(() => {
@@ -1905,7 +1932,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
     visibleFiles.forEach(file => {
       const fileIdx = files.indexOf(file);
-      const color = RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
+      const color = runColor(file.id, fileIdx, selectedRecipeIds);
       const res = results.find(r => r.fileId === file.id) || results[fileIdx];
       const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
       const targetSec = t + tOnOffset;
@@ -1957,7 +1984,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       fileValues,
       stepStr,
     };
-  }, [effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric, overlayMetric]);
+  }, [effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric, overlayMetric, selectedRecipeIds]);
 
   const hoverInfo = useMemo(() => computeCursorInfo(hoverTime), [computeCursorInfo, hoverTime]);
   // 오른쪽 값 표는 마우스가 그래프를 벗어나도 마지막 커서 위치의 값을 유지
@@ -2280,10 +2307,12 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
     // Plot series for each visible file (강조된 Recipe는 맨 나중에 그려 위로 올림)
     const drawOrder = files.map((file, idx) => ({ file, idx }));
+    // 선 끝 이름표용: Run별로 화면 안 마지막 점
+    const lastPts = new Map<string, { px: number; py: number; color: string; no: number }>();
     if (highlightFileId) drawOrder.sort((a, b) => Number(a.file.id === highlightFileId) - Number(b.file.id === highlightFileId));
     drawOrder.forEach(({ file, idx }) => {
       if (visibleFileIds[file.id] === false) return;
-      const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+      const color = runColor(file.id, idx, selectedRecipeIds);
       const res = results.find(r => r.fileId === file.id) || results[idx];
       const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
       const isHi = highlightFileId === file.id;
@@ -2313,6 +2342,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
         const px = mapX(xVal);
         const py = mapY(yVal);
+        if (xVal >= minX && xVal <= maxX) lastPts.set(file.id, { px, py, color, no: idx + 1 });
 
         if (!started) {
           ctx.moveTo(px, py);
@@ -2338,7 +2368,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         const isDim = highlightFileId !== null && highlightFileId !== file.id;
         ctx.save();
         ctx.globalAlpha = isDim ? 0.2 : 0.95;
-        ctx.strokeStyle = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+        ctx.strokeStyle = runColor(file.id, idx, selectedRecipeIds);
         ctx.lineWidth = highlightFileId === file.id ? 2.4 : 1.6;
         ctx.setLineDash([6, 3]);
         ctx.beginPath();
@@ -2356,6 +2386,49 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         ctx.stroke();
         ctx.restore();
       });
+    }
+
+    // 선 끝 이름표 (#번호, Run 색): 화면에 보이는 Run이 5개 이하일 때만, 겹치지 않게 위아래로 비켜 배치
+    if (lastPts.size > 0 && lastPts.size <= 5) {
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.font = FONT_TAG;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      const tags = [...lastPts.values()].map(t => {
+        const label = `#${t.no}`;
+        const w = ctx.measureText(label).width + 8;
+        return { ...t, label, w, y: t.py };
+      });
+      tags.sort((a, b) => a.y - b.y);
+      const H = 14;
+      const yMin = padTop + H / 2 + 1;
+      const yMax = padTop + plotH - H / 2 - 1;
+      tags.forEach((t, i) => {
+        t.y = Math.max(yMin, Math.min(yMax, t.y));
+        if (i > 0 && t.y < tags[i - 1].y + H + 1) t.y = tags[i - 1].y + H + 1;
+      });
+      for (let i = tags.length - 1; i >= 0; i--) {
+        if (tags[i].y > yMax) tags[i].y = yMax;
+        if (i < tags.length - 1 && tags[i].y > tags[i + 1].y - H - 1) tags[i].y = tags[i + 1].y - H - 1;
+      }
+      tags.forEach(t => {
+        const x = Math.max(padLeft + 2, Math.min(padLeft + plotW - t.w - 2, t.px + 5));
+        ctx.fillStyle = t.color;
+        ctx.beginPath();
+        const r = 3;
+        const y0 = Math.round(t.y - H / 2);
+        ctx.moveTo(x + r, y0);
+        ctx.arcTo(x + t.w, y0, x + t.w, y0 + H, r);
+        ctx.arcTo(x + t.w, y0 + H, x, y0 + H, r);
+        ctx.arcTo(x, y0 + H, x, y0, r);
+        ctx.arcTo(x, y0, x + t.w, y0, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(t.label, x + 4, Math.round(t.y) + 0.5);
+      });
+      ctx.restore();
     }
 
     // 4-0. If Step Timeline is enabled, draw linked vertical dashed divider lines & top step tags
@@ -2435,7 +2508,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       visibleFiles.forEach(file => {
         const fileIdx = files.indexOf(file);
-        const color = RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
+        const color = runColor(file.id, fileIdx, selectedRecipeIds);
         const res = results.find(r => r.fileId === file.id) || results[fileIdx];
         const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
         const targetSec = hoverTime + tOnOffset;
@@ -2623,6 +2696,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     statRange,
     rangeDraft,
     PAD_R,
+    selectedRecipeIds,
   ]);
 
   const catStyle = CATEGORY_STYLES[metric.category];
@@ -3115,9 +3189,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         <RangeStatsTable
           range={statRange}
           sections={[
-            { metric, stats: computeRangeStats(metric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1]) },
+            { metric, stats: computeRangeStats(metric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1], selectedRecipeIds) },
             ...(overlayMetric
-              ? [{ metric: overlayMetric, stats: computeRangeStats(overlayMetric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1]), overlay: true }]
+              ? [{ metric: overlayMetric, stats: computeRangeStats(overlayMetric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1], selectedRecipeIds), overlay: true }]
               : []),
           ]}
           highlightFileId={highlightFileId}
