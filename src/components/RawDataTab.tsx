@@ -626,7 +626,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
         } lg:sticky lg:top-2`}
       >
         <div
-          className="bg-[#F8FAFC] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]"
+          className="bg-[#E6EBF1] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]"
           style={!isSidebarCollapsed && sidebarHeight ? { height: sidebarHeight, maxHeight: 'none' } : undefined}
         >
           {/* Sidebar Top Header (공정 종합 분석 카드 스타일) */}

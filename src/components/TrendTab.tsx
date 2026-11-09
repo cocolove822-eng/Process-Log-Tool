@@ -439,7 +439,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   return (
     <div className="flex flex-col lg:flex-row gap-3 items-start w-full">
       {/* 1. Left Vertical Control Panel (그래프 분석 매니저) */}
-      <aside className="w-full lg:w-[250px] shrink-0 bg-[#F1F5F9] border border-slate-400 rounded-2xl p-2.5 shadow-xs space-y-3 lg:sticky lg:top-[68px] lg:z-20 lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto scrollbar-thin">
+      <aside className="w-full lg:w-[250px] shrink-0 bg-[#E6EBF1] border border-slate-400 rounded-2xl p-2.5 shadow-xs space-y-3 lg:sticky lg:top-[68px] lg:z-20 lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto scrollbar-thin">
         {/* Panel Header */}
         <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
           <span className="text-xs font-extrabold text-[#0F172A] flex items-center gap-1.5">
@@ -3056,7 +3056,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   );
 };
 
-/** 그래프 아래 구간 통계 표: Recipe별 Avg.·Min·Max·Max−Min·표준편차·Unif. (겹쳐 보기 항목은 아래 묶음) */
+/** 그래프 아래 구간 통계 표: Recipe별 Avg.·Min·Max·Max−Min·STD·Unif. (겹쳐 보기 항목은 아래 묶음) */
 const RangeStatsTable: React.FC<{
   range: [number, number];
   sections: { metric: MetricDefinition; stats: RangeStat[]; overlay?: boolean }[];
@@ -3066,7 +3066,7 @@ const RangeStatsTable: React.FC<{
 }> = ({ range, sections, highlightFileId, onHighlight, onClear }) => {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    const head = ['항목', 'No.', 'Recipe', 'Avg.', 'Min', 'Max', 'Max-Min', '표준편차', 'Unif.(%)'];
+    const head = ['항목', 'No.', 'Recipe', 'Avg.', 'Min', 'Max', 'Max-Min', 'STD', 'Unif.(%)'];
     const lines = [`구간\t${range[0].toFixed(1)} ~ ${range[1].toFixed(1)} s (${(range[1] - range[0]).toFixed(1)} s)`, head.join('\t')];
     sections.forEach(sec =>
       sec.stats.forEach(st =>
@@ -3093,8 +3093,8 @@ const RangeStatsTable: React.FC<{
       /* 클립보드 사용 불가 환경 */
     }
   };
-  const th = 'px-1 py-[3px] border border-slate-300 bg-[#E2E8F0] text-[#334155] font-bold whitespace-nowrap text-center align-middle';
-  const td = 'px-1 py-[2px] border border-slate-200 tabular-nums text-center align-middle whitespace-nowrap';
+  const th = 'px-1 py-[3px] border border-slate-400 bg-[#DDE3EA] text-[#334155] font-bold whitespace-nowrap text-center align-middle';
+  const td = 'px-1 py-[2px] border border-slate-400 tabular-nums text-center align-middle whitespace-nowrap';
   return (
     <div className="border-t border-slate-300 bg-white" data-range-stats onMouseLeave={() => onHighlight(null)}>
       <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-[#FFFBEB] border-b border-[#FDE68A] text-[10.5px]">
@@ -3137,7 +3137,7 @@ const RangeStatsTable: React.FC<{
               <th className={th}>Min</th>
               <th className={th}>Max</th>
               <th className={th}>Max−Min</th>
-              <th className={th}>표준편차</th>
+              <th className={th}>STD</th>
               <th className={th}>Unif.(%)</th>
             </tr>
           </thead>
@@ -3148,7 +3148,7 @@ const RangeStatsTable: React.FC<{
                   <tr>
                     <td
                       colSpan={7}
-                      className={`px-2 py-[2px] border border-slate-200 font-bold text-[10px] ${sec.overlay ? 'bg-[#F5F3FF] text-[#6D28D9]' : 'bg-[#EFF6FF] text-[#1E3A8A]'}`}
+                      className={`px-2 py-[2px] border border-slate-400 font-bold text-[10px] ${sec.overlay ? 'bg-[#F5F3FF] text-[#6D28D9]' : 'bg-[#EFF6FF] text-[#1E3A8A]'}`}
                     >
                       {sec.overlay ? '점선 · ' : '실선 · '}
                       {sec.metric.name} [{sec.metric.unit}]
@@ -3166,7 +3166,7 @@ const RangeStatsTable: React.FC<{
                     <tr
                       key={st.fileId}
                       onMouseEnter={() => onHighlight(st.fileId)}
-                      className={highlightFileId === st.fileId ? 'bg-[#EFF6FF]' : i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}
+                      className={highlightFileId === st.fileId ? 'bg-[#DBEAFE]' : i % 2 ? 'bg-[#EDF2F7]' : 'bg-white'}
                     >
                       <td className={`${td} text-left pl-2 max-w-[150px] overflow-hidden`}>
                         <span className="flex items-center gap-1 min-w-0">
