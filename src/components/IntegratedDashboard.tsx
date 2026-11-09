@@ -33,6 +33,7 @@ import { fmtHwStatus, hwBoundaryBadge, hwStatusOf, isBbEndRow } from '../utils/h
 import { normalizeCriteria } from '../utils/analyzer';
 import { interpolateCTCL } from '../utils/ctclParser';
 import { SequenceGanttVisualizer } from './SequenceGanttVisualizer';
+import { SpcPanel } from './SpcPanel';
 import { useTheme } from '../context/ThemeContext';
 
 export interface VariableDefinition {
@@ -2651,6 +2652,11 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
             </table>
           </div>
         </section>
+
+        {/* --------------------------------------------------------- */}
+        {/* ⑥ [SPC] Run별 추세 관리도 */}
+        {/* --------------------------------------------------------- */}
+        <SpcPanel results={results} files={files} selectedRunIdx={selectedRunIdx} onSelectRunIdx={onSelectRunIdx} />
       </main>
     </div>
   );
