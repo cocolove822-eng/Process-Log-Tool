@@ -277,6 +277,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   const [resetAllKey, setResetAllKey] = useState<number>(0);
   // 구간 통계: 한 그래프에서 고른 시간 구간을 모든 그래프에 함께 적용 [시작, 끝] (그래프 x축 기준 초)
   const [statRange, setStatRange] = useState<[number, number] | null>(null);
+  // 구간 선택 모드 (모든 그래프 공통): 켜면 드래그 = 구간 선택, 꺼져 있어도 Shift+드래그
+  const [rangeSelectMode, setRangeSelectMode] = useState<boolean>(false);
+  // 겹쳐 보기: 그래프(파라미터)별 두 번째 파라미터 { 그래프 id: 겹칠 id }
+  const [overlayMap, setOverlayMap] = useState<Record<string, string>>({});
   const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
   const [valueView, setValueView] = useState<ValueView>('list');
@@ -548,11 +552,118 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           )}
         </div>
 
-        {/* Section 4: 레시피 필터 */}
+        {/* Section 4: 구간 통계 (구간 선택 모드 · 현재 구간) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <label htmlFor="range-select-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              4. 구간 통계
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none" title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그)">
+              <span className={`text-[10px] font-semibold ${rangeSelectMode ? 'text-[#B45309]' : 'text-[#64748B]'}`}>구간 선택</span>
+              <span className="relative inline-flex">
+                <input
+                  id="range-select-toggle"
+                  type="checkbox"
+                  role="switch"
+                  checked={rangeSelectMode}
+                  onChange={e => setRangeSelectMode(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <span className="w-7 h-4 rounded-full bg-slate-300 peer-checked:bg-[#F59E0B] transition-colors" />
+                <span className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-2xs transition-transform peer-checked:translate-x-3" />
+              </span>
+            </label>
+          </div>
+          {statRange ? (
+            <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] text-[10.5px]" data-range-summary>
+              <span className="min-w-0">
+                <span className="font-bold text-[#0F172A] tabular-nums">
+                  {statRange[0].toFixed(1)} ~ {statRange[1].toFixed(1)} s
+                </span>
+                <span className="ml-1 text-[#B45309] tabular-nums">({(statRange[1] - statRange[0]).toFixed(1)} s)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatRange(null)}
+                className="shrink-0 flex items-center gap-0.5 px-1 py-[1px] rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
+                title="구간 해제 (모든 그래프)"
+              >
+                <X className="w-3 h-3" />
+                해제
+              </button>
+            </div>
+          ) : (
+            <p className="px-0.5 text-[10px] text-[#64748B] leading-snug">
+              {rangeSelectMode ? '그래프를 드래그해 구간을 고르세요.' : '구간 선택을 켜거나 Shift+드래그로 구간을 고르면 모든 그래프 아래에 구간 통계가 나옵니다.'}
+            </p>
+          )}
+        </div>
+
+        {/* Section 5: 겹쳐 보기 (그래프별 두 번째 파라미터, 오른쪽 축 점선) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <span className="font-bold text-[#334155]">5. 겹쳐 보기</span>
+            {Object.values(overlayMap).some(Boolean) && (
+              <button
+                type="button"
+                onClick={() => setOverlayMap({})}
+                className="text-[10px] font-semibold text-[#64748B] hover:text-[#DC2626] cursor-pointer"
+                title="모든 그래프의 겹쳐 보기 끄기"
+              >
+                모두 끄기
+              </button>
+            )}
+          </div>
+          {selectedMetrics.length === 0 ? (
+            <p className="px-0.5 text-[10px] text-[#94A3B8]">표시 중인 그래프가 없습니다.</p>
+          ) : (
+            <div className="space-y-1" data-overlay-list>
+              {selectedMetrics.map(mid => {
+                const m = STANDARD_METRICS.find(x => x.id === mid);
+                if (!m) return null;
+                const cur = overlayMap[mid] && overlayMap[mid] !== mid ? overlayMap[mid] : '';
+                const cs = CATEGORY_STYLES[m.category];
+                return (
+                  <div key={mid} className="flex items-center gap-1">
+                    <span
+                      className="w-[78px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
+                      title={`${m.name} 그래프`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cs.dotColor }} />
+                      <span className="truncate">{m.name.replace(/\(Act\)$/, '')}</span>
+                    </span>
+                    <span className="relative flex-1 min-w-0">
+                      <select
+                        aria-label={`${m.name} 겹쳐 보기`}
+                        value={cur}
+                        onChange={e => setOverlayMap(prev => ({ ...prev, [mid]: e.target.value }))}
+                        className={`w-full appearance-none h-[22px] pl-1 pr-4 rounded-md border text-[10px] font-semibold cursor-pointer focus:outline-none ${
+                          cur ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#64748B]'
+                        }`}
+                        title={cur ? `점선(오른쪽 축): ${STANDARD_METRICS.find(x => x.id === cur)?.name}` : '겹칠 항목 고르기'}
+                      >
+                        <option value="">없음</option>
+                        {STANDARD_METRICS.filter(x => x.id !== mid).map(x => (
+                          <option key={x.id} value={x.id}>
+                            + {x.name} [{x.unit}]
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${cur ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
+                    </span>
+                  </div>
+                );
+              })}
+              <p className="px-0.5 text-[9.5px] text-[#94A3B8] leading-snug">고른 항목은 같은 Run 색의 점선으로, 오른쪽 축(보라)에 표시됩니다.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Section 6: 레시피 필터 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              4. 레시피 필터 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
+              6. 레시피 필터 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
             </span>
             {selectedRecipeIds.length > 0 && (
               <button
@@ -613,11 +724,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 5: 파라미터 선택 */}
+        {/* Section 7: 파라미터 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              5. 파라미터 ({selectedMetrics.length})
+              7. 파라미터 ({selectedMetrics.length})
             </span>
             <div className="flex items-center gap-1 text-[9.5px]">
               <button
@@ -700,7 +811,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         ) : (
           <div
-            className={`grid gap-3.5 ${
+            className={`grid gap-3.5 items-start ${
               chartCols === 1 ? 'grid-cols-1' : chartCols === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
             }`}
           >
@@ -735,6 +846,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   onClearRecipeSelection={clearRecipeSelection}
                   statRange={statRange}
                   onSetStatRange={setStatRange}
+                  selectMode={rangeSelectMode}
+                  overlayId={overlayMap[metric.id] ?? ''}
                 />
               );
             })}
@@ -791,6 +904,10 @@ interface TrendChartCardProps {
   /** 구간 통계 구간 (모든 그래프 공통) */
   statRange: [number, number] | null;
   onSetStatRange: (r: [number, number] | null) => void;
+  /** 구간 선택 모드 (그래프 분석 매니저에서 설정, 모든 그래프 공통) */
+  selectMode: boolean;
+  /** 겹쳐 보기 항목 id (그래프 분석 매니저에서 설정, ''이면 끔) */
+  overlayId: string;
 }
 
 type ValueView = 'list' | 'group';
@@ -1336,13 +1453,13 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   onClearRecipeSelection,
   statRange,
   onSetStatRange,
+  selectMode,
+  overlayId,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // 겹쳐 보기: 두 번째 파라미터 (오른쪽 Y축, 점선)
-  const [overlayId, setOverlayId] = useState<string>('');
+  // 겹쳐 보기: 두 번째 파라미터 (오른쪽 Y축, 점선) — 그래프 분석 매니저에서 설정
   const overlayMetric = useMemo(() => STANDARD_METRICS.find(m => m.id === overlayId && m.id !== metric.id) ?? null, [overlayId, metric.id]);
-  // 구간 선택 모드: 켜면 드래그 = 구간 선택 (꺼져 있어도 Shift+드래그로 선택)
-  const [selectMode, setSelectMode] = useState<boolean>(false);
+  // 구간 선택 모드(selectMode): 켜면 드래그 = 구간 선택 (꺼져 있어도 Shift+드래그로 선택) — 그래프 분석 매니저에서 설정
   const [rangeDraft, setRangeDraft] = useState<[number, number] | null>(null);
   const [isSelecting, setIsSelecting] = useState<boolean>(false);
   const rangeStartRef = useRef<number>(0);
@@ -2535,53 +2652,18 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           <span className="text-[10px] text-[#475569] font-mono shrink-0">
             [{metric.unit}]
           </span>
+          {overlayMetric && (
+            <span
+              className="text-[9.5px] font-semibold px-1 py-[1px] rounded border border-[#C4B5FD] bg-[#F5F3FF] text-[#6D28D9] truncate min-w-0"
+              title={`점선(오른쪽 축): ${overlayMetric.name} [${overlayMetric.unit}]`}
+            >
+              + {overlayMetric.name}
+            </span>
+          )}
         </div>
 
-        {/* Action Buttons: 겹쳐 보기 + 구간 + 줌 리셋 + 축 서식 */}
+        {/* Action Buttons: 줌 리셋 + 축 서식 (구간 선택·겹쳐 보기는 그래프 분석 매니저) */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* 겹쳐 보기: 두 번째 파라미터 (오른쪽 Y축, 점선) */}
-          <span className="relative">
-            <select
-              aria-label="겹쳐 보기"
-              value={overlayMetric ? overlayMetric.id : ''}
-              onChange={e => setOverlayId(e.target.value)}
-              className={`appearance-none max-w-[118px] pl-1.5 pr-4 py-0.5 text-[10px] font-semibold rounded-lg border shadow-2xs cursor-pointer focus:outline-none ${
-                overlayMetric ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#0F172A] hover:bg-slate-100'
-              }`}
-              title={overlayMetric ? `겹쳐 보기: ${overlayMetric.name} (오른쪽 축, 점선)` : '다른 파라미터를 오른쪽 축에 점선으로 겹쳐 보기'}
-            >
-              <option value="">겹쳐 보기</option>
-              {STANDARD_METRICS.filter(m => m.id !== metric.id).map(m => (
-                <option key={m.id} value={m.id}>
-                  + {m.name} [{m.unit}]
-                </option>
-              ))}
-            </select>
-            <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${overlayMetric ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
-          </span>
-          {overlayMetric && (
-            <button
-              type="button"
-              onClick={() => setOverlayId('')}
-              className="p-0.5 rounded text-[#7C3AED] hover:bg-[#EDE9FE] cursor-pointer"
-              title="겹쳐 보기 끄기"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-          {/* 구간 선택 모드 */}
-          <button
-            type="button"
-            onClick={() => setSelectMode(v => !v)}
-            aria-pressed={selectMode}
-            className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-lg border shadow-2xs cursor-pointer transition-all ${
-              selectMode ? 'bg-[#F59E0B] border-[#D97706] text-white' : 'bg-white border-slate-300 text-[#0F172A] hover:bg-slate-100'
-            }`}
-            title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그). 고른 구간은 모든 그래프에 적용되고 아래에 구간 통계가 나옵니다."
-          >
-            <Ruler className="w-3 h-3" />
-            구간
-          </button>
           {isCustomOrZoomed && (
             <button
               onClick={handleResetCard}
