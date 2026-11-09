@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Search,
   AlertTriangle,
   Layers,
   Filter,
@@ -655,40 +654,12 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
           {!isSidebarCollapsed && (
             <div className="p-1.5 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
-              {/* 1-1. 선택된 Recipe 연동 안내 뱃지 */}
-              <div className="px-1.5 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs">
-                <div className="flex items-center justify-between text-[10px] font-bold text-[#2563EB]">
-                  <span>선택 Run</span>
-                  <span className="font-mono">{activeFile.rows.length.toLocaleString()}행</span>
-                </div>
-                <div
-                  className="text-[11px] font-bold text-[#0F172A] truncate mt-0.5"
-                  title={activeFile.meta.recipeName || activeFile.fileName}
-                >
-                  {activeFile.meta.recipeName || activeFile.fileName}
-                </div>
-              </div>
-
-              {/* 1-2. 검색 (Ultra-compact 28px height) */}
-              <div className="relative">
-                <Search className="w-3 h-3 text-[#94A3B8] absolute left-2 top-2" />
-                <input
-                  type="text"
-                  placeholder="검색"
-                  title="Time, Step, 모드 등으로 검색"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full bg-white border border-slate-300 text-[#0F172A] text-[11px] rounded-lg pl-6.5 pr-6 py-1 focus:outline-none focus:border-[#2563EB] transition-all placeholder:text-[#94A3B8]"
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-1.5 top-1.5 text-[#94A3B8] hover:text-[#0F172A] p-0.5 cursor-pointer"
-                    title="검색어 지우기"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
+              {/* 1-1. 선택 Run: Recipe 이름 한 줄 */}
+              <div
+                className="px-1.5 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs text-[11px] font-bold text-[#0F172A] truncate"
+                title={`${activeFile.meta.recipeName || activeFile.fileName} (${activeFile.rows.length.toLocaleString()}행)`}
+              >
+                {activeFile.meta.recipeName || activeFile.fileName}
               </div>
 
               {/* 1-3. 조건 찾기 (값 조건으로 행 찾기 → 표에 강조·이동) */}

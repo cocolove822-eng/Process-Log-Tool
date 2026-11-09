@@ -470,9 +470,7 @@ export const RawConditionFinder: React.FC<RawConditionFinderProps> = ({
             맞는 행 없음
           </div>
         )
-      ) : (
-        <div className="px-0.5 text-[9.5px] text-[#94A3B8] leading-snug">값을 입력하면 맞는 행을 찾아 표에 강조합니다</div>
-      )}
+      ) : null}
     </div>
   );
 };
