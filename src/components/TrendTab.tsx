@@ -3056,7 +3056,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   );
 };
 
-/** 그래프 아래 구간 통계 표: Run별 평균·최소·최대·Max−Min·σ·Unif.·행 수 (겹쳐 보기 항목은 아래 묶음) */
+/** 그래프 아래 구간 통계 표: Recipe별 Avg.·Min·Max·Max−Min·표준편차·Unif. (겹쳐 보기 항목은 아래 묶음) */
 const RangeStatsTable: React.FC<{
   range: [number, number];
   sections: { metric: MetricDefinition; stats: RangeStat[]; overlay?: boolean }[];
@@ -3066,7 +3066,7 @@ const RangeStatsTable: React.FC<{
 }> = ({ range, sections, highlightFileId, onHighlight, onClear }) => {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    const head = ['항목', 'No.', 'Run', '평균', '최소', '최대', 'Max-Min', 'σ', 'Unif.(%)', '행 수'];
+    const head = ['항목', 'No.', 'Recipe', 'Avg.', 'Min', 'Max', 'Max-Min', '표준편차', 'Unif.(%)'];
     const lines = [`구간\t${range[0].toFixed(1)} ~ ${range[1].toFixed(1)} s (${(range[1] - range[0]).toFixed(1)} s)`, head.join('\t')];
     sections.forEach(sec =>
       sec.stats.forEach(st =>
@@ -3081,7 +3081,6 @@ const RangeStatsTable: React.FC<{
             formatStatNum(st.max - st.min),
             formatStatNum(st.sd),
             st.unif === null ? '-' : st.unif.toFixed(2),
-            st.n,
           ].join('\t')
         )
       )
@@ -3133,14 +3132,13 @@ const RangeStatsTable: React.FC<{
         <table className="w-full border-collapse text-[10.5px]">
           <thead className="sticky top-0 z-10">
             <tr>
-              <th className={`${th} text-left pl-2`}>Run</th>
-              <th className={th}>평균</th>
-              <th className={th}>최소</th>
-              <th className={th}>최대</th>
+              <th className={`${th} text-left pl-2`}>Recipe</th>
+              <th className={th}>Avg.</th>
+              <th className={th}>Min</th>
+              <th className={th}>Max</th>
               <th className={th}>Max−Min</th>
-              <th className={th}>σ</th>
+              <th className={th}>표준편차</th>
               <th className={th}>Unif.(%)</th>
-              <th className={th}>행 수</th>
             </tr>
           </thead>
           <tbody>
@@ -3149,7 +3147,7 @@ const RangeStatsTable: React.FC<{
                 {sections.length > 1 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={7}
                       className={`px-2 py-[2px] border border-slate-200 font-bold text-[10px] ${sec.overlay ? 'bg-[#F5F3FF] text-[#6D28D9]' : 'bg-[#EFF6FF] text-[#1E3A8A]'}`}
                     >
                       {sec.overlay ? '점선 · ' : '실선 · '}
@@ -3159,7 +3157,7 @@ const RangeStatsTable: React.FC<{
                 )}
                 {sec.stats.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className={`${td} text-[#94A3B8]`}>
+                    <td colSpan={7} className={`${td} text-[#94A3B8]`}>
                       이 구간에 데이터가 없습니다
                     </td>
                   </tr>
@@ -3183,7 +3181,6 @@ const RangeStatsTable: React.FC<{
                       <td className={`${td} font-semibold`}>{formatStatNum(st.max - st.min)}</td>
                       <td className={td}>{formatStatNum(st.sd)}</td>
                       <td className={td}>{st.unif === null ? '-' : st.unif.toFixed(2)}</td>
-                      <td className={`${td} text-[#64748B]`}>{st.n.toLocaleString()}</td>
                     </tr>
                   ))
                 )}
