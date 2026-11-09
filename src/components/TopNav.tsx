@@ -1,5 +1,6 @@
 import React from 'react';
-import { Activity, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { HIRUJA_SYMBOL_PNG } from '../assets/hirujaLogo';
 import { useTheme } from '../context/ThemeContext';
 
 interface TopNavProps {
@@ -32,22 +33,16 @@ export const TopNav: React.FC<TopNavProps> = ({
         {/* Zone 1: Wordmark & Brand Title */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#2563EB]/10 border border-[#2563EB]/25 flex items-center justify-center text-[#2563EB] font-bold shadow-xs">
-              <Activity className="w-4 h-4 stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className={`text-sm font-bold tracking-tight ${theme.cardTitleColor} font-sans`}>
-                  PECVD Process Log
-                </span>
-                <span className="text-[10px] font-semibold text-[#2563EB] bg-[#2563EB]/10 border border-[#2563EB]/20 px-2 py-0.5 rounded-full">
-                  대시보드
-                </span>
-                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-full tracking-wide">
-                  R1
-                </span>
-              </div>
-            </div>
+            <img
+              src={HIRUJA_SYMBOL_PNG}
+              alt="H&iruja"
+              title="H&iruja"
+              className="w-8 h-8 object-contain shrink-0 select-none"
+              draggable={false}
+            />
+            <span className={`text-base font-bold tracking-tight ${theme.cardTitleColor} font-sans whitespace-nowrap`}>
+              PECVD Process Log 분석 Tool
+            </span>
           </div>
         </div>
 
