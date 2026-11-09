@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
-  --font-mono: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-sans: "Inter Embedded", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-mono: "Inter Embedded", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
 }
 
 *, *::before, *::after,
 body, button, input, select, textarea, code, pre, kbd, samp {
-  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
+  font-family: "Inter Embedded", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
   font-feature-settings: "tnum" 1, "cv01" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -50,8 +50,9 @@ body, button, input, select, textarea, code, pre, kbd, samp {
 /* 마지막 머리글 행 = 단위 행 (W, sec, sccm …) */
 .pd-grid > thead > tr:last-child > th {
   height: 17px;
-  padding-top: 1px !important;
-  padding-bottom: 1px !important;
+  /* 괄호가 들어간 단위 글자 "(sec)"는 기준선 아래로 내려오는 부분 때문에 아래로 쏠려 보이므로 1px 위로 */
+  padding-top: 0 !important;
+  padding-bottom: 2px !important;
 }
 /* 머리글 제목 줄 안의 작은 글씨 "(sec)" 등이 줄 높이를 키우지 않도록 */
 .pd-grid > thead > tr > th > div > span {

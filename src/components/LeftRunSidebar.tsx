@@ -364,7 +364,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                 }}
                 onDrop={handleRunDrop}
               >
-                {/* 로그 추가: 얇은 한 줄 버튼 (클릭 또는 파일을 끌어다 놓기) */}
+                {/* Log Data 추가: 얇은 한 줄 버튼 (클릭 또는 파일을 끌어다 놓기) */}
                 <button
                   type="button"
                   onClick={() => rawInputRef.current?.click()}
@@ -376,7 +376,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                   title="엑셀(.xlsx) 또는 CSV 파일을 클릭해 추가하거나, 이곳(또는 사이드바)으로 끌어다 놓으세요"
                 >
                   <Upload className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{isDraggingRun ? '파일을 놓으세요' : '로그 추가 (끌어다 놓기 가능)'}</span>
+                  <span className="truncate">{isDraggingRun ? '파일을 놓으세요' : 'Log Data 추가'}</span>
                 </button>
                 {files.length > 0 && (
                   <button

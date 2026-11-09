@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  Zap,
 } from 'lucide-react';
 import { AnalysisFileResult, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
 import { resolveDynamicHeaterChannels } from '../utils/csvParser';
@@ -659,11 +658,6 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 )}
               </span>
 
-              <span className="inline-flex items-center gap-1 bg-[#D1FAE5] text-[#065F46] border border-[#34D399] px-1.5 py-0.2 rounded text-[10px] font-bold">
-                <Zap className="w-2.5 h-2.5 text-[#059669]" />
-                가상 스크롤 60FPS
-              </span>
-
               {selectedStepFilter !== 'all' && (
                 <span className="inline-flex items-center gap-1 bg-[#3182F6]/15 text-[#3182F6] border border-[#3182F6]/40 px-1.5 py-0.2 rounded text-[10px] font-bold">
                   Step {selectedStepFilter}
@@ -687,16 +681,6 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                   </button>
                 </span>
               )}
-            </div>
-
-            <div className="text-[10px] text-[#475569] flex items-center gap-2">
-              <span>
-                현재 렌더링 범위: <strong className="font-mono text-[#0F172A]">{totalCount > 0 ? (startIndex + 1).toLocaleString() : 0} ~ {Math.min(endIndex, totalCount).toLocaleString()}</strong> / {totalCount.toLocaleString()}행
-              </span>
-              <span className="text-slate-300">|</span>
-              <span className="truncate max-w-[200px] font-bold text-[#1E293B]" title={activeFile.meta.recipeName || activeFile.fileName}>
-                {activeFile.meta.recipeName || activeFile.fileName}
-              </span>
             </div>
           </div>
 

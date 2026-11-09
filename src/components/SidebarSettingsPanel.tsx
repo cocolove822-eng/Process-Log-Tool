@@ -139,7 +139,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
         <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
-            <span>1. 공정 분석 기본 파라미터</span>
+            <span>1. 공정 분석 기본 설정</span>
           </div>
           <span className="text-[9px] text-[#64748B] font-semibold">분석 구간 제어</span>
         </div>
@@ -202,7 +202,7 @@ export const SidebarSettingsPanel: React.FC<SidebarSettingsPanelProps> = ({
         <div className="flex items-center justify-between text-[11px] font-bold text-[#0F172A]">
           <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            <span>2. 항목별 판정 기준</span>
+            <span>2. Warning & Alarm 판정 기준</span>
           </div>
           <span className="flex items-center gap-1.5 text-[9px] font-semibold">
             <span className="flex items-center gap-0.5 text-amber-700">
