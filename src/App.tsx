@@ -214,7 +214,7 @@ function AppContent() {
               />
             )}
 
-            {/* Tab 2: 타임 트렌드 (Trend) */}
+            {/* Tab 2: 그래프 분석 (Trend) */}
             {activeTab === 'trend' && (
               <TrendTab files={files} results={results} />
             )}

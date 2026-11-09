@@ -234,7 +234,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
               </div>
               <div className="truncate">
                 <span className={`text-xs font-bold ${theme.cardTitleColor} tracking-tight`}>
-                  공정 Run 매니저
+                  공정 분석 매니저
                 </span>
                 <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#2563EB]/10 text-[#2563EB] font-mono text-[10px] font-bold">
                   {files.length}

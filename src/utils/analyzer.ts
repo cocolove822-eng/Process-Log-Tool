@@ -1045,7 +1045,7 @@ export function analyzeLogFile(
   }
 
   // 분석 구간 설정 (종료 시점):
-  // 사용자 요구사항 및 공정 Run 매니저 분석 기준 설정:
+  // 사용자 요구사항 및 공정 분석 매니저 분석 기준 설정:
   // - 일반 공정: RF Off - settings.rfRampDownTimeSec (기본 1.0초)
   // - RSD 공정: RSD 진입 시점 - settings.rsdPreOffsetSec (기본 1.0초) 전까지 엄격히 한정!
   // 이를 통해 RSD 진입 과정에서 일시적으로 발생하는 임피던스 불일치 및 Reflection spike(예: 627W, 665W 등)가

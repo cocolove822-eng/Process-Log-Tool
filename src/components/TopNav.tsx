@@ -22,7 +22,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
   const tabs = [
     { id: 'integrated', label: '공정 종합 분석' },
-    { id: 'trend', label: '타임 트렌드' },
+    { id: 'trend', label: '그래프 분석' },
     { id: 'raw', label: '원본 Log Data' },
   ];
 

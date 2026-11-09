@@ -103,7 +103,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
   // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  // 왼쪽 '로그 & Step 매니저' 카드를 오른쪽 [Raw Data] 카드와 같은 높이로 맞춤 (넓은 화면에서만)
+  // 왼쪽 'Log 분석 매니저' 카드를 오른쪽 [Raw Data] 카드와 같은 높이로 맞춤 (넓은 화면에서만)
   const rightPanelRef = useRef<HTMLDivElement>(null);
   const [sidebarHeight, setSidebarHeight] = useState<number | null>(null);
   useEffect(() => {
@@ -129,7 +129,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   const [scrollTop, setScrollTop] = useState<number>(0);
   const [viewportHeight, setViewportHeight] = useState<number>(600);
 
-  // Link active file with selected Run in '공정 Run 매니저'
+  // Link active file with selected Run in '공정 분석 매니저'
   const activeFile = useMemo(() => {
     if (selectedRunIdx !== null && results && results[selectedRunIdx]) {
       const targetFileId = results[selectedRunIdx].fileId;
@@ -142,7 +142,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     return files[0] || null;
   }, [files, results, selectedRunIdx]);
 
-  // When activeFile changes via '공정 Run 매니저', reset step filter to 'all'
+  // When activeFile changes via '공정 분석 매니저', reset step filter to 'all'
   useEffect(() => {
     setSelectedStepFilter('all');
     setSelectedRowIndex(null);
@@ -398,7 +398,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   if (!activeFile) {
     return (
       <div className="p-16 text-center text-[#64748B] bg-white border border-slate-400 rounded-2xl shadow-xs">
-        공정 Run 데이터가 없습니다. 좌측 '공정 Run 매니저'에서 파일을 등록해주세요.
+        공정 Run 데이터가 없습니다. 좌측 '공정 분석 매니저'에서 파일을 등록해주세요.
       </div>
     );
   }
@@ -438,7 +438,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
   return (
     <div className="flex flex-col lg:flex-row gap-2 items-start w-full">
-      {/* 1. Left Sidebar: 초소형·고밀도 '로그 & Step 매니저' (공정 Run 매니저와 연동) */}
+      {/* 1. Left Sidebar: 초소형·고밀도 'Log 분석 매니저' (공정 분석 매니저와 연동) */}
       <div
         className={`shrink-0 transition-all duration-200 ${
           isSidebarCollapsed ? 'w-9' : 'w-full lg:w-[160px]'
@@ -454,7 +454,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
                 <h2 className="text-[11px] font-bold text-[#0F172A] truncate">
-                  로그 & Step 매니저
+                  Log 분석 매니저
                 </h2>
               </div>
             ) : (
