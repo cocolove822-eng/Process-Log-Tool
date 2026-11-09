@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Copy, List, Plus, SearchCheck, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, List, Plus, SearchCheck, X } from 'lucide-react';
 import { RawLogRow } from '../types/pecvd';
 
 /* ============================================================================
@@ -139,18 +139,12 @@ export const evaluateFind = (
   return { hits, segments, hitRows };
 };
 
-export interface FindPreset {
-  label: string;
-  conds: Omit<FindCond, 'id'>[];
-}
-
 interface RawConditionFinderProps {
   fields: FindField[];
   conds: FindCond[];
   onChangeConds: (c: FindCond[]) => void;
   join: 'and' | 'or';
   onChangeJoin: (j: 'and' | 'or') => void;
-  presets: FindPreset[];
   segments: FindSegment[];
   hitRows: number;
   totalRows: number;
@@ -177,7 +171,6 @@ export const RawConditionFinder: React.FC<RawConditionFinderProps> = ({
   onChangeConds,
   join,
   onChangeJoin,
-  presets,
   segments,
   hitRows,
   totalRows,
@@ -344,46 +337,18 @@ export const RawConditionFinder: React.FC<RawConditionFinderProps> = ({
         );
       })}
 
-      {/* 조건 추가 · 자주 쓰는 조건 */}
-      <div className="flex items-center gap-0.5">
-        {conds.length < 3 && (
-          <button
-            type="button"
-            onClick={() => onChangeConds([...conds, newCond(conds[conds.length - 1]?.fieldKey ?? fields[0]?.key ?? '')])}
-            className="h-[22px] shrink-0 flex items-center gap-0.5 px-1 rounded-md border border-dashed border-slate-400 bg-white text-[#475569] hover:border-[#2563EB] hover:text-[#2563EB] font-semibold cursor-pointer"
-            title="조건 추가 (최대 3개)"
-          >
-            <Plus className="w-3 h-3" />
-            조건
-          </button>
-        )}
-        {presets.length > 0 && (
-          <span className="relative flex-1 min-w-0">
-            <select
-              aria-label="자주 쓰는 조건"
-              value=""
-              onChange={e => {
-                const p = presets[parseInt(e.target.value, 10)];
-                if (p) {
-                  // 자주 쓰는 조건은 항상 '그리고'로 묶음 (이전에 '또는'으로 바꿔 둔 상태가 남지 않도록)
-                  onChangeJoin('and');
-                  onChangeConds(p.conds.map(pc => newCond(pc.fieldKey, pc.op, pc.value)));
-                }
-              }}
-              className={`${selCls} w-full pr-4 appearance-none text-[#475569]`}
-              title="분석 설정의 주의 기준으로 바로 찾기"
-            >
-              <option value="">자주 쓰는 조건</option>
-              {presets.map((p, i) => (
-                <option key={p.label} value={i}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-3 h-3 text-[#94A3B8] absolute right-0.5 top-[5px] pointer-events-none" />
-          </span>
-        )}
-      </div>
+      {/* 조건 추가 (최대 3개) */}
+      {conds.length < 3 && (
+        <button
+          type="button"
+          onClick={() => onChangeConds([...conds, newCond(conds[conds.length - 1]?.fieldKey ?? fields[0]?.key ?? '')])}
+          className="w-full h-[22px] flex items-center justify-center gap-0.5 px-1 rounded-md border border-dashed border-slate-400 bg-white text-[#475569] hover:border-[#2563EB] hover:text-[#2563EB] font-semibold cursor-pointer"
+          title="조건 추가 (최대 3개)"
+        >
+          <Plus className="w-3 h-3" />
+          조건 추가
+        </button>
+      )}
 
       {stepScope && (
         <label className="flex items-center gap-1 px-0.5 text-[#334155] font-semibold cursor-pointer select-none" title="선택한 Step 안에서만 찾기">

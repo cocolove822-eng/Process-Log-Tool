@@ -7,16 +7,14 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react';
-import { AnalysisFileResult, AnalyzerSettings, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
-import { evaluateFind, FindCond, FindField, FindPositionBar, FindPreset, newCond, RawConditionFinder } from './RawConditionFinder';
+import { AnalysisFileResult, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
+import { evaluateFind, FindCond, FindField, FindPositionBar, newCond, RawConditionFinder } from './RawConditionFinder';
 import { resolveDynamicHeaterChannels } from '../utils/csvParser';
 
 interface RawDataTabProps {
   files: ParsedLogFile[];
   results?: AnalysisFileResult[];
   selectedRunIdx?: number | null;
-  /** 조건 찾기 '자주 쓰는 조건'에 주의 기준값을 쓰기 위함 */
-  settings?: AnalyzerSettings;
 }
 
 interface GasDef {
@@ -99,7 +97,6 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   files,
   results = [],
   selectedRunIdx = null,
-  settings,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
@@ -502,17 +499,6 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     return out;
   }, [filteredRows]);
 
-  const findPresets = useMemo<FindPreset[]>(() => {
-    const out: FindPreset[] = [];
-    const rw = settings?.ecRfReflectWarningW ?? 100;
-    const fw = settings?.ecRfForwardWarningPct ?? 2;
-    const pw = settings?.ecPressureWarningPct ?? 2;
-    out.push({ label: `Reflect ≥ ${rw} W (주의)`, conds: [{ fieldKey: 'refl', op: '>=', value: String(rw) }] });
-    out.push({ label: `Fwd Set 대비 |편차| > ${fw}% (주의) · RF On`, conds: [{ fieldKey: 'fwdDev', op: '>', value: String(fw) }, { fieldKey: 'rfOn', op: '=', value: 'On' }] });
-    out.push({ label: `Pressure |편차| > ${pw}% (주의)`, conds: [{ fieldKey: 'pDev', op: '>', value: String(pw) }] });
-    out.push({ label: 'T/V Position ≥ 90%', conds: [{ fieldKey: 'posAct', op: '>=', value: '90' }] });
-    return out;
-  }, [settings]);
 
   /** 구간으로 이동: 시작 행이 표 위에서 3번째 줄쯤 오도록 + 첫 행 선택 + 강조 칸이 보이도록 가로 이동 */
   const goSeg = (i: number) => {
@@ -669,7 +655,6 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 onChangeConds={setFindConds}
                 join={findJoin}
                 onChangeJoin={setFindJoin}
-                presets={findPresets}
                 segments={findResult.segments}
                 hitRows={findResult.hitRows}
                 totalRows={filteredRows.length}
@@ -678,7 +663,9 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 onNext={goNext}
                 onPrev={goPrev}
                 onClear={() => {
+                  // 지우기: 조건 1개(값 비움)와 '그리고'로 처음 상태로
                   setFindConds([newCond(findConds[0]?.fieldKey ?? 'refl', findConds[0]?.op ?? '>=', '')]);
+                  setFindJoin('and');
                   setCurSeg(-1);
                 }}
                 stepScope={selectedStepNum !== null ? { step: selectedStepNum, on: findStepOnly, onToggle: setFindStepOnly } : null}
