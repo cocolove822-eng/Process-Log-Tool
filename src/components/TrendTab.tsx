@@ -213,6 +213,23 @@ let persistedRecipeSelection: string[] = [];
 
 export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   const [timeAlignment, setTimeAlignment] = useState<'elapsed' | 'rfOn'>('elapsed');
+  // 그래프 배치: 한 행에 1·2·3개 (보는 사람 브라우저에 기억, 저장이 안 되는 환경이면 기본 2열)
+  const [chartCols, setChartColsState] = useState<1 | 2 | 3>(() => {
+    try {
+      const v = Number(window.localStorage.getItem('pecvd.trend.chartCols'));
+      return v === 1 || v === 3 ? v : 2;
+    } catch {
+      return 2;
+    }
+  });
+  const setChartCols = (v: 1 | 2 | 3) => {
+    setChartColsState(v);
+    try {
+      window.localStorage.setItem('pecvd.trend.chartCols', String(v));
+    } catch {
+      /* 저장 불가 환경은 무시 */
+    }
+  };
   // Default 4 metrics requested by user
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([
     'rfForwardAct',
@@ -423,9 +440,36 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </button>
         </div>
 
-        {/* Section 1: 시간 축 기준 */}
+        {/* Section 1: 그래프 배치 (한 행에 1·2·3개) */}
         <div className="space-y-1">
-          <span className="text-[10.5px] font-bold text-[#334155] block">1. 시간축 기준</span>
+          <span className="text-[10.5px] font-bold text-[#334155] block">1. 그래프 배치</span>
+          <div className="grid grid-cols-3 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300" role="radiogroup" aria-label="그래프 배치">
+            {([1, 2, 3] as const).map(n => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={chartCols === n}
+                onClick={() => setChartCols(n)}
+                title={n === 1 ? '한 행에 그래프 1개 (가장 크게)' : `한 행에 그래프 ${n}개`}
+                className={`flex items-center justify-center gap-1 px-1 py-1 text-[10.5px] font-semibold rounded-lg transition-all cursor-pointer ${
+                  chartCols === n ? 'bg-white text-[#2563EB] font-bold shadow-2xs' : 'text-[#475569] hover:text-[#0F172A]'
+                }`}
+              >
+                <span className="flex gap-[2px]" aria-hidden="true">
+                  {Array.from({ length: n }).map((_, i) => (
+                    <span key={i} className={`h-2.5 rounded-[2px] ${chartCols === n ? 'bg-[#2563EB]' : 'bg-[#94A3B8]'}`} style={{ width: n === 1 ? 12 : n === 2 ? 6 : 4 }} />
+                  ))}
+                </span>
+                {n}열
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Section 2: 시간 축 기준 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <span className="text-[10.5px] font-bold text-[#334155] block">2. 시간축 기준</span>
           <div className="grid grid-cols-1 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300">
             <button
               type="button"
@@ -452,11 +496,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 2: Step 타임라인 표시 */}
+        {/* Section 3: Step 타임라인 표시 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <label htmlFor="step-timeline-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
-              2. Step 타임라인 표시
+              3. Step 타임라인 표시
             </label>
             <span className="flex items-center gap-1.5">
               {showStepTimeline && alignedSteps.length > 0 && (
@@ -501,11 +545,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           )}
         </div>
 
-        {/* Section 3: 레시피 필터 */}
+        {/* Section 4: 레시피 필터 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              3. 레시피 필터 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
+              4. 레시피 필터 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
             </span>
             {selectedRecipeIds.length > 0 && (
               <button
@@ -566,11 +610,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 3: 파라미터 선택 */}
+        {/* Section 5: 파라미터 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              4. 파라미터 ({selectedMetrics.length})
+              5. 파라미터 ({selectedMetrics.length})
             </span>
             <div className="flex items-center gap-1 text-[9.5px]">
               <button
@@ -645,14 +689,18 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
         </div>
       </aside>
 
-      {/* 2. Right Chart Area (2 Columns Grid: 1행에 2개씩 배치) */}
+      {/* 2. Right Chart Area (그래프 배치: 한 행에 1·2·3개) */}
       <div className="flex-1 min-w-0">
         {selectedMetrics.length === 0 ? (
           <div className="p-12 text-center text-[#64748B] bg-white border border-[#CBD5E1] rounded-2xl shadow-xs">
             선택된 파라미터가 없습니다. 좌측 제어 설정에서 그래프를 확인할 파라미터를 선택하세요.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div
+            className={`grid gap-3.5 ${
+              chartCols === 1 ? 'grid-cols-1' : chartCols === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+            }`}
+          >
             {selectedMetrics.map(metricId => {
               const metric = STANDARD_METRICS.find(m => m.id === metricId);
               if (!metric) return null;
@@ -660,6 +708,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                 <TrendChartCard
                   key={metric.id}
                   metric={metric}
+                  chartHeight={chartCols === 1 ? 420 : 272}
+                  panelBelow={chartCols === 3}
                   files={files}
                   results={results}
                   visibleFileIds={visibleFileIds}
@@ -692,6 +742,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
 
 interface TrendChartCardProps {
   metric: MetricDefinition;
+  /** 그래프 높이(px): 1열 배치일 때 크게 */
+  chartHeight?: number;
+  /** 3열 배치: 커서 값 표를 그래프 아래로 (그래프 폭 확보) */
+  panelBelow?: boolean;
   files: ParsedLogFile[];
   results: AnalysisFileResult[];
   visibleFileIds: Record<string, boolean>;
@@ -821,6 +875,10 @@ function groupCursorValues(values: CursorValue[]): { lo: number; hi: number; ite
 // 그래프 오른쪽 커서 값 표 (개별 보기 / 같은 값 묶어 보기)
 // ============================================================================
 interface CursorValuePanelProps {
+  /** 그래프와 같은 높이(px) */
+  height?: number;
+  /** true = 그래프 아래 전체 폭 배치 (3열) */
+  below?: boolean;
   files: ParsedLogFile[];
   results: AnalysisFileResult[];
   visibleFileIds: Record<string, boolean>;
@@ -861,6 +919,8 @@ const SegBtn: React.FC<{ active: boolean; onClick: () => void; children: React.R
 );
 
 const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
+  height = 272,
+  below = false,
   files,
   results,
   visibleFileIds,
@@ -925,7 +985,7 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   const hasValues = !!values && values.length > 0;
 
   return (
-    <div className="w-[160px] shrink-0 h-[272px] bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" title={unit ? `단위: ${unit}` : undefined}>
+    <div className="shrink-0 bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" style={below ? { width: '100%', height: 150 } : { width: 160, height }} title={unit ? `단위: ${unit}` : undefined}>
       {/* 머리글: 시점 / 보기 방식 + 정렬 */}
       <div className="px-1 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
         <span
@@ -1170,6 +1230,8 @@ const AxisCheck: React.FC<{ checked: boolean; onChange: (c: boolean) => void; ch
 
 const TrendChartCard: React.FC<TrendChartCardProps> = ({
   metric,
+  chartHeight = 272,
+  panelBelow = false,
   files,
   results,
   visibleFileIds,
@@ -1631,7 +1693,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     if (!ctx) return;
 
     const width = canvas.parentElement?.clientWidth || 450;
-    const height = 272; // 상단 상태바를 없앤 만큼 키운 높이 (오른쪽 값 표와 같은 높이)
+    const height = chartHeight; // 기본 272px, 1열 배치는 더 크게 (오른쪽 값 표와 같은 높이)
     // Enforce minimum 2x Retina supersampling so text & lines are razor-sharp on all screens
     const dpr = Math.max(window.devicePixelRatio || 1, 2);
 
@@ -2172,6 +2234,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     alignedSteps,
     fontsLoaded,
     highlightFileId,
+    chartHeight,
   ]);
 
   const catStyle = CATEGORY_STYLES[metric.category];
@@ -2429,7 +2492,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       )}
 
       {/* 3. Canvas Area + 오른쪽 커서 값 표 */}
-      <div className="p-2 bg-[#EEF2F6] flex-1 flex items-stretch gap-1.5 relative min-h-[272px]">
+      <div className={`p-2 bg-[#EEF2F6] flex-1 flex ${panelBelow ? 'flex-col' : ''} items-stretch gap-1.5 relative`} style={{ minHeight: chartHeight }}>
         <div ref={plotWrapRef} className="flex-1 min-w-0 flex items-center justify-center">
         <canvas
           ref={canvasRef}
@@ -2450,6 +2513,8 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         </div>
 
         <CursorValuePanel
+          height={chartHeight}
+          below={panelBelow}
           files={files}
           results={results}
           visibleFileIds={visibleFileIds}
