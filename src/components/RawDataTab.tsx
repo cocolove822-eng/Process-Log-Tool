@@ -8,13 +8,16 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react';
-import { AnalysisFileResult, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
+import { AnalysisFileResult, AnalyzerSettings, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
+import { evaluateFind, FindCond, FindField, FindPositionBar, FindPreset, newCond, RawConditionFinder } from './RawConditionFinder';
 import { resolveDynamicHeaterChannels } from '../utils/csvParser';
 
 interface RawDataTabProps {
   files: ParsedLogFile[];
   results?: AnalysisFileResult[];
   selectedRunIdx?: number | null;
+  /** 조건 찾기 '자주 쓰는 조건'에 주의 기준값을 쓰기 위함 */
+  settings?: AnalyzerSettings;
 }
 
 interface GasDef {
@@ -97,6 +100,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   files,
   results = [],
   selectedRunIdx = null,
+  settings,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
@@ -378,6 +382,184 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStepFilter, activeFile?.id]);
 
+  // ───────────────────────────────────────────────────────────
+  // 조건 찾기: 항목 목록 (지금 파일에 있는 열만), 조건 평가, 구간 이동
+  // ───────────────────────────────────────────────────────────
+  const findFields = useMemo<FindField[]>(() => {
+    if (!activeFile) return [];
+    const f: FindField[] = [];
+    const num = (key: string, label: string, group: string, unit: string, get: (r: RawLogRow) => number | null | undefined, hlKey = key) =>
+      f.push({ key, label, group, unit, kind: 'num', hlKey, get: r => { const v = get(r); return v === null || v === undefined || !Number.isFinite(v) ? null : v; } });
+    /** Set 대비 |편차|(%) — Set이 0보다 클 때만 */
+    const devPct = (key: string, label: string, group: string, set: (r: RawLogRow) => number | null, act: (r: RawLogRow) => number | null, hlKey: string, guard?: (r: RawLogRow) => boolean) =>
+      f.push({
+        key, label, group, unit: '%', kind: 'num', hlKey,
+        get: r => {
+          if (guard && !guard(r)) return null;
+          const sv = set(r);
+          const av = act(r);
+          if (sv === null || av === null || !(sv > 0) || !Number.isFinite(av)) return null;
+          return (Math.abs(av - sv) / sv) * 100;
+        },
+      });
+    // Step
+    num('stepTime', 'Step Time', 'Step', 's', r => r.stepTime);
+    num('allTime', 'All Time', 'Step', 's', r => r.stepAllTime);
+    num('step', 'Step No.', 'Step', '', r => r.step);
+    // Gas
+    usedGases.forEach(g => {
+      num(`gas:${g.key}:set`, `${g.name} Set`, 'Process Gas', 'sccm', g.setGetter);
+      num(`gas:${g.key}:act`, `${g.name} Act`, 'Process Gas', 'sccm', g.actGetter);
+      devPct(`gas:${g.key}:dev`, `${g.name} |편차|`, 'Process Gas', r => g.setGetter(r), r => g.actGetter(r), `gas:${g.key}:act`);
+    });
+    // Lift
+    num('spSet', 'Spacing Set', 'Lift Spacing', 'mils', r => r.liftSpacingSet);
+    num('spAct', 'Spacing Act', 'Lift Spacing', 'mils', r => r.liftSpacing);
+    devPct('spDev', 'Spacing |편차|', 'Lift Spacing', r => r.liftSpacingSet, r => r.liftSpacing, 'spAct');
+    if (hasLiftVel) num('liftVel', 'Lift Velocity', 'Lift Spacing', '', r => r.liftVelocity);
+    if (hasLiftAcc) num('liftAcc', 'Lift Acc/Dec', 'Lift Spacing', '', r => r.liftAccDec);
+    // T/V
+    f.push({ key: 'tvMode', label: 'T/V Mode', group: 'T/V & Pressure', kind: 'text', hlKey: 'tvMode', options: ['PRESS', 'POS', 'OPEN'], get: r => shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '') });
+    num('pSet', 'Press Set', 'T/V & Pressure', 'mTorr', r => r.tvPressureSet);
+    num('pAct', 'Press Act', 'T/V & Pressure', 'mTorr', r => r.tvPressure);
+    devPct('pDev', 'Press |편차|', 'T/V & Pressure', r => r.tvPressureSet, r => r.tvPressure, 'pAct', r => {
+      const m = shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '');
+      return m === 'PRESS' || m === '-';
+    });
+    num('posSet', 'Pos Set', 'T/V & Pressure', '%', r => r.tvPositionSet);
+    num('posAct', 'Pos Act', 'T/V & Pressure', '%', r => r.tvPosition);
+    // Matcher
+    num('load', 'Load', 'Matcher', '%', r => r.matcherLoad);
+    num('tune', 'Tune', 'Matcher', '%', r => r.matcherTune);
+    num('vpp', 'Vpp', 'Matcher', 'V', r => r.matcherVpp);
+    num('irms', 'Irms', 'Matcher', 'A', r => r.matcherIrms);
+    num('vdc', 'Vdc', 'Matcher', 'V', r => r.matcherDCBias);
+    // RF
+    f.push({ key: 'rfOn', label: 'RF On', group: 'RF Power', kind: 'text', hlKey: 'rfOn', options: ['On', 'Off'], get: r => r.rfOn || null });
+    num('fwdSet', 'Fwd Set', 'RF Power', 'W', r => r.rfForwardSetValue);
+    num('fwdSetA', 'Fwd Set(A)', 'RF Power', 'W', r => r.rfForwardSetValueAct);
+    num('fwdAct', 'Fwd Act', 'RF Power', 'W', r => r.rfForwardPowerAct);
+    devPct('fwdDev', 'Fwd |편차|', 'RF Power', r => (r.rfForwardSetValue > 0 ? r.rfForwardSetValue : r.rfForwardSetValueAct), r => r.rfForwardPowerAct, 'fwdAct');
+    num('refl', 'Reflect', 'RF Power', 'W', r => r.rfReflectPower);
+    // Heater (|Act − Set| 온도차 ℃)
+    activeHeaterZones.forEach(z => {
+      const zk = z.id || z.name;
+      num(`heat:${zk}:set`, `${z.name} Set`, 'Susceptor 온도', '℃', r => getZoneValues(r, z).setVal);
+      num(`heat:${zk}:act`, `${z.name}`, 'Susceptor 온도', '℃', r => getZoneValues(r, z).actVal);
+      f.push({
+        key: `heat:${zk}:diff`, label: `${z.name} |온도차|`, group: 'Susceptor 온도', unit: '℃', kind: 'num', hlKey: `heat:${zk}:act`,
+        get: r => {
+          const { setVal, actVal } = getZoneValues(r, z);
+          if (setVal === null || actVal === null || !(setVal > 0) || !Number.isFinite(actVal)) return null;
+          return Math.abs(actVal - setVal);
+        },
+      });
+    });
+    return f;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFile, usedGases, activeHeaterZones, hasLiftVel, hasLiftAcc]);
+
+  const [findConds, setFindConds] = useState<FindCond[]>(() => [newCond('refl', '>=', '')]);
+  const [findJoin, setFindJoin] = useState<'and' | 'or'>('and');
+  const [findStepOnly, setFindStepOnly] = useState<boolean>(false);
+  const [curSeg, setCurSeg] = useState<number>(-1);
+
+  // 선택 Step 안에서만 찾을 때의 위치 범위
+  const findScope = useMemo<[number, number] | null>(() => {
+    if (!findStepOnly || selectedStepNum === null) return null;
+    const first = filteredRows.findIndex(r => r.step === selectedStepNum);
+    if (first < 0) return [0, 0];
+    let last = first;
+    while (last + 1 < filteredRows.length && filteredRows[last + 1].step === selectedStepNum) last++;
+    return [first, last + 1];
+  }, [findStepOnly, selectedStepNum, filteredRows]);
+
+  const findResult = useMemo(
+    () => evaluateFind(filteredRows, findFields, findConds, findJoin, findScope),
+    [filteredRows, findFields, findConds, findJoin, findScope]
+  );
+  // 조건·파일이 바뀌면 현재 구간 표시 초기화
+  useEffect(() => {
+    setCurSeg(-1);
+  }, [findResult]);
+
+  /** 강조할 칸 키 (조건에 쓰인 항목) */
+  const hlKeys = useMemo(() => {
+    const set = new Set<string>();
+    if (findResult.hits) {
+      findConds.forEach(c => {
+        const fd = findFields.find(x => x.key === c.fieldKey);
+        if (fd) set.add(fd.hlKey);
+      });
+    }
+    return set;
+  }, [findResult, findConds, findFields]);
+
+  const stepBounds = useMemo(() => {
+    const out: { pos: number; step: number; name: string }[] = [];
+    for (let i = 1; i < filteredRows.length; i++) {
+      if (filteredRows[i].step !== filteredRows[i - 1].step) out.push({ pos: i, step: filteredRows[i].step, name: filteredRows[i].stepName });
+    }
+    return out;
+  }, [filteredRows]);
+
+  const findPresets = useMemo<FindPreset[]>(() => {
+    const out: FindPreset[] = [];
+    const rw = settings?.ecRfReflectWarningW ?? 100;
+    const fw = settings?.ecRfForwardWarningPct ?? 2;
+    const pw = settings?.ecPressureWarningPct ?? 2;
+    out.push({ label: `Reflect ≥ ${rw} W (주의)`, conds: [{ fieldKey: 'refl', op: '>=', value: String(rw) }] });
+    out.push({ label: `Fwd Set 대비 |편차| > ${fw}% (주의) · RF On`, conds: [{ fieldKey: 'fwdDev', op: '>', value: String(fw) }, { fieldKey: 'rfOn', op: '=', value: 'On' }] });
+    out.push({ label: `Pressure |편차| > ${pw}% (주의)`, conds: [{ fieldKey: 'pDev', op: '>', value: String(pw) }] });
+    out.push({ label: 'T/V Position ≥ 90%', conds: [{ fieldKey: 'posAct', op: '>=', value: '90' }] });
+    return out;
+  }, [settings]);
+
+  /** 구간으로 이동: 시작 행이 표 위에서 3번째 줄쯤 오도록 + 첫 행 선택 + 강조 칸이 보이도록 가로 이동 */
+  const goSeg = (i: number) => {
+    const segs = findResult.segments;
+    if (i < 0 || i >= segs.length) return;
+    const pos = segs[i].startPos;
+    const el = containerRef.current;
+    const top = Math.max(0, pos - 3) * ROW_HEIGHT;
+    if (el) el.scrollTop = top;
+    setScrollTop(top);
+    setCurSeg(i);
+    const rowIdx = filteredRows[pos]?.rowIndex ?? null;
+    setSelectedRowIndex(rowIdx);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const c = containerRef.current;
+      if (!c || rowIdx === null) return;
+      const cell = c.querySelector<HTMLElement>(`tr[data-row="${rowIdx}"] td.raw-hit-cell`);
+      if (!cell) return;
+      const stickyW = STEP_TIME_COL_WIDTHS.reduce((a, b) => a + b, 0);
+      const left = cell.offsetLeft;
+      const right = left + cell.offsetWidth;
+      if (left < c.scrollLeft + stickyW || right > c.scrollLeft + c.clientWidth) {
+        c.scrollLeft = Math.max(0, left - stickyW - 80);
+      }
+    }));
+  };
+  const goNext = () => {
+    const segs = findResult.segments;
+    if (segs.length === 0) return;
+    if (curSeg < 0) {
+      const topPos = Math.floor(scrollTop / ROW_HEIGHT);
+      const idx = segs.findIndex(sg => sg.startPos >= topPos);
+      goSeg(idx >= 0 ? idx : 0);
+    } else goSeg((curSeg + 1) % segs.length);
+  };
+  const goPrev = () => {
+    const segs = findResult.segments;
+    if (segs.length === 0) return;
+    if (curSeg < 0) {
+      const topPos = Math.floor(scrollTop / ROW_HEIGHT);
+      let idx = -1;
+      segs.forEach((sg, k) => { if (sg.startPos < topPos) idx = k; });
+      goSeg(idx >= 0 ? idx : segs.length - 1);
+    } else goSeg((curSeg - 1 + segs.length) % segs.length);
+  };
+
   // Virtual Window Calculation
   const totalCount = filteredRows.length;
   const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -472,7 +654,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
           </div>
 
           {!isSidebarCollapsed && (
-            <div className="p-1.5 flex flex-col gap-1.5 overflow-hidden flex-1 min-h-0 text-xs [&>*]:shrink-0">
+            <div className="p-1.5 flex flex-col gap-1.5 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
               {/* 1-1. 선택된 Recipe 연동 안내 뱃지 */}
               <div className="px-1.5 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs">
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#2563EB]">
@@ -509,7 +691,29 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 )}
               </div>
 
-              {/* 1-3. Step 필터 & Step 별 요약: 남는 세로 공간을 모두 사용 */}
+              {/* 1-3. 조건 찾기 (값 조건으로 행 찾기 → 표에 강조·이동) */}
+              <RawConditionFinder
+                fields={findFields}
+                conds={findConds}
+                onChangeConds={setFindConds}
+                join={findJoin}
+                onChangeJoin={setFindJoin}
+                presets={findPresets}
+                segments={findResult.segments}
+                hitRows={findResult.hitRows}
+                totalRows={filteredRows.length}
+                currentSeg={curSeg}
+                onGo={goSeg}
+                onNext={goNext}
+                onPrev={goPrev}
+                onClear={() => {
+                  setFindConds([newCond(findConds[0]?.fieldKey ?? 'refl', findConds[0]?.op ?? '>=', '')]);
+                  setCurSeg(-1);
+                }}
+                stepScope={selectedStepNum !== null ? { step: selectedStepNum, on: findStepOnly, onToggle: setFindStepOnly } : null}
+              />
+
+              {/* 1-4. Step 필터 & Step 별 요약: 남는 세로 공간을 모두 사용 */}
               <div className="!shrink flex-1 min-h-[120px] flex flex-col gap-1">
                 <div className="flex items-center justify-between text-[10px] font-bold text-[#64748B] px-0.5">
                   <span className="flex items-center gap-1">
@@ -592,7 +796,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 </div>
               </div>
 
-              {/* 1-4. Gas Auto-Filter Info (Compact single-line pill) */}
+              {/* 1-5. Gas Auto-Filter Info (Compact single-line pill) */}
               {usedGases.length > 0 && (
                 <div
                   className="px-2 py-1 bg-[#EEDBB8]/40 border border-[#FED7AA] rounded-lg text-[10px] text-[#78350F] flex items-center justify-between"
@@ -683,6 +887,15 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
               )}
             </div>
           </div>
+
+          {/* 조건 찾기: 찾은 위치 막대 (조건 입력은 왼쪽 Log 분석 매니저) */}
+          <FindPositionBar
+            segments={findResult.segments}
+            totalRows={filteredRows.length}
+            currentSeg={curSeg}
+            stepBounds={stepBounds}
+            onGo={goSeg}
+          />
 
           {/* 2-Tier High-Density Sticky Table with Virtual Scrolling Window */}
           {/* 공정 종합 분석과 동일한 border-slate-400 일관된 그리드 + 흰색/EDF2F7 지브라 패턴 */}
@@ -829,14 +1042,18 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     const isStepStart = !!prev && prev.step !== r.step;
                     const inSelected = selectedStepNum !== null && r.step === selectedStepNum;
                     const nameCellBg = inSelected ? 'bg-[#DBEAFE] text-[#1E3A8A]' : rowBgClass;
+                    // 조건 찾기: 맞는 행 / 조건 항목 칸 강조
+                    const rowHit = !!findResult.hits && findResult.hits[startIndex + vi] === 1;
+                    const hc = (k: string) => (rowHit && hlKeys.has(k) ? ' raw-hit-cell' : '');
 
                     return (
                       <tr
                         key={r.rowIndex}
+                        data-row={r.rowIndex}
                         onClick={() => setSelectedRowIndex(prev => (prev === r.rowIndex ? null : r.rowIndex))}
                         className={`group transition-colors h-[30px] cursor-pointer ${rowBgClass} hover:bg-blue-50/80 ${
                           isStepStart ? 'raw-step-start' : ''
-                        } ${selectedRowIndex === r.rowIndex ? 'raw-row-selected' : ''}`}
+                        } ${selectedRowIndex === r.rowIndex ? 'raw-row-selected' : ''} ${rowHit ? 'raw-row-hit' : ''}`}
                         style={{ height: `${ROW_HEIGHT}px` }}
                       >
                         {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0, matching row background) */}
@@ -850,13 +1067,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         <td
                           className={`py-1 px-1 text-center font-bold border border-slate-400 z-10 ${
                             r.stepTime >= 0.05 ? 'text-[#2563EB]' : 'text-slate-700'
-                          } ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          } ${rowBgClass} group-hover:bg-[#EFF6FF]${hc('stepTime')}`}
                           style={stickyStyle(1)}
                         >
                           {fmtNum(r.stepTime, 1)}s
                         </td>
                         <td
-                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]${hc('allTime')}`}
                           style={stickyStyle(2)}
                         >
                           {fmtNum(r.stepAllTime, 1)}s
@@ -875,7 +1092,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                           {r.stepName}
                         </td>
                         <td
-                          className={`py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400 z-10 raw-sticky-edge ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          className={`py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400 z-10 raw-sticky-edge ${rowBgClass} group-hover:bg-[#EFF6FF]${hc('step')}`}
                           style={stickyStyle(5)}
                         >
                           {r.step.toLocaleString()}
@@ -884,28 +1101,28 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         {/* 6. Used Gases - 천자리 단위 콤마 적용 */}
                         {usedGases.map(g => (
                           <React.Fragment key={g.key}>
-                            <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                            <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc(`gas:${g.key}:set`)}`}>
                               {fmtNum(g.setGetter(r), 0)}
                             </td>
-                            <td className="py-1 px-1 text-center font-bold text-[#C2410C] border border-slate-400">
+                            <td className={`py-1 px-1 text-center font-bold text-[#C2410C] border border-slate-400${hc(`gas:${g.key}:act`)}`}>
                               {fmtNum(g.actGetter(r), 0)}
                             </td>
                           </React.Fragment>
                         ))}
 
                         {/* 5. Lift */}
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('spSet')}`}>
                           {fmtNum(r.liftSpacingSet, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#4338CA] font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#4338CA] font-bold${hc('spAct')}`}>
                           {fmtNum(r.liftSpacing, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold${hc('liftVel')}`}>
                           {hasLiftVel && r.liftVelocity !== null && r.liftVelocity !== undefined
                             ? fmtNum(r.liftVelocity, 0)
                             : <span className="text-slate-400 font-normal text-[10px]">-</span>}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold${hc('liftAcc')}`}>
                           {hasLiftAcc && r.liftAccDec !== null && r.liftAccDec !== undefined
                             ? fmtNum(r.liftAccDec, 0)
                             : <span className="text-slate-400 font-normal text-[10px]">-</span>}
@@ -913,7 +1130,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
                         {/* 4. T/V & Pressure */}
                         <td
-                          className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]"
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]${hc('tvMode')}`}
                           title={r.tvCtrlModeSet || r.tvCtrlMode || ''}
                         >
                           {shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '')}
@@ -922,53 +1139,53 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         <td className="py-1 px-1.5 text-center font-bold tabular-nums bg-[#EEF2D6]/70 group-hover:bg-[#E3EABD] border border-slate-400">
                           {renderActiveTVControl(r)}
                         </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('pSet')}`}>
                           {fmtNum(r.tvPressureSet, 0)}
                         </td>
                         {/* Press Act: 소숫점 없이 정수 콤마 표시 */}
-                        <td className="py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400${hc('pAct')}`}>
                           {fmtNum(r.tvPressure, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('posSet')}`}>
                           {fmtNum(r.tvPositionSet, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400${hc('posAct')}`}>
                           {fmtNum(r.tvPosition, 1)}%
                         </td>
 
                         {/* 3. Matcher */}
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('load')}`}>
                           {fmtNum(r.matcherLoad, 1)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('tune')}`}>
                           {fmtNum(r.matcherTune, 1)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('vpp')}`}>
                           {fmtNum(r.matcherVpp, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('irms')}`}>
                           {fmtNum(r.matcherIrms, 1)}
                         </td>
-                        <td className="py-1 px-1 text-center font-bold text-[#047857] border border-slate-400">
+                        <td className={`py-1 px-1 text-center font-bold text-[#047857] border border-slate-400${hc('vdc')}`}>
                           {fmtNum(r.matcherDCBias, 1)}
                         </td>
 
                         {/* 2. RF */}
-                        <td className="py-1 px-1 text-center border border-slate-400">
+                        <td className={`py-1 px-1 text-center border border-slate-400${hc('rfOn')}`}>
                           <span className={r.rfOn === 'On' ? 'text-[#2563EB] font-bold' : 'text-[#94A3B8] font-medium'}>
                             {r.rfOn}
                           </span>
                         </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('fwdSet')}`}>
                           {fmtNum(r.rfForwardSetValue, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400${hc('fwdSetA')}`}>
                           {fmtNum(r.rfForwardSetValueAct, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center font-bold text-[#1D4ED8] border border-slate-400">
+                        <td className={`py-1 px-1 text-center font-bold text-[#1D4ED8] border border-slate-400${hc('fwdAct')}`}>
                           {fmtNum(r.rfForwardPowerAct, 0)}
                         </td>
-                        <td className="py-1 px-1 text-center text-[#BE123C] font-bold border border-slate-400">
+                        <td className={`py-1 px-1 text-center text-[#BE123C] font-bold border border-slate-400${hc('refl')}`}>
                           {fmtNum(r.rfReflectPower, 0)}
                         </td>
 
@@ -977,14 +1194,14 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                           const { setVal, actVal } = getZoneValues(r, zone);
                           return (
                             <React.Fragment key={zone.id || zone.name}>
-                              <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                              <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc(`heat:${zone.id || zone.name}:set`)}`}>
                                 {setVal !== null && setVal !== undefined && !isNaN(setVal) && setVal > 0 ? (
                                   fmtNum(setVal, 0)
                                 ) : (
                                   <span className="text-slate-400 font-normal text-[10px]">-</span>
                                 )}
                               </td>
-                              <td className="py-1 px-1 text-center text-[#B91C1C] font-bold border border-slate-400">
+                              <td className={`py-1 px-1 text-center text-[#B91C1C] font-bold border border-slate-400${hc(`heat:${zone.id || zone.name}:act`)}`}>
                                 {actVal !== null && actVal !== undefined && !isNaN(actVal) && actVal > 0 ? (
                                   fmtNum(actVal, 1)
                                 ) : (

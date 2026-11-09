@@ -237,6 +237,7 @@ function AppContent() {
                   files={files}
                   results={results}
                   selectedRunIdx={selectedRunIdx}
+                  settings={settings}
                 />
               </div>
             )}
