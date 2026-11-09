@@ -106,6 +106,7 @@ const SECTIONS: GuideSection[] = [
       <>
         <Item title="CTCL 보간">
           CTCL Matrix 엑셀의 Load/Tune 격자에서 측정 평균 Load/Tune 위치의 R·X를 2차원 선형 보간으로 계산합니다.
+          격자와 보간값은 <b>원본 로그 탭 맨 위 CTCL 패널</b>을 펼쳐서 확인합니다.
         </Item>
         <Item title="데이터 복사">각 표 오른쪽 위 ‘데이터 복사’를 누르면 엑셀에 바로 붙여 넣을 수 있게 복사됩니다.</Item>
         <Item title="전체 Excel 다운로드">화면 오른쪽 위 버튼으로 모든 표를 시트별로 나눈 엑셀 파일을 받습니다.</Item>

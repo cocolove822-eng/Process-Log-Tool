@@ -9,7 +9,7 @@ import { FileUploadScreen } from './components/FileUploadScreen';
 import { IntegratedDashboard } from './components/IntegratedDashboard';
 import { TrendTab } from './components/TrendTab';
 import { RawDataTab } from './components/RawDataTab';
-import { CtclViewerTab } from './components/CtclViewerTab';
+import { CtclPanel } from './components/CtclPanel';
 import { ThemePreviewModal } from './components/ThemePreviewModal';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { LeftRunSidebar } from './components/LeftRunSidebar';
@@ -26,6 +26,8 @@ function AppContent() {
   const [ctclMatrix, setCtclMatrix] = useState<CTCLMatrixData | null>(null);
   const [settings, setSettings] = useState<AnalyzerSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<string>('integrated');
+  // 원본 로그 탭 맨 위 CTCL Matrix 패널 펼침 여부 (기본 접힘)
+  const [isCtclOpen, setIsCtclOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number | null>(null);
@@ -205,7 +207,10 @@ function AppContent() {
                 onClearAllFiles={handleClearAllFiles}
                 onChangeManualDepoStep={handleChangeManualDepoStep}
                 onChangeManualPlSteps={handleChangeManualPlSteps}
-                onNavigateToCtcl={() => setActiveTab('ctcl')}
+                onNavigateToCtcl={() => {
+                  setIsCtclOpen(true);
+                  setActiveTab('raw');
+                }}
               />
             )}
 
@@ -214,27 +219,26 @@ function AppContent() {
               <TrendTab files={files} results={results} />
             )}
 
-            {/* Tab 3: 원본 로그 (Raw Data) */}
+            {/* Tab 3: 원본 로그 (Raw Data) — 맨 위에 CTCL Matrix 간략 패널(접고 펴기) */}
             {activeTab === 'raw' && (
-              <RawDataTab
-                files={files}
-                results={results}
-                selectedRunIdx={selectedRunIdx}
-              />
-            )}
-
-            {/* Tab 4: CTCL 매트릭스 */}
-            {activeTab === 'ctcl' && (
-              <CtclViewerTab
-                ctclMatrix={ctclMatrix}
-                results={results}
-                selectedRunIdx={selectedRunIdx}
-                onSelectRunIdx={setSelectedRunIdx}
-                onUploadCtclFile={handleUploadCtclFile}
-                onSelectCtclSheet={handleSelectCtclSheet}
-                onLoadSampleCtcl={() => setCtclMatrix(createSampleCTCLMatrix())}
-                onNavigateToIntegrated={() => setActiveTab('integrated')}
-              />
+              <div className="space-y-2">
+                <CtclPanel
+                  ctclMatrix={ctclMatrix}
+                  results={results}
+                  selectedRunIdx={selectedRunIdx}
+                  onSelectRunIdx={setSelectedRunIdx}
+                  onUploadCtclFile={handleUploadCtclFile}
+                  onSelectCtclSheet={handleSelectCtclSheet}
+                  onLoadSampleCtcl={() => setCtclMatrix(createSampleCTCLMatrix())}
+                  open={isCtclOpen}
+                  onToggle={setIsCtclOpen}
+                />
+                <RawDataTab
+                  files={files}
+                  results={results}
+                  selectedRunIdx={selectedRunIdx}
+                />
+              </div>
             )}
           </main>
         </div>
