@@ -107,7 +107,7 @@ const SpcChartView: React.FC<{
   const ticks = niceTicks(yLo, yHi, 4);
 
   // 가로 이름: 글자 길이에 맞춰 겹치지 않게 건너뛰며 표시
-  const maxLabelLen = Math.max(1, ...points.map(p => String(p.run.result.displayNo || p.run.result.no).length));
+  const maxLabelLen = Math.max(1, ...points.map(p => `#${p.run.result.displayNo || p.run.result.no}`.length));
   const slotW = maxLabelLen * 6 + 10;
   const stepW = n > 1 ? (plotW - innerX * 2) / (n - 1) : plotW;
   const labelEvery = Math.max(1, Math.ceil(slotW / Math.max(1, stepW)));
@@ -199,7 +199,7 @@ const SpcChartView: React.FC<{
         {points.map(p =>
           p.x % labelEvery === 0 || p.x === n - 1 ? (
             <text key={`lb${p.x}`} x={xOf(p.x)} y={H - padB + 14} fontSize={9.5} textAnchor="middle" fill="#475569">
-              {p.run.result.displayNo || p.run.result.no}
+              #{p.run.result.displayNo || p.run.result.no}
             </text>
           ) : null,
         )}

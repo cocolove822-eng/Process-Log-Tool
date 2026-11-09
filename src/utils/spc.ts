@@ -42,7 +42,6 @@ const num = (v: number | null | undefined): number | null =>
 
 export const SPC_METRICS: SpcMetricDef[] = [
   { id: 'reflectMax', name: 'RF Reflect Max', unit: 'W', digits: 1, group: 'RF', get: r => r.monitoringData?.rfReflectPowerMax },
-  { id: 'fwdUnif', name: 'RF Forward Unif.', unit: '%', digits: 2, group: 'RF', get: r => r.deviation?.rfForward?.uniformityPct },
   {
     id: 'rfRamp',
     name: 'RF 도달 시간',
@@ -51,22 +50,16 @@ export const SPC_METRICS: SpcMetricDef[] = [
     group: 'Time',
     get: r => (r.tReach !== null && r.tReach !== undefined && r.tOn !== null && r.tOn !== undefined ? r.tReach - r.tOn : null),
   },
-  { id: 'rfDelay', name: 'RF Delay', unit: 's', digits: 1, group: 'Time', get: r => r.delays?.rfDelay },
-  { id: 'matcherDelay', name: 'Matcher Delay', unit: 's', digits: 1, group: 'Time', get: r => r.delays?.matcherDelay },
   { id: 'vdcRange', name: 'Vdc Max−Min', unit: 'V', digits: 1, group: 'Matcher', get: r => r.deviation?.matcherDCBias?.range },
   { id: 'dcBiasAvg', name: 'DC Bias Avg', unit: 'V', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherDCBiasAvg },
   { id: 'vppAvg', name: 'Vpp Avg', unit: 'V', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherVppAvg },
   { id: 'irmsAvg', name: 'Irms Avg', unit: 'A', digits: 2, group: 'Matcher', get: r => r.monitoringData?.matcherIrmsAvg },
   { id: 'loadAvg', name: 'Matcher Load Avg', unit: '%', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherLoadAvg },
   { id: 'tuneAvg', name: 'Matcher Tune Avg', unit: '%', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherTuneAvg },
-  { id: 'chR', name: 'Matcher R', unit: 'Ω', digits: 2, group: 'Matcher', get: r => r.monitoringData?.rfChR, emptyHint: 'CTCL Matrix를 등록하면 계산됩니다' },
-  { id: 'chX', name: 'Matcher X', unit: 'Ω', digits: 2, group: 'Matcher', get: r => r.monitoringData?.rfChX, emptyHint: 'CTCL Matrix를 등록하면 계산됩니다' },
   { id: 'tvPosAvg', name: 'T/V Position Avg', unit: '%', digits: 1, group: 'Pressure', get: r => r.monitoringData?.tvPositionAvg },
-  { id: 'pressUnif', name: 'T/V Pressure Unif.', unit: '%', digits: 2, group: 'Pressure', get: r => r.deviation?.tvPressure?.uniformityPct },
-  { id: 'rsdTime', name: 'RSD Time', unit: 's', digits: 1, group: 'Time', get: r => r.monitoringData?.rsdTime },
 ];
 
-export const SPC_DEFAULT_METRICS = ['reflectMax', 'vdcRange', 'rfRamp', 'loadAvg'];
+export const SPC_DEFAULT_METRICS = ['reflectMax', 'rfRamp', 'dcBiasAvg', 'tvPosAvg'];
 
 export const getSpcMetric = (id: string): SpcMetricDef | undefined => SPC_METRICS.find(m => m.id === id);
 
