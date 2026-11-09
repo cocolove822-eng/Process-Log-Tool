@@ -582,6 +582,29 @@ export function parseRawLogCsv(csvContent: string, fileName: string): ParsedLogF
   if (!hasColFuzzy('rfforward') && !hasColFuzzy('rfpower') && !hasColFuzzy('poweract')) missingColumns.push('RF Forward Power');
   if (!hasColFuzzy('pressure') && !hasColFuzzy('tvpress')) missingColumns.push('Pressure');
 
+  // BB Mode / Specific Gas 플래그 열 감지
+  // - BB: 장비마다 열 이름이 다르므로 'BB'라는 단어가 들어간 모든 열을 BB Mode 관련 열로 간주 (예: 'RF BB.mode')
+  // - Specific Gas: 'Specific.Gas.Adj' 등 'specificgas'가 포함된 열
+  const bbFlagCols = rawHeaders.filter(h => /BB/.test(h) || /(^|[^a-z])bb([^a-z]|$)/i.test(h));
+  const specificGasCols = rawHeaders.filter(h => h.toLowerCase().replace(/[\s._\-\/()\[\]]/g, '').includes('specificgas'));
+  const parseFlag = (v: unknown): boolean | null => {
+    const t = String(v ?? '').trim().toLowerCase();
+    if (!t) return null;
+    if (['enable', 'enabled', 'true', 'on', 'yes', 't', 'y', '1'].includes(t)) return true;
+    if (['disable', 'disabled', 'false', 'off', 'no', 'f', 'n', '0'].includes(t)) return false;
+    return null;
+  };
+  /** 여러 열 중 하나라도 Enable/True면 true, 모두 Disable/False면 false, 읽을 수 있는 값이 없으면 null */
+  const readFlagCols = (row: Record<string, string>, cols: string[]): boolean | null => {
+    let seen: boolean | null = null;
+    for (const c of cols) {
+      const f = parseFlag(row[c]);
+      if (f === true) return true;
+      if (f === false) seen = false;
+    }
+    return seen;
+  };
+
   // Helper to extract numeric value from row with case-insensitive and trimmed lookup
   const getNum = (row: Record<string, string>, colName: string, def = 0): number => {
     const actualCol = headerMap.get(colName.toLowerCase()) || colName;
@@ -856,6 +879,8 @@ export function parseRawLogCsv(csvContent: string, fileName: string): ParsedLogF
         'RF Forward Power Set', 'RF Forward Power(Set)', 'RF Power Set(W)', 'RF Power (Set)',
         'RF Power', 'Forward Set', 'Forward SetValue', 'Fwd Set', 'Fwd SetValue'
       ], 0),
+      bbMode: bbFlagCols.length > 0 ? readFlagCols(r, bbFlagCols) : null,
+      specificGasAdj: specificGasCols.length > 0 ? readFlagCols(r, specificGasCols) : null,
       rfForwardSetValueAct: getNumOr(r, ['RF Forward SetValue(Act)', 'RF Forward SetValue (Act)', 'RF Forward SetValue Act', 'RF_Forward_SetValue(Act)', 'RF Forward Set Act'], 0),
       rfForwardPowerAct: getNumOr(r, ['RF Forward Power(Act)', 'RF Forward Power (Act)', 'RF Forward Power Act', 'RF Forward Power', 'RF Forward Act', 'RF Power(Act)', 'RF Power Act', 'RF_Forward_Power(Act)', 'RF Forward Power(W)', 'RF Forward P', 'RF Forward Pow', 'RF Fwd Power', 'RF Fwd Act'], 0),
       rfReflectPower: getNumOr(r, ['RF Reflect Power', 'RF Reflect Power(Act)', 'RF Reflect Power Act', 'RF Reflect', 'RF Ref Power', 'RF_Reflect_Power', 'RF Ref(W)', 'RF Reflect Power(W)'], 0),

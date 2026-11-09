@@ -7,6 +7,8 @@ import {
   HWControlEndRFRow,
   HWControlEndStepRow,
   HWControlStartRow,
+  HWBoundaryInfo,
+  HWCellStatus,
   MonitoringDataRow,
   ParsedLogFile,
   ProcessDataSetRow,
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: AnalyzerSettings = {
   rampUpPostOffsetSec: 3.0, // Ramping Up 실제 도달 후 시작 시점 n초 (기본값: 3.0초)
   rfRampDownTimeSec: 1.0,
   rsdPreOffsetSec: 1.0, // RSD 진입 전 Time (기본값: 1.0초)
+  rsdBandW: 300, // RSD 유지 판정 범위: RSD Power ± 300 W
   rfTolerancePct: 2.0,
   rfOnThresholdDepo: 300,
   rfOnThresholdPL: 500,
@@ -70,12 +73,14 @@ export const DEFAULT_SETTINGS: AnalyzerSettings = {
   ecRfForwardAlarmPct: 3.0, // 양방향 (±3%)
   ecRfReflectWarningW: 100, // 상한 (100 W)
   ecRfReflectAlarmW: 200, // 상한 (200 W)
-  ecMatcherWarningPct: 2.0, // 상한 (2% - Vpp, Irms, DC Bias)
-  ecMatcherAlarmPct: 3.0, // 상한 (3% - Vpp, Irms, DC Bias)
+  ecMatcherWarningPct: 2.0, // 상한 (2% - Vpp, Irms Unif.)
+  ecMatcherAlarmPct: 3.0, // 상한 (3% - Vpp, Irms Unif.)
+  ecVdcWarningV: 15, // 상한 (DC Bias Max−Min 15 V)
+  ecVdcAlarmV: 30, // 상한 (DC Bias Max−Min 30 V)
   ecPressureWarningPct: 2.0, // 양방향 (±2%)
   ecPressureAlarmPct: 5.0, // 양방향 (±5%)
-  ecPositionWarningPct: 0.5, // 상한 (0.5%)
-  ecPositionAlarmPct: 1.0, // 상한 (1.0%)
+  ecPositionWarningPct: 1.0, // 상한 (T/V Position Max−Min 1%)
+  ecPositionAlarmPct: 2.0, // 상한 (T/V Position Max−Min 2%)
   ecLiftSpacingWarningPct: null, // 미설정
   ecLiftSpacingAlarmPct: null, // 미설정
   ecGasWarningPct: 3.0, // 양방향 (±3%)
@@ -247,6 +252,22 @@ export function detectAllDepoSteps(
   const allSteps = Array.from(new Set(rows.map(r => r.step))).sort((a, b) => a - b);
   const depoSteps: number[] = [];
 
+  // RF 방전 행 판정 (Depo Step 판정 공통)
+  //  - RF 명령: Fwd Set > 0, Fwd Set(Act) > 0, 또는 RF On = On/1
+  //  - 실제 방전: Fwd Act ≥ 50W
+  //  - 로그에 RF 명령 열이 없으면 Act만, Act 열이 없으면 명령만으로 판단
+  const rfCmdOf = (r: RawLogRow) =>
+    (r.rfForwardSetValue ?? 0) > 0 ||
+    (r.rfForwardSetValueAct ?? 0) > 0 ||
+    (r.rfOn ?? '').trim().toLowerCase() === 'on' ||
+    (r.rfOn ?? '').trim() === '1';
+  const hasRfCmdInFile = rows.some(rfCmdOf);
+  const hasRfActInFile = rows.some(r => (r.rfForwardPowerAct ?? 0) > 0);
+  const isRfDischargeRow = (r: RawLogRow) => {
+    if (!hasRfActInFile) return rfCmdOf(r);
+    return (r.rfForwardPowerAct ?? 0) >= 50 && (!hasRfCmdInFile || rfCmdOf(r));
+  };
+
   // 사용자가 SiH4를 필수로 포함하는 일반 증착(Deposition) 스텝을 검색 중인지 여부
   const isStandardDepoSearch = criteria.sih4 === 'include';
 
@@ -276,11 +297,12 @@ export function detectAllDepoSteps(
         }
       }
     } else {
-      // SiH4 제외 모드: 순수 비-플라즈마 유휴 스텝(Pump, Vent, Idle, Purge) 중 RF 방전이 없는 스텝은 제외
-      const isPureIdle = stepRows.some(r => r.stepName && /(?:pump|pmp|vent|idle|delay|펌프|배기)/i.test(r.stepName) && !/(?:pl|power_?lift|파워리프트)/i.test(r.stepName));
+      // SiH4 제외 모드: 이름이 Pump·Vent·Evac·Idle 등인 유휴 Step은 RF가 Step 대부분(50% 이상) 방전하지 않으면 제외
+      // (앞 Step(PL 등)에서 넘어온 RF 꼬리 몇 행이나 Set 잔류 값 때문에 PUMP가 남던 문제 방지)
+      const isPureIdle = stepRows.some(r => r.stepName && /(?:pump|pmp|vent|evac|idle|delay|펌프|배기)/i.test(r.stepName) && !/(?:pl|power_?lift|파워리프트)/i.test(r.stepName));
       if (isPureIdle) {
-        const hasAnyRf = stepRows.some(r => (r.rfForwardPowerAct ?? 0) >= 50 || (r.rfForwardSetValue ?? 0) > 0);
-        if (!hasAnyRf) continue;
+        const dischargeCnt = stepRows.filter(isRfDischargeRow).length;
+        if (dischargeCnt < stepRows.length * 0.5) continue;
       }
     }
 
@@ -290,11 +312,11 @@ export function detectAllDepoSteps(
     const hasSiH4Sustained = siH4ActiveRows.length >= 3 || (siH4ActiveRows.length > 0 && siH4ActiveRows.length >= stepRows.length * 0.2);
     const hasSiH4 = hasSiH4Set || hasSiH4Sustained;
 
-    // 2. RF 플라즈마 방전 감지: Set값 > 0, RF On Flag, 또는 실제 지속 방전(>=3행)
-    const hasRfSet = stepRows.some(r => (r.rfForwardSetValue ?? 0) > 0 || (r.rfOn ?? '').trim().toLowerCase() === 'on' || (r.rfOn ?? '').trim() === '1');
-    const rfActiveRows = stepRows.filter(r => (r.rfForwardPowerAct ?? 0) >= 50);
-    const hasRfSustained = rfActiveRows.length >= 3 || (rfActiveRows.length > 0 && rfActiveRows.length >= stepRows.length * 0.2);
-    const hasRf = hasRfSet || hasRfSustained;
+    // 2. RF 플라즈마 방전 감지: 'RF 명령(Fwd Set > 0 또는 RF On)이 있고 Act ≥ 50W인 행'이
+    //    1초(10행) 이상 또는 Step 행 수의 30% 이상일 때만 방전 Step으로 인정
+    //    (Set 값만 남은 행, 앞 Step에서 넘어온 몇 행짜리 RF 꼬리는 방전으로 보지 않음)
+    const rfDischargeCnt = stepRows.filter(isRfDischargeRow).length;
+    const hasRf = rfDischargeCnt >= 10 || (rfDischargeCnt > 0 && rfDischargeCnt >= stepRows.length * 0.3);
 
     // 3. Ar 가스 공급 감지 (실제 유량 >= 10 sccm 또는 Set값 > 0)
     const hasAr = stepRows.some(r => {
@@ -684,6 +706,57 @@ export function analyzeLogFile(
 
   // 3. Timings in Depo Step
   const depoRows = rows.filter(r => r.step === depoStep);
+
+  // ─────────────────────────────────────────────────────────────
+  // BB Mode / 연속 Depo 전환 감지 (Step 경계 단위)
+  //  - BB Mode: Step이 넘어가도 RF Power가 꺼지지 않고, 이전 Step에서 쓰던 Gas·Pressure가 다음 Step으로 이어짐
+  //  - BB 열: 이름에 'BB'가 들어간 열 (예: 'RF BB.mode'), Enable/True면 BB 전환
+  //  - 판단 기준: RF가 경계를 넘어 계속 켜져 있고(앞 Step 마지막 행·뒤 Step 첫 행 Act ≥ RF On 기준, 뒤 Step Set > 0),
+  //    뒤 Step 첫 3행 중 BB 플래그가 Enable이거나 뒤(앞) Step도 Depo Step이면 BB 전환.
+  //    (BB 열이 없는 로그도 RF가 꺼지지 않고 다음 Depo로 이어지면 RF Off 기준점이 없으므로 BB 전환으로 간주)
+  // ─────────────────────────────────────────────────────────────
+  const depoFirstIdx = rows.findIndex(r => r.step === depoStep);
+  let depoLastIdx = -1;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].step === depoStep) { depoLastIdx = i; break; }
+  }
+  const bbRfThr = settings.rfOnThresholdDepo ?? 300;
+  const rfSetOf = (r: RawLogRow) => (r.rfForwardSetValue > 0 ? r.rfForwardSetValue : r.rfForwardSetValueAct);
+  /** 경계 건너편 Step 첫 3행 중 하나라도 Enable이면 true, 모두 Disable이면 false, 값이 없으면 null */
+  const flagNear = (startIdx: number, key: 'bbMode' | 'specificGasAdj'): boolean | null => {
+    let seen: boolean | null = null;
+    const st = rows[startIdx]?.step;
+    for (let k = startIdx; k < Math.min(rows.length, startIdx + 3); k++) {
+      if (rows[k].step !== st) break;
+      const v = rows[k][key];
+      if (v === true) return true;
+      if (v === false) seen = false;
+    }
+    return seen;
+  };
+  /** lastIdx(앞 Step 마지막 행) → firstIdx(뒤 Step 첫 행) 경계 분석. firstIdx Step 쪽 플래그를 사용 */
+  const analyzeBoundary = (lastIdx: number, firstIdx: number, otherStep: number): HWBoundaryInfo & { bb: boolean; continuation: boolean } => {
+    const a = rows[lastIdx];
+    const b = rows[firstIdx];
+    const otherIsDepo = (allDepoSteps || []).includes(otherStep);
+    const bbFlag = flagNear(firstIdx, 'bbMode');
+    const rfContinuous = a.rfForwardPowerAct >= bbRfThr && b.rfForwardPowerAct >= bbRfThr && rfSetOf(b) > 0;
+    const specificGas = flagNear(firstIdx, 'specificGasAdj');
+    // RF가 경계에서 꺼지지 않았다면 RF Off 기준점 자체가 없으므로, BB 플래그 또는 이어지는 Depo Step이면 BB 전환으로 처리
+    const bb = rfContinuous && (bbFlag === true || otherIsDepo);
+    // Gas·Pressure 이어짐 판단을 적용할 경계: BB 전환이거나, 바로 이어지는 Step도 Depo (BB False 연속 Depo 포함)
+    const continuation = bb || otherIsDepo;
+    return { otherStep, otherIsDepo, bbFlag, rfContinuous, specificGas, bb, continuation };
+  };
+  const endNextIdx = depoLastIdx >= 0 && depoLastIdx + 1 < rows.length && rows[depoLastIdx + 1].step !== depoStep ? depoLastIdx + 1 : -1;
+  const startPrevIdx = depoFirstIdx > 0 && rows[depoFirstIdx - 1].step !== depoStep ? depoFirstIdx - 1 : -1;
+  const bbEndInfo = endNextIdx >= 0 ? analyzeBoundary(depoLastIdx, endNextIdx, rows[endNextIdx].step) : null;
+  const bbStartInfo = startPrevIdx >= 0 ? analyzeBoundary(startPrevIdx, depoFirstIdx, rows[startPrevIdx].step) : null;
+  const isBbEnd = Boolean(bbEndInfo?.bb);
+  const isContEnd = Boolean(bbEndInfo?.continuation);
+  const isContStart = Boolean(bbStartInfo?.continuation);
+  /** BB 전환 시 다음 Step의 RF Set (RSD 오인 방지용) */
+  const bbNextRfSet = isBbEnd && endNextIdx >= 0 ? rfSetOf(rows[endNextIdx]) : 0;
   const stepSummaryItem = file.stepsSummary?.find(s => s.step === depoStep);
   const currentStepName = stepSummaryItem?.stepName || depoRows[0]?.stepName || '';
   const isPlStep = /(?:pl\b|pl\d+|power_?lift|파워리프트|pin_?up)/i.test(currentStepName) ||
@@ -864,30 +937,75 @@ export function analyzeLogFile(
     return isTailTime && (isSetDown || isPwrDown);
   });
 
+  const rsdThr = settings.rfOnThresholdDepo ?? 300;
   const pwrShelfRows = rsdShelfRows.filter(
-    r => r.rfForwardPowerAct > (settings.rfOnThresholdDepo ?? 300) && (baseSet <= 0 || r.rfForwardPowerAct < baseSet * 0.85)
+    r => r.rfForwardPowerAct > rsdThr && (baseSet <= 0 || r.rfForwardPowerAct < baseSet * 0.85)
   );
 
-  if (pwrShelfRows.length >= 2 || (rsdShelfRows.length >= 2 && pwrShelfRows.length >= 1)) {
-    const targetRowsForStats = pwrShelfRows.length >= 2 ? pwrShelfRows : rsdShelfRows;
-    const avgPwr = targetRowsForStats.reduce((a, b) => a + b.rfForwardPowerAct, 0) / targetRowsForStats.length;
-
-    // RSD 유지 시간 산출:
-    // 주방전 직후 파워 하강 시작점(lastHighPowerRow의 시점)부터 마지막 잔류 방전 유지 행(lastPwrTime)까지의 실제 방전 유지 시간
-    const lastPwrTime = pwrShelfRows.length > 0 ? pwrShelfRows[pwrShelfRows.length - 1].stepAllTime : rsdShelfRows[rsdShelfRows.length - 1].stepAllTime;
-    const firstPwrTime = pwrShelfRows.length > 0 ? pwrShelfRows[0].stepAllTime : rsdShelfRows[0].stepAllTime;
-
-    // lastHighPowerRow 시점부터 하강 완료까지의 총 전이 및 유지 시간 (예: 11.8s - 10.7s = 1.1s)
-    const durationFromHighPwr = lastHighPowerRow ? Math.round((lastPwrTime - lastHighPowerRow.stepAllTime) * 10) / 10 : 0;
-    const durationPureShelf = Math.round((lastPwrTime - firstPwrTime) * 10) / 10;
-    const duration = (durationFromHighPwr >= 0.3 && durationFromHighPwr <= 10.0) ? durationFromHighPwr : durationPureShelf;
-
-    if (duration >= 0.3) {
+  // RSD 판정 (사용자 정의 기준)
+  //  1) RSD Power: 주방전 Set을 유지하다가 0이 아닌 낮은 값(주방전 85% 미만)으로 내려간 Fwd Set 값
+  //     - Fwd Set이 0으로 기록되는 장비는 Fwd Set(A) 값을 사용, 단일 샘플 글리치를 막기 위해 같은 값이 2행 이상일 때만 인정
+  //  2) Start: Set을 내린 뒤 Fwd Act가 'RSD Power ± rsdBandW(기본 300W)' 범위에 처음 들어온 시점
+  //  3) End: Start 이후 범위를 2행 연속 벗어난 첫 시점 (다음 Step까지 이어서 탐색, 최대 15초)
+  //  4) RSD Time = End - Start (파일 경과 시간 기준), Act가 범위에 들어오지 않으면 0.0초
+  //  ※ Set이 0으로 떨어진 뒤 파워가 꺼지는 과정(예: 10,150 → 3,191 → 372 W)은 낮은 Set이 없으므로 RSD 아님
+  const rsdBandW = settings.rsdBandW ?? 300;
+  const effSet = (r: RawLogRow) => (r.rfForwardSetValue > 0 ? r.rfForwardSetValue : r.rfForwardSetValueAct);
+  let rsdSetDropTime: number | null = null;
+  {
+    const reachIdx = depoRows.findIndex(r => r.rfForwardPowerAct >= setReachThreshold);
+    let dropIdx = -1;
+    if (baseSet > 0 && reachIdx >= 0) {
+      for (let i = reachIdx + 1; i < depoRows.length - 1; i++) {
+        const v = effSet(depoRows[i]);
+        // BB 전환: Depo 끝에서 Fwd Set이 다음 Step의 Set으로 미리 바뀌는 것은 RSD가 아니라 Step 전환
+        // (예: 13,090 → 9,270). 이 시점부터는 다음 Step 영역이므로 탐색 종료
+        if (bbNextRfSet > 0 && Math.abs(v - bbNextRfSet) <= Math.max(1, bbNextRfSet * 0.01) && Math.abs(v - baseSet) > Math.max(1, baseSet * 0.01)) {
+          break;
+        }
+        if (v > 0 && v < baseSet * 0.85) {
+          const nv = effSet(depoRows[i + 1]);
+          if (Math.abs(nv - v) <= Math.max(1, v * 0.01)) {
+            dropIdx = i;
+            break;
+          }
+        }
+      }
+    }
+    if (dropIdx >= 0) {
+      const dropRow = depoRows[dropIdx];
+      const P = Math.round(effSet(dropRow));
       isRsdDetected = true;
-      const setPwr = rsdShelfRows.find(r => r.rfForwardSetValue > 0 && r.rfForwardSetValue < baseSet * 0.85)?.rfForwardSetValue
-        || rsdShelfRows.find(r => r.rfForwardSetValueAct > 0 && r.rfForwardSetValueAct < baseSet * 0.85)?.rfForwardSetValueAct;
-      rsdPower = setPwr ? setPwr : Math.round(avgPwr);
-      rsdTime = duration;
+      rsdPower = P;
+      rsdSetDropTime = dropRow.stepAllTime;
+
+      const inBand = (r: RawLogRow) => Math.abs(r.rfForwardPowerAct - P) <= rsdBandW;
+      const gi = rows.indexOf(dropRow);
+      const limitSec = dropRow.elapsedSec + 15;
+      let startRow: RawLogRow | null = null;
+      let endRow: RawLogRow | null = null;
+      let lastScanned: RawLogRow | null = null;
+      for (let k = Math.max(0, gi); k < rows.length && rows[k].elapsedSec <= limitSec; k++) {
+        const r = rows[k];
+        lastScanned = r;
+        if (!startRow) {
+          if (inBand(r) && r.rfForwardPowerAct < setReachThreshold) startRow = r;
+          continue;
+        }
+        if (!inBand(r)) {
+          const nx = rows[k + 1];
+          if (!nx || !inBand(nx)) {
+            endRow = r;
+            break;
+          }
+        }
+      }
+      if (startRow) {
+        const endT = (endRow ?? lastScanned ?? startRow).elapsedSec;
+        rsdTime = Math.max(0, Math.round((endT - startRow.elapsedSec) * 10) / 10);
+      } else {
+        rsdTime = 0.0;
+      }
     }
   }
 
@@ -917,11 +1035,9 @@ export function analyzeLogFile(
     if (sih4CutoffTime !== null && sih4CutoffTime >= minRsdSearchTime) {
       candidateTimes.push(sih4CutoffTime);
     }
-    if (lastHighPowerRow) {
-      candidateTimes.push(lastHighPowerRow.stepAllTime);
-    }
-    if (rsdShelfRows.length > 0) {
-      candidateTimes.push(rsdShelfRows[0].stepAllTime);
+    // Set을 RSD Power로 내린 시점 (Act 응답 지연과 무관한 지시 시점)
+    if (rsdSetDropTime !== null) {
+      candidateTimes.push(rsdSetDropTime);
     }
     if (candidateTimes.length > 0) {
       rsdEntryTime = Math.min(...candidateTimes);
@@ -929,7 +1045,7 @@ export function analyzeLogFile(
   }
 
   // 분석 구간 설정 (종료 시점):
-  // 사용자 요구사항 및 공정 Run 매니저 분석 기준 설정:
+  // 사용자 요구사항 및 공정 분석 매니저 분석 기준 설정:
   // - 일반 공정: RF Off - settings.rfRampDownTimeSec (기본 1.0초)
   // - RSD 공정: RSD 진입 시점 - settings.rsdPreOffsetSec (기본 1.0초) 전까지 엄격히 한정!
   // 이를 통해 RSD 진입 과정에서 일시적으로 발생하는 임피던스 불일치 및 Reflection spike(예: 627W, 665W 등)가
@@ -1560,6 +1676,55 @@ export function analyzeLogFile(
     plStable_tvCtrlMode: isLastDepo ? getModeChangeStartPlWithFallback() : null,
     pl_rfForwardAct: isLastDepo ? getRfPowerStartTime(plRows) : null,
   };
+
+  // 이전 Step(Depo)에서 이어져 들어온 경우 (BB 전환 또는 연속 Depo):
+  // 경계 앞뒤 행 모두에서 이미 켜져 있던 항목은 이 Step에서 새로 시작한 것이 아니므로 '유지' 처리
+  if (isContStart && bbStartInfo) {
+    const startStatus: Partial<Record<string, HWCellStatus>> = {};
+    const prevRow = rows[startPrevIdx];
+    const firstRow = rows[depoFirstIdx];
+    const startGasDefs: [keyof HWControlStartRow, (r: RawLogRow) => number | null | undefined, (r: RawLogRow) => number | null | undefined][] = [
+      ['depoStable_pyroAr', r => Math.max(r.pyroArSet ?? 0, r.oxyArSet ?? 0), r => Math.max(r.pyroAr ?? 0, r.oxyAr ?? 0)],
+      ['depoStable_pyroN2O', r => r.pyroN2OSet, r => r.pyroN2O],
+      ['depoStable_pyroNH3', r => r.pyroNH3Set, r => r.pyroNH3],
+      ['depoStable_pyroPN2', r => r.pyroPN2Set, r => r.pyroPN2],
+      ['depoStable_pyroH2', r => r.pyroH2Set, r => r.pyroH2],
+      ['depoStable_pyroSiH4', r => r.pyroSiH4Set, r => r.pyroSiH4],
+    ];
+    for (const [field, setG, actG] of startGasDefs) {
+      const hasSet = rows.some(r => (setG(r) ?? 0) > 0);
+      const on = (r: RawLogRow) => (hasSet ? (setG(r) ?? 0) > 0.1 : (actG(r) ?? 0) >= 5);
+      if (on(prevRow) && on(firstRow)) {
+        (hwStart as unknown as Record<string, unknown>)[field] = null;
+        startStatus[field] = 'keep';
+      }
+    }
+    const tvPress = (r: RawLogRow) => {
+      const modeSet = (r.tvCtrlModeSet || '').trim().toUpperCase();
+      const modeAct = (r.tvCtrlMode || '').trim().toUpperCase();
+      if (modeSet.includes('PRESS') || modeAct.includes('PRESS')) return true;
+      const modes = getAllTvCtrlModesFromRow(r);
+      if (modes.some(m => m.includes('PRESS'))) return true;
+      if (!modeSet && !modeAct && modes.length === 0) return (r.tvPressureSet ?? 0) > 0;
+      return false;
+    };
+    if (tvPress(prevRow) && tvPress(firstRow)) {
+      hwStart.depoStable_tvCtrlMode = null;
+      startStatus.depoStable_tvCtrlMode = 'keep';
+    }
+    if (bbStartInfo.rfContinuous) {
+      hwStart.depo_rfForwardAct = null;
+      startStatus.depo_rfForwardAct = 'keep';
+    }
+    hwStart.bbStart = {
+      otherStep: bbStartInfo.otherStep,
+      otherIsDepo: bbStartInfo.otherIsDepo,
+      bbFlag: bbStartInfo.bbFlag,
+      rfContinuous: bbStartInfo.rfContinuous,
+      specificGas: bbStartInfo.specificGas,
+    };
+    hwStart.cellStatus = startStatus;
+  }
   const plEndStep = isLastDepo ? (plStepEnd ?? plStepStart) : null;
   const plEndRows = plEndStep !== null ? rows.filter(r => r.step === plEndStep) : [];
 
@@ -1608,7 +1773,11 @@ export function analyzeLogFile(
     if (lastActiveBaseRow) {
       const activeIdx = rows.findIndex(r => r === lastActiveBaseRow);
       if (activeIdx !== -1 && activeIdx < rows.length - 1) {
-        return { rowIdx: activeIdx + 1, stepAllTime: rows[activeIdx + 1].stepAllTime };
+        // 다음 행이 다른 Step이면(Step 끝에서 RF가 꺼짐) 그 행의 Step All Time은 다음 Step 기준이므로
+        // 현재 Step 기준 시간(마지막 RF 행 + 0.1초)으로 환산
+        const nx = rows[activeIdx + 1];
+        const t = nx.step === baseStep ? nx.stepAllTime : Math.round(((lastActiveBaseRow.stepAllTime ?? 0) + 0.1) * 10) / 10;
+        return { rowIdx: activeIdx + 1, stepAllTime: t };
       }
       return { rowIdx: activeIdx, stepAllTime: lastActiveBaseRow.stepAllTime };
     }
@@ -1799,14 +1968,171 @@ export function analyzeLogFile(
     };
   };
 
+  // ─────────────────────────────────────────────────────────────
+  // BB / 연속 Depo 전환 시 End 기준점과 칸 상태
+  //  - BB 전환(RF가 꺼지지 않고 다음 Step으로 이어짐): 0.0초 = 다음 Step 전환 시점(다음 Step의 Step All Time 0.0에 해당하는 행)
+  //    · Power: 다음 Step의 새 Set ± 허용오차(RF Forward 주의 %)에 2행 연속 들어온 시점 → '전환'
+  //  - 연속 경계(BB 전환 또는 바로 다음 Step도 Depo):
+  //    · Gas: 경계 앞뒤 행 모두에서 흐르고 있으면 '유지' (값 없음), 아니면 실제 차단 시점
+  //    · T/V: 경계 앞뒤 모두 PRESSURE 제어면 Pressure Set이 같을 때 '유지', 다르면 새 Set 도달까지 '전환'
+  //  - '유지'/'전환' 칸은 주의·경보 판정에서 제외 (화면에서 처리)
+  // ─────────────────────────────────────────────────────────────
+  // BB 전환 기준 행(0.0초): 다음 Step의 Step All Time 0.0 시점에 해당하는 행
+  //  - 다음 Step 첫 행이 Step All Time 0.1로 기록되는 로그(#9 등)는 그 직전 행(Depo 마지막 행)이 0.0초
+  //    → 다음 Step 행들의 시간이 원본 로그의 Step All Time과 같은 숫자로 표시됨
+  //  - 첫 행이 0.0이면 다음 Step 첫 행이 0.0초
+  const bbRefIdx = (() => {
+    if (!isBbEnd) return -1;
+    const lead = rows[endNextIdx].stepAllTime ?? 0;
+    return lead > 0.05 && lead <= 0.15 && endNextIdx - 1 >= depoFirstIdx ? endNextIdx - 1 : endNextIdx;
+  })();
+  const endRefInfo: { rowIdx: number; stepAllTime: number } | null = isBbEnd
+    ? { rowIdx: bbRefIdx, stepAllTime: totalDepoStepTime }
+    : depoRfOffInfo;
+  const endCellStatus: Partial<Record<string, HWCellStatus>> = {};
+
+  /** 행 i → 행 j 사이 경과 시간(초, 부호 있음). 같은 Step 안에서는 Step All Time 차이, 그 외 행 간격 0.1초 */
+  const spanSec = (i: number, j: number): number => {
+    if (i === j) return 0;
+    const lo = Math.min(i, j);
+    const hi = Math.max(i, j);
+    let sum = 0;
+    for (let k = lo + 1; k <= hi; k++) {
+      const a = rows[k - 1];
+      const b = rows[k];
+      const d = (b.stepAllTime ?? 0) - (a.stepAllTime ?? 0);
+      sum += a.step === b.step && d > 0 && d <= 2 ? d : 0.1;
+    }
+    const v = Math.round(sum * 10) / 10;
+    return j >= i ? v : -v;
+  };
+  const isTvPressureRow = (r: RawLogRow) => {
+    const modeSet = (r.tvCtrlModeSet || '').trim().toUpperCase();
+    const modeAct = (r.tvCtrlMode || '').trim().toUpperCase();
+    if (modeSet.includes('PRESS') || modeAct.includes('PRESS')) return true;
+    const modes = getAllTvCtrlModesFromRow(r);
+    if (modes.some(m => m.includes('PRESS'))) return true;
+    if (!modeSet && !modeAct && modes.length === 0) return (r.tvPressureSet ?? 0) > 0;
+    return false;
+  };
+  /** 가장 많이 나온 값 (0 제외) */
+  const modeOf = (vals: number[]): number => {
+    const cnt = new Map<number, number>();
+    vals.filter(v => v > 0).forEach(v => cnt.set(v, (cnt.get(v) ?? 0) + 1));
+    let best = 0;
+    let bestN = 0;
+    cnt.forEach((n, v) => { if (n > bestN) { best = v; bestN = n; } });
+    return best;
+  };
+  type GasGetter = (r: RawLogRow) => number | null | undefined;
+  /** 가스가 해당 행에서 흐르는지: Set 데이터가 있으면 Set > 0.1, 없으면 Act ≥ 5 */
+  const makeGasOn = (setG: GasGetter, actG: GasGetter) => {
+    const hasSet = rows.some(r => (setG(r) ?? 0) > 0);
+    return (r: RawLogRow) => (hasSet ? (setG(r) ?? 0) > 0.1 : (actG(r) ?? 0) >= 5);
+  };
+  /** 연속 경계(lastIdx → firstIdx)에서 가스가 끊기지 않고 이어지는지 */
+  const gasContinues = (setG: GasGetter, actG: GasGetter, lastIdx: number, firstIdx: number) => {
+    if (lastIdx < 0 || firstIdx < 0) return false;
+    const on = makeGasOn(setG, actG);
+    return on(rows[lastIdx]) && on(rows[firstIdx]);
+  };
+  const endNextStepRows = endNextIdx >= 0 ? rows.filter(r => r.step === rows[endNextIdx].step) : [];
+  /** '전환' 칸의 Act 도달 시간 (툴팁용, 키 = 필드 이름) */
+  const endActReach: Partial<Record<string, number | null>> = {};
+  /**
+   * Set이 다음 Step 값(target)으로 바뀐 행 찾기
+   * - 다음 Step 첫 행이 이미 target이면, Depo 끝쪽으로 거슬러 올라가 target이 시작된 첫 행 (Step 전환 전에 미리 바뀐 경우 음수)
+   * - 아니면 다음 Step 안에서 target이 처음 나온 행
+   */
+  const findSetChangeIdx = (getter: (r: RawLogRow) => number, target: number): number | null => {
+    if (endNextIdx < 0 || target <= 0) return null;
+    const near = (v: number) => Math.abs(v - target) <= Math.max(1, target * 0.01);
+    if (near(getter(rows[endNextIdx]))) {
+      let k = endNextIdx;
+      while (k - 1 >= depoFirstIdx && near(getter(rows[k - 1]))) k--;
+      return k;
+    }
+    for (let k = endNextIdx + 1; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
+      if (near(getter(rows[k]))) return k;
+    }
+    return null;
+  };
+
+  const calcGasEndBb = (field: string, setG: GasGetter, actG: GasGetter): { offset: number | null; cumulativeTime: number | null } => {
+    if (isContEnd && gasContinues(setG, actG, depoLastIdx, endNextIdx)) {
+      endCellStatus[field] = 'keep';
+      return { offset: null, cumulativeTime: null };
+    }
+    return calcGasEndOffsetBySet(depoStep, setG, actG, endRefInfo);
+  };
+
+  const calcTvEndBb = (): { offset: number | null; cumulativeTime: number | null } => {
+    if (isContEnd && endNextIdx >= 0 && isTvPressureRow(rows[depoLastIdx]) && isTvPressureRow(rows[endNextIdx])) {
+      const pDepo = modeOf(depoRows.filter(isTvPressureRow).map(r => r.tvPressureSet ?? 0));
+      const pNext = modeOf(endNextStepRows.filter(isTvPressureRow).map(r => r.tvPressureSet ?? 0));
+      if (pDepo <= 0 || pNext <= 0 || Math.abs(pNext - pDepo) <= Math.max(1, pDepo * 0.005)) {
+        endCellStatus.depo_tvCtrlMode = 'keep';
+        return { offset: null, cumulativeTime: null };
+      }
+      // Pressure Set 변경: 표 값 = Pressure Set이 다음 Step 값으로 바뀐 시점 (다른 End 칸과 같은 Set 기준)
+      // 툴팁 = Pressure Act가 새 Set ± T/V Pressure 주의 %(기본 2%)에 2행 연속 들어온 시점
+      endCellStatus.depo_tvCtrlMode = 'trans';
+      const refIdx = endRefInfo ? endRefInfo.rowIdx : endNextIdx;
+      const tolP = (settings.ecPressureWarningPct ?? 2) / 100;
+      const inP = (r: RawLogRow | undefined) => !!r && r.step === rows[endNextIdx].step && Math.abs((r.tvPressure ?? 0) - pNext) <= pNext * tolP;
+      endActReach.depo_tvCtrlMode = null;
+      for (let k = endNextIdx; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
+        if (inP(rows[k]) && inP(rows[k + 1])) {
+          endActReach.depo_tvCtrlMode = spanSec(refIdx, k);
+          break;
+        }
+      }
+      const setIdx = findSetChangeIdx(r => r.tvPressureSet ?? 0, pNext);
+      if (setIdx === null) return { offset: null, cumulativeTime: null };
+      const off = spanSec(refIdx, setIdx);
+      return { offset: off, cumulativeTime: Math.round(((endRefInfo?.stepAllTime ?? totalDepoStepTime) + off) * 10) / 10 };
+    }
+    return calcTvEndOffsetByRow(depoStep, endRefInfo);
+  };
+
+  // Power (BB 전환):
+  //  - 표 값 = Fwd Set이 다음 Step 값으로 바뀐 시점 (0.0초 = Step 전환 기준 행, 미리 바뀌면 음수). 다음 Step Set이 같으면 '유지'
+  //  - 툴팁 = Fwd Act가 새 Set ± RF Forward 주의 %(기본 2%)에 2행 연속 들어온 시점
+  let bbPowerTrans: number | null = null;
+  if (isBbEnd) {
+    const nextRfSet = modeOf(endNextStepRows.map(rfSetOf));
+    const lastDepoSet = rfSetOf(rows[depoLastIdx - 1] ?? rows[depoLastIdx]);
+    const prevSet = depoLastIdx >= 1 && rows[depoLastIdx - 1].step === depoStep ? lastDepoSet : baseSet;
+    if (nextRfSet > 0 && Math.abs(nextRfSet - prevSet) <= Math.max(1, prevSet * 0.01) && Math.abs(nextRfSet - baseSet) <= Math.max(1, baseSet * 0.01)) {
+      endCellStatus.depo_rfForwardAct = 'keep';
+    } else {
+      endCellStatus.depo_rfForwardAct = 'trans';
+      const setIdx = findSetChangeIdx(rfSetOf, nextRfSet);
+      bbPowerTrans = setIdx !== null ? spanSec(bbRefIdx, setIdx) : null;
+      const inRf = (r: RawLogRow | undefined) => {
+        if (!r || r.step !== rows[endNextIdx].step) return false;
+        const sv = rfSetOf(r);
+        return sv > 0 && Math.abs(r.rfForwardPowerAct - sv) <= sv * (rfTolerance / 100);
+      };
+      endActReach.depo_rfForwardAct = null;
+      for (let k = endNextIdx; k < rows.length && rows[k].step === rows[endNextIdx].step; k++) {
+        if (inRf(rows[k]) && inRf(rows[k + 1])) {
+          endActReach.depo_rfForwardAct = spanSec(bbRefIdx, k);
+          break;
+        }
+      }
+    }
+  }
+
   // Depo Control End Time 계산 (T/V 및 Gas 7종 Set 기반)
-  const tvDepoTiming = calcTvEndOffsetByRow(depoStep, depoRfOffInfo);
-  const gasDepoSiH4 = calcGasEndOffsetBySet(depoStep, r => r.pyroSiH4Set, r => r.pyroSiH4, depoRfOffInfo);
-  const gasDepoN2O = calcGasEndOffsetBySet(depoStep, r => r.pyroN2OSet, r => r.pyroN2O, depoRfOffInfo);
-  const gasDepoNH3 = calcGasEndOffsetBySet(depoStep, r => r.pyroNH3Set, r => r.pyroNH3, depoRfOffInfo);
-  const gasDepoPN2 = calcGasEndOffsetBySet(depoStep, r => r.pyroPN2Set, r => r.pyroPN2, depoRfOffInfo);
-  const gasDepoH2 = calcGasEndOffsetBySet(depoStep, r => r.pyroH2Set, r => r.pyroH2, depoRfOffInfo);
-  const gasDepoAr = calcGasEndOffsetBySet(depoStep, r => Math.max(r.pyroArSet ?? 0, r.oxyArSet ?? 0), r => Math.max(r.pyroAr ?? 0, r.oxyAr ?? 0), depoRfOffInfo);
+  const tvDepoTiming = calcTvEndBb();
+  const gasDepoSiH4 = calcGasEndBb('depo_pyroSiH4', r => r.pyroSiH4Set, r => r.pyroSiH4);
+  const gasDepoN2O = calcGasEndBb('depo_pyroN2O', r => r.pyroN2OSet, r => r.pyroN2O);
+  const gasDepoNH3 = calcGasEndBb('depo_pyroNH3', r => r.pyroNH3Set, r => r.pyroNH3);
+  const gasDepoPN2 = calcGasEndBb('depo_pyroPN2', r => r.pyroPN2Set, r => r.pyroPN2);
+  const gasDepoH2 = calcGasEndBb('depo_pyroH2', r => r.pyroH2Set, r => r.pyroH2);
+  const gasDepoAr = calcGasEndBb('depo_pyroAr', r => Math.max(r.pyroArSet ?? 0, r.oxyArSet ?? 0), r => Math.max(r.pyroAr ?? 0, r.oxyAr ?? 0));
+  const depoRefTime = isBbEnd ? totalDepoStepTime : rfOffTimeDepo;
 
   // PL Control End Time 계산 (T/V 및 Gas 2종: Ar, H2 Set 기반)
   const tvPlTiming = isLastDepo ? calcTvEndOffsetByRow(plEndStep, plRfOffInfo) : { offset: null, cumulativeTime: null };
@@ -1818,7 +2144,7 @@ export function analyzeLogFile(
     fileName: file.fileName,
     no,
     rcpName,
-    depo_rfForwardAct: 0.0,
+    depo_rfForwardAct: isBbEnd ? bbPowerTrans : 0.0,
     depo_tvCtrlMode: tvDepoTiming.offset,
     depo_pyroSiH4: gasDepoSiH4.offset,
     depo_pyroAr: gasDepoAr.offset,
@@ -1830,6 +2156,12 @@ export function analyzeLogFile(
     pl_tvCtrlMode: tvPlTiming.offset,
     pl_pyroAr: gasPlAr.offset,
     pl_pyroH2: gasPlH2.offset,
+    endRef: isBbEnd ? 'stepChange' : 'rfOff',
+    bbEnd: bbEndInfo && bbEndInfo.continuation
+      ? { otherStep: bbEndInfo.otherStep, otherIsDepo: bbEndInfo.otherIsDepo, bbFlag: bbEndInfo.bbFlag, rfContinuous: bbEndInfo.rfContinuous, specificGas: bbEndInfo.specificGas }
+      : null,
+    cellStatus: endCellStatus,
+    actReach: endActReach,
   };
 
   const totalStepTimeStable = depoStableRows.length > 0 ? (depoStableRows[depoStableRows.length - 1].stepAllTime || 15.0) : 15.0;
@@ -1843,8 +2175,10 @@ export function analyzeLogFile(
     totalStepTimeStable: Math.round(totalStepTimeStable * 10) / 10,
     totalStepTimeDepo: Math.round(totalDepoStepTime * 10) / 10,
     totalStepTimePL: totalStepTimePL !== null ? Math.round(totalStepTimePL * 10) / 10 : null,
-    depo_rfOffTime: Math.round(rfOffTimeDepo * 10) / 10,
-    depo_rfForwardAct: Math.round(rfOffTimeDepo * 10) / 10,
+    depo_rfOffTime: Math.round(depoRefTime * 10) / 10,
+    depo_rfForwardAct: isBbEnd
+      ? (bbPowerTrans !== null ? Math.round((depoRefTime + bbPowerTrans) * 10) / 10 : null)
+      : Math.round(rfOffTimeDepo * 10) / 10,
     depo_tvCtrlMode: tvDepoTiming.cumulativeTime,
     depo_pyroSiH4: gasDepoSiH4.cumulativeTime,
     depo_pyroAr: gasDepoAr.cumulativeTime,
@@ -1857,6 +2191,8 @@ export function analyzeLogFile(
     pl_tvCtrlMode: tvPlTiming.cumulativeTime,
     pl_pyroAr: gasPlAr.cumulativeTime,
     pl_pyroH2: gasPlH2.cumulativeTime,
+    endRef: isBbEnd ? 'stepChange' : 'rfOff',
+    cellStatus: endCellStatus,
   };
 
   // 9. Delays
@@ -1975,7 +2311,8 @@ export function analyzeLogFile(
   const buildUniformityStat = (
     getter: (r: RawLogRow) => number,
     warningPct: number | null | undefined,
-    alarmPct: number | null | undefined
+    alarmPct: number | null | undefined,
+    mode: 'unif' | 'range' = 'unif'
   ): DeviationStat => {
     if (windowRows.length === 0) {
       return { min: null, max: null, alarmLevel: 'normal' };
@@ -1996,13 +2333,16 @@ export function analyzeLogFile(
       uniformityPct = Math.round(((max - min) / (2 * absAvg)) * 1000) / 10;
     }
 
-    const alarmLevel = evaluateLevel(uniformityPct, 'upper', warningPct, alarmPct);
+    const range = Math.round((max - min) * 10) / 10;
+    // 판정값: 'unif' = Unif.%, 'range' = Max − Min 편차 절대값 (Vdc: V, T/V Position: %)
+    const alarmLevel = evaluateLevel(mode === 'range' ? range : uniformityPct, 'upper', warningPct, alarmPct);
 
     return {
       min: Math.round(min * 10) / 10,
       max: Math.round(max * 10) / 10,
       avg: Math.round(avg * 10) / 10,
       uniformityPct,
+      range,
       alarmLevel,
       isWarning: alarmLevel === 'warning',
       isAlarm: alarmLevel === 'alarm',
@@ -2143,14 +2483,14 @@ export function analyzeLogFile(
     rfReflect: rfReflectStat,
     matcherVpp: buildUniformityStat(r => r.matcherVpp, settings.ecMatcherWarningPct, settings.ecMatcherAlarmPct),
     matcherIrms: buildUniformityStat(r => r.matcherIrms, settings.ecMatcherWarningPct, settings.ecMatcherAlarmPct),
-    matcherDCBias: buildUniformityStat(r => Math.abs(r.matcherDCBias), settings.ecMatcherWarningPct, settings.ecMatcherAlarmPct),
+    matcherDCBias: buildUniformityStat(r => Math.abs(r.matcherDCBias), settings.ecVdcWarningV ?? 15, settings.ecVdcAlarmV ?? 30, 'range'),
     tvPressure: buildDevStatPct(
       r => r.tvPressure,
       processData.tvPressureSet,
       settings.ecPressureWarningPct,
       settings.ecPressureAlarmPct
     ),
-    tvPosition: buildUniformityStat(r => r.tvPosition, settings.ecPositionWarningPct, settings.ecPositionAlarmPct),
+    tvPosition: buildUniformityStat(r => r.tvPosition, settings.ecPositionWarningPct, settings.ecPositionAlarmPct, 'range'),
     liftSpacing: buildDevStatPct(
       r => r.liftSpacing,
       processData.liftSpacingSet,

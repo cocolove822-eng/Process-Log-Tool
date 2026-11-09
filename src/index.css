@@ -1,14 +1,133 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
-  --font-mono: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-sans: "Inter Embedded", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-mono: "Inter Embedded", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
 }
 
 *, *::before, *::after,
 body, button, input, select, textarea, code, pre, kbd, samp {
-  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
+  font-family: "Inter Embedded", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif !important;
   font-feature-settings: "tnum" 1, "cv01" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   공정 종합 분석 탭 표 5종 공통 행 높이 (pd-grid)
+   - 데이터 행 24px / 한 줄 머리글 22px / 단위 행 17px
+   - 두 줄 머리글은 같은 여백 규칙으로 모든 표에서 같은 높이가 됨
+   ============================================================================ */
+.pd-grid > tbody > tr {
+  height: 24px;
+}
+.pd-grid > tbody > tr > td {
+  height: 24px;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 1.2;
+}
+/* 셀 안 배지·칩도 24px 행 안에 들어가도록 */
+.pd-grid > tbody > tr > td span[class*='rounded'] {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 16px;
+}
+.pd-grid > thead > tr > th {
+  height: 22px;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+/* 줄 간격을 px로 고정 → 글자 크기가 달라도 두 줄 머리글 높이가 모든 표에서 같음 */
+.pd-grid > thead > tr > th,
+.pd-grid > thead > tr > th * {
+  line-height: 13px !important;
+}
+.pd-grid > thead > tr > th * {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+/* 마지막 머리글 행 = 단위 행 (W, sec, sccm …) */
+.pd-grid > thead > tr:last-child > th {
+  height: 17px;
+  /* 괄호가 들어간 단위 글자 "(sec)"는 기준선 아래로 내려오는 부분 때문에 아래로 쏠려 보이므로 1px 위로 */
+  padding-top: 0 !important;
+  padding-bottom: 2px !important;
+}
+/* 머리글 제목 줄 안의 작은 글씨 "(sec)" 등이 줄 높이를 키우지 않도록 */
+.pd-grid > thead > tr > th > div > span {
+  vertical-align: top;
+}
+
+/* ============================================================================
+   원본 로그 표 (raw-grid)
+   ============================================================================ */
+/* 항목 머리글: 같은 너비의 칸 안에서 긴 이름은 두 줄로 */
+.raw-grid > thead > tr:nth-child(2) > th {
+  white-space: normal;
+  line-height: 13px;
+  word-break: keep-all;
+}
+/* 칸보다 긴 값은 말줄임 */
+.raw-grid > tbody > tr > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 클릭한 행: 파란 2px 테두리 (box-shadow라 행 높이·스크롤에 영향 없음) */
+.raw-grid > tbody > tr.raw-row-selected > td {
+  box-shadow: inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
+}
+.raw-grid > tbody > tr.raw-row-selected > td:first-child {
+  box-shadow: inset 2px 0 0 #2563eb, inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
+}
+.raw-grid > tbody > tr.raw-row-selected > td:last-child {
+  box-shadow: inset -2px 0 0 #2563eb, inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb !important;
+}
+/* 원본 로그: 칸 좌우 여백을 줄여 열 너비 압축 */
+.raw-grid > tbody > tr > td,
+.raw-grid > thead > tr > th {
+  padding-left: 3px !important;
+  padding-right: 3px !important;
+}
+/* 원본 로그: 틀 고정된 Step & Time 묶음의 오른쪽 끝 구분선 (스크롤 시 경계가 보이도록) */
+.raw-grid .raw-sticky-edge {
+  box-shadow: 2px 0 0 #94a3b8;
+}
+/* 원본 로그: 칸마다 자기 테두리(오른쪽·아래)를 갖는 방식
+   → 틀 고정 칸이 테두리까지 덮어 스크롤되는 뒤쪽 글자가 비치지 않음 */
+.raw-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  border-width: 0;
+}
+.raw-grid th,
+.raw-grid td {
+  border-top-width: 0;
+  border-left-width: 0;
+}
+.raw-grid > thead > tr:first-child > th {
+  border-top-width: 1px;
+}
+.raw-grid tr > :first-child {
+  border-left-width: 1px;
+}
+/* Step이 바뀌는 첫 행: 위쪽 파란 경계선 */
+.raw-grid > tbody > tr.raw-step-start > td {
+  border-top: 2px solid #2563eb;
+}
+
+/* ============================================================================
+   원본 로그 '조건 찾기' 강조
+   - 맞는 행: 연한 호박색 / 조건 항목 칸: 진한 호박색 + 테두리
+   - 틀 고정 칸도 같은 색으로 덮어 씀 (!important)
+   ============================================================================ */
+.raw-grid > tbody > tr.raw-row-hit > td {
+  background-color: #FFF4D6 !important;
+}
+.raw-grid > tbody > tr.raw-row-hit > td.raw-hit-cell {
+  background-color: #FCD679 !important;
+  box-shadow: inset 0 0 0 1px #D97706;
+}
+.raw-grid > tbody > tr.raw-row-hit.raw-row-selected > td.raw-hit-cell {
+  box-shadow: inset 0 2px 0 #2563eb, inset 0 -2px 0 #2563eb, inset 0 0 0 1px #D97706 !important;
 }

@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { RefreshCw, Eye, EyeOff, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow, Ruler, Copy } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
+import { ManagerPortal, ManagerHeader } from './ManagerShell';
 
 export interface AlignedStepSegment {
   step: number;
@@ -28,6 +29,8 @@ export const STEP_PALETTE = [
 interface TrendTabProps {
   files: ParsedLogFile[];
   results: AnalysisFileResult[];
+  /** App이 만든 왼쪽 매니저 자리 (공정 분석 매니저와 같은 위치·모양) */
+  managerHost?: HTMLElement | null;
 }
 
 const RECIPE_COLORS = [
@@ -42,6 +45,26 @@ const RECIPE_COLORS = [
   '#DB2777', // Pink
   '#0D9488', // Teal
 ];
+
+/**
+ * 레시피 필터에서 고른 Run 전용 색 (고른 순서대로) — 서로 확실히 구분되는 8가지
+ * 9번째부터는 같은 계열의 진한 색으로 한 바퀴 더
+ */
+const SELECT_PALETTE = ['#2563EB', '#EA580C', '#16A34A', '#DC2626', '#7C3AED', '#0891B2', '#92400E', '#DB2777'];
+const SELECT_PALETTE_DARK = ['#1E3A8A', '#9A3412', '#14532D', '#7F1D1D', '#4C1D95', '#155E75', '#451A03', '#831843'];
+
+/**
+ * Run 색: 고른 Run이 있으면 고른 순서대로 SELECT_PALETTE, 아무것도 고르지 않았으면 파일 순서대로 기본 색
+ * (모든 그래프·범례·값 표·구간 통계·왼쪽 레시피 필터가 같은 색을 쓰도록 이 함수 하나로 결정)
+ */
+export const runColor = (fileId: string, fileIdx: number, selectedIds: string[]): string => {
+  const pos = selectedIds.indexOf(fileId);
+  if (pos >= 0) {
+    const pal = Math.floor(pos / SELECT_PALETTE.length) % 2 === 0 ? SELECT_PALETTE : SELECT_PALETTE_DARK;
+    return pal[pos % SELECT_PALETTE.length];
+  }
+  return RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
+};
 
 interface MetricDefinition {
   id: string;
@@ -208,8 +231,29 @@ export function getRfOnOffsetSec(file: ParsedLogFile, res?: AnalysisFileResult):
   return 0;
 }
 
-export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
+// Recipe 선택 상태: 탭을 옮겨 TrendTab이 다시 그려져도 유지되도록 모듈 변수에 보관
+let persistedRecipeSelection: string[] = [];
+
+export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost = null }) => {
+  const [isManagerCollapsed, setIsManagerCollapsed] = useState<boolean>(false);
   const [timeAlignment, setTimeAlignment] = useState<'elapsed' | 'rfOn'>('elapsed');
+  // 그래프 배치: 한 행에 1·2·3개 (보는 사람 브라우저에 기억, 저장이 안 되는 환경이면 기본 2열)
+  const [chartCols, setChartColsState] = useState<1 | 2 | 3>(() => {
+    try {
+      const v = Number(window.localStorage.getItem('pecvd.trend.chartCols'));
+      return v === 1 || v === 3 ? v : 2;
+    } catch {
+      return 2;
+    }
+  });
+  const setChartCols = (v: 1 | 2 | 3) => {
+    setChartColsState(v);
+    try {
+      window.localStorage.setItem('pecvd.trend.chartCols', String(v));
+    } catch {
+      /* 저장 불가 환경은 무시 */
+    }
+  };
   // Default 4 metrics requested by user
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([
     'rfForwardAct',
@@ -217,9 +261,47 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     'tvPressure',
     'matcherDCBias',
   ]);
-  const [visibleFileIds, setVisibleFileIds] = useState<Record<string, boolean>>({});
+  // 선택한 Recipe id 목록. 비어 있으면 전체 표시, 있으면 선택한 Recipe만 그래프에 표시
+  const [selectedRecipeIds, setSelectedRecipeIdsState] = useState<string[]>(() => persistedRecipeSelection);
+  const setSelectedRecipeIds = (next: string[] | ((prev: string[]) => string[])) => {
+    setSelectedRecipeIdsState(prev => {
+      const v = typeof next === 'function' ? next(prev) : next;
+      persistedRecipeSelection = v;
+      return v;
+    });
+  };
+  // 파일이 바뀌면 없어진 Recipe만 선택에서 뺌 (선택은 유지)
+  useEffect(() => {
+    setSelectedRecipeIds(prev => {
+      const ids = new Set(files.map(f => f.id));
+      const kept = prev.filter(id => ids.has(id));
+      return kept.length === prev.length ? prev : kept;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files]);
+  const visibleFileIds = useMemo(() => {
+    const sel = new Set(selectedRecipeIds);
+    const out: Record<string, boolean> = {};
+    files.forEach(f => {
+      out[f.id] = sel.size === 0 || sel.has(f.id);
+    });
+    return out;
+  }, [files, selectedRecipeIds]);
+  const setRecipeSelected = (id: string, on: boolean) =>
+    setSelectedRecipeIds(prev => (on ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter(x => x !== id)));
+  const toggleRecipeSelect = (id: string) =>
+    setSelectedRecipeIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  const clearRecipeSelection = () => setSelectedRecipeIds([]);
   const [resetAllKey, setResetAllKey] = useState<number>(0);
+  // 구간 통계: 한 그래프에서 고른 시간 구간을 모든 그래프에 함께 적용 [시작, 끝] (그래프 x축 기준 초)
+  const [statRange, setStatRange] = useState<[number, number] | null>(null);
+  // 구간 선택 모드 (모든 그래프 공통): 켜면 드래그 = 구간 선택, 꺼져 있어도 Shift+드래그
+  const [rangeSelectMode, setRangeSelectMode] = useState<boolean>(false);
+  // 겹쳐 보기: 그래프(파라미터)별 두 번째 파라미터 { 그래프 id: 겹칠 id }
+  const [overlayMap, setOverlayMap] = useState<Record<string, string>>({});
   const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
+  // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
+  const [valueSort, setValueSort] = useState<ValueSort>('no');
   const [stepRefFileId, setStepRefFileId] = useState<string>(files[0]?.id || '');
 
   // Visible files list
@@ -227,17 +309,12 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     return files.filter(f => visibleFileIds[f.id] !== false);
   }, [files, visibleFileIds]);
 
-  // Keep stepRefFileId valid and synchronized with visible files
+  // Step 기준 Run은 Recipe 선택과 상관없이 유지 (없는 파일일 때만 첫 파일로)
   useEffect(() => {
-    if (visibleFiles.length > 0) {
-      // If currently selected stepRefFileId is not among visible files, auto-switch to first visible file!
-      if (!visibleFiles.some(f => f.id === stepRefFileId)) {
-        setStepRefFileId(visibleFiles[0].id);
-      }
-    } else if (files.length > 0 && (!stepRefFileId || !files.some(f => f.id === stepRefFileId))) {
+    if (files.length > 0 && (!stepRefFileId || !files.some(f => f.id === stepRefFileId))) {
       setStepRefFileId(files[0].id);
     }
-  }, [visibleFiles, files, stepRefFileId]);
+  }, [files, stepRefFileId]);
 
   // Global X axis sync when user requests "Apply X axis to all graphs"
   const [globalXFormat, setGlobalXFormat] = useState<{
@@ -254,6 +331,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   // When alignment mode changes, clear global manual X bounds to let auto bounds recompute
   useEffect(() => {
     setGlobalXFormat(null);
+    setStatRange(null); // 시간 기준이 바뀌면 구간의 의미가 달라지므로 해제
   }, [timeAlignment]);
 
   // Reset card zoom & custom axis bounds when visible files change so charts automatically fit the newly visible recipe!
@@ -262,26 +340,12 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     setResetAllKey(k => k + 1);
   }, [visibleFileIds]);
 
-  useEffect(() => {
-    const initial: Record<string, boolean> = {};
-    files.forEach(f => {
-      initial[f.id] = true;
-    });
-    setVisibleFileIds(initial);
-  }, [files]);
 
   // Step reference file:
   // 1. If currently selected stepRefFileId is visible, use it.
   // 2. Otherwise use the first visible file.
   // 3. Fallback to stepRefFileId or first file.
-  const refFile = useMemo(() => {
-    if (visibleFiles.length > 0) {
-      const activeSelected = visibleFiles.find(f => f.id === stepRefFileId);
-      if (activeSelected) return activeSelected;
-      return visibleFiles[0];
-    }
-    return files.find(f => f.id === stepRefFileId) || files[0];
-  }, [files, visibleFiles, stepRefFileId]);
+  const refFile = useMemo(() => files.find(f => f.id === stepRefFileId) || files[0], [files, stepRefFileId]);
 
   // Aligned Step timing segments relative to current timeAlignment
   const alignedSteps: AlignedStepSegment[] = useMemo(() => {
@@ -352,12 +416,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     );
   };
 
-  const toggleFileVisibility = (fileId: string) => {
-    setVisibleFileIds(prev => ({
-      ...prev,
-      [fileId]: !prev[fileId],
-    }));
-  };
 
   const handleApplyGlobalXFormat = (fmt: {
     xMin: number | null;
@@ -384,16 +442,27 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 items-start w-full">
-      {/* 1. Left Vertical Control Panel (그래프 제어 설정) */}
-      <aside className="w-full lg:w-[250px] shrink-0 bg-[#F1F5F9] border border-slate-400 rounded-2xl p-2.5 shadow-xs space-y-3 lg:sticky lg:top-[68px]">
-        {/* Panel Header */}
-        <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
-          <span className="text-xs font-extrabold text-[#0F172A] flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#2563EB]" />
-            그래프 제어 설정
-          </span>
-          {/* 전체 초기화 버튼 */}
-          <button
+      {/* 1. 그래프 분석 매니저: 화면 왼쪽 끝 전체 높이 패널 (공정 분석 매니저와 같은 틀) */}
+      <ManagerPortal
+        host={managerHost}
+        collapsed={isManagerCollapsed}
+        dataAttr="data-graph-manager"
+        header={
+          <ManagerHeader
+            icon={<SlidersHorizontal className="w-3.5 h-3.5" />}
+            title="그래프 분석 매니저"
+            collapsed={isManagerCollapsed}
+            onToggleCollapse={() => setIsManagerCollapsed(v => !v)}
+          />
+        }
+      >
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 space-y-3 scrollbar-thin">
+        {/* Section 1: 그래프 배치 (한 행에 1·2·3개) */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[10.5px] font-bold text-[#334155] whitespace-nowrap">1. 그래프 배치</span>
+            {/* 전체 초기화 버튼 (모든 그래프 줌/이동) */}
+            <button
             onClick={() => {
               setGlobalXFormat(null);
               setResetAllKey(k => k + 1);
@@ -404,11 +473,34 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
             <RefreshCw className="w-3 h-3 text-[#475569]" />
             <span>전체 초기화</span>
           </button>
+          </div>
+          <div className="grid grid-cols-3 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300" role="radiogroup" aria-label="그래프 배치">
+            {([1, 2, 3] as const).map(n => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={chartCols === n}
+                onClick={() => setChartCols(n)}
+                title={n === 1 ? '한 행에 그래프 1개 (가장 크게)' : `한 행에 그래프 ${n}개`}
+                className={`flex items-center justify-center gap-1 px-1 py-1 text-[10.5px] font-semibold rounded-lg transition-all cursor-pointer ${
+                  chartCols === n ? 'bg-white text-[#2563EB] font-bold shadow-2xs' : 'text-[#475569] hover:text-[#0F172A]'
+                }`}
+              >
+                <span className="flex gap-[2px]" aria-hidden="true">
+                  {Array.from({ length: n }).map((_, i) => (
+                    <span key={i} className={`h-2.5 rounded-[2px] ${chartCols === n ? 'bg-[#2563EB]' : 'bg-[#94A3B8]'}`} style={{ width: n === 1 ? 12 : n === 2 ? 6 : 4 }} />
+                  ))}
+                </span>
+                {n}열
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Section 1: 시간 축 기준 */}
-        <div className="space-y-1">
-          <span className="text-[10.5px] font-bold text-[#334155] block">1. 시간축 기준</span>
+        {/* Section 2: 시간축 기준 설정 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <span className="text-[10.5px] font-bold text-[#334155] block">2. 시간축 기준 설정</span>
           <div className="grid grid-cols-1 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300">
             <button
               type="button"
@@ -435,92 +527,77 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
           </div>
         </div>
 
-        {/* Section 1-2: Step 타임라인 설정 */}
-        <div className="space-y-1.5 pt-1 border-t border-slate-300">
+        {/* Section 3: 타임라인 표시 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
-            <span className="font-bold text-[#334155] flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-[#2563EB]" />
-              Step 타임라인
-            </span>
-            <label className="flex items-center gap-1 text-[10px] text-[#334155] font-bold cursor-pointer select-none">
+            <label htmlFor="step-timeline-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              3. 타임라인 표시
+            </label>
+            <span className="flex items-center gap-1.5">
+              {showStepTimeline && alignedSteps.length > 0 && (
+                <span
+                  className="text-[9.5px] font-bold text-[#2563EB] tabular-nums"
+                  title="기준 Run의 Step 수"
+                >
+                  {alignedSteps.length} Step
+                </span>
+              )}
               <input
+                id="step-timeline-toggle"
                 type="checkbox"
                 checked={showStepTimeline}
                 onChange={e => setShowStepTimeline(e.target.checked)}
                 className="w-3.5 h-3.5 rounded border-slate-400 text-[#2563EB] focus:ring-0 cursor-pointer"
               />
-              <span>표시</span>
-            </label>
+            </span>
           </div>
 
-          {showStepTimeline && (
-            <div className="p-1.5 bg-[#E2E8F0] rounded-xl border border-slate-300 space-y-1 text-[10px]">
-              <div className="flex items-center justify-between text-[#475569]">
-                <span>스텝 수:</span>
-                <span className="font-mono font-bold text-[#0F172A]">{alignedSteps.length}개 Step</span>
-              </div>
-              {files.length > 1 && (
-                <div>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[#64748B] font-medium">기준 Run:</span>
-                    {refFile && (
-                      <span className="text-[9px] font-mono text-[#2563EB] font-bold">
-                        {alignedSteps.length}개 Step
-                      </span>
-                    )}
-                  </div>
-                  <select
-                    value={refFile?.id || stepRefFileId}
-                    onChange={e => {
-                      const nextId = e.target.value;
-                      setStepRefFileId(nextId);
-                      if (visibleFileIds[nextId] === false) {
-                        setVisibleFileIds(prev => ({ ...prev, [nextId]: true }));
-                      }
-                    }}
-                    className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
-                  >
-                    {files.map((f, idx) => {
-                      const isVis = visibleFileIds[f.id] !== false;
-                      const rcpName = results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName;
-                      return (
-                        <option key={f.id} value={f.id}>
-                          #{idx + 1} {rcpName} {!isVis ? '(숨김)' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              )}
-            </div>
+          {showStepTimeline && files.length > 1 && (
+            <select
+              aria-label="Step 기준 Run"
+              title="Step 기준 Run: 이 Run의 Step 구간으로 위쪽 Step 띠와 구분선을 그립니다"
+              value={refFile?.id || stepRefFileId}
+              onChange={e => {
+                const nextId = e.target.value;
+                setStepRefFileId(nextId);
+              }}
+              className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
+            >
+              {files.map((f, idx) => {
+                const isVis = visibleFileIds[f.id] !== false;
+                const rcpName = results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName;
+                return (
+                  <option key={f.id} value={f.id}>
+                    기준 #{idx + 1} {rcpName} {!isVis ? '(숨김)' : ''}
+                  </option>
+                );
+              })}
+            </select>
           )}
         </div>
 
-        {/* Section 2: 레시피 필터 */}
+        {/* Section 4: Recipe 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              2. 레시피 필터 ({files.filter(f => visibleFileIds[f.id] !== false).length}/{files.length})
+              4. Recipe 선택 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                const allVisible = files.every(f => visibleFileIds[f.id] !== false);
-                const next: Record<string, boolean> = {};
-                files.forEach(f => {
-                  next[f.id] = !allVisible;
-                });
-                setVisibleFileIds(next);
-              }}
-              className="text-[9.5px] text-[#2563EB] font-semibold hover:underline cursor-pointer"
-            >
-              {files.every(f => visibleFileIds[f.id] !== false) ? '전체 해제' : '전체 선택'}
-            </button>
+            {selectedRecipeIds.length > 0 && (
+              <button
+                type="button"
+                onClick={clearRecipeSelection}
+                className="text-[9.5px] text-[#2563EB] font-semibold hover:underline cursor-pointer"
+                title="선택을 모두 해제하고 전체 Recipe를 표시합니다"
+              >
+                전체 보기
+              </button>
+            )}
           </div>
 
           <div className="space-y-1 max-h-[170px] overflow-y-auto scrollbar-thin pr-0.5">
             {files.map((file, idx) => {
-              const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+              const color = runColor(file.id, idx, selectedRecipeIds);
+              const isSelected = selectedRecipeIds.includes(file.id);
               const isVisible = visibleFileIds[file.id] !== false;
               const rcpName =
                 results.find(r => r.fileId === file.id)?.rcpName ||
@@ -529,65 +606,148 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
               const isStepRef = refFile?.id === file.id;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={file.id}
-                  onClick={() => toggleFileVisibility(file.id)}
-                  className={`w-full flex items-center justify-between px-2 py-1 text-[10.5px] rounded-lg border transition-all cursor-pointer ${
-                    isVisible
-                      ? 'bg-white border-[#2563EB] text-[#1E40AF] shadow-2xs font-semibold'
-                      : 'bg-slate-200/60 border-slate-300 text-[#64748B]'
+                  onClick={() => toggleRecipeSelect(file.id)}
+                  aria-pressed={isSelected}
+                  className={`w-full flex items-center justify-between gap-1 px-2 py-1 text-[10.5px] rounded-lg border transition-all cursor-pointer text-left ${
+                    isSelected
+                      ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1E40AF] shadow-2xs font-bold'
+                      : isVisible
+                      ? 'bg-white border-slate-300 text-[#334155] font-semibold hover:border-[#2563EB]'
+                      : 'bg-slate-200/60 border-slate-300 text-[#94A3B8] hover:border-[#2563EB]'
                   }`}
-                  title={`${rcpName} (클릭: 표시/숨김 토글)`}
+                  title={`${rcpName} (클릭: 선택/해제)`}
                 >
-                  <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="flex items-center gap-1.5 min-w-0">
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: isVisible ? color : '#94A3B8' }}
                     />
-                    <span className="truncate text-left" title={rcpName}>
+                    <span className="truncate">
                       #{idx + 1} {rcpName}
                     </span>
-                    {isStepRef && isVisible && (
+                    {isStepRef && (
                       <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-1 py-0.2 rounded shrink-0">
                         기준
                       </span>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-1">
-                    <button
-                      type="button"
-                      onClick={e => {
-                        e.stopPropagation();
-                        // Solo view: only this file visible!
-                        const next: Record<string, boolean> = {};
-                        files.forEach(f => {
-                          next[f.id] = f.id === file.id;
-                        });
-                        setVisibleFileIds(next);
-                        setStepRefFileId(file.id);
-                      }}
-                      className="px-1.5 py-0.5 text-[8.5px] font-bold rounded bg-slate-100 hover:bg-[#2563EB] hover:text-white text-[#475569] border border-slate-300 transition-all cursor-pointer"
-                      title={`#${idx + 1} ${rcpName}만 단독 보기`}
-                    >
-                      단독
-                    </button>
-                    {isVisible ? (
-                      <Eye className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
-                    ) : (
-                      <EyeOff className="w-3.5 h-3.5 text-[#94A3B8] shrink-0" />
-                    )}
-                  </div>
-                </div>
+                  </span>
+                  {isSelected && <Check className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />}
+                </button>
               );
             })}
           </div>
         </div>
 
-        {/* Section 3: 파라미터 선택 */}
+        {/* Section 5: 구간 통계 (구간 선택 모드 · 현재 구간) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <label htmlFor="range-select-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              5. 구간 통계
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none" title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그)">
+              <span className={`text-[10px] font-semibold ${rangeSelectMode ? 'text-[#B45309]' : 'text-[#64748B]'}`}>구간 선택</span>
+              <span className="relative inline-flex">
+                <input
+                  id="range-select-toggle"
+                  type="checkbox"
+                  role="switch"
+                  checked={rangeSelectMode}
+                  onChange={e => setRangeSelectMode(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <span className="w-7 h-4 rounded-full bg-slate-300 peer-checked:bg-[#F59E0B] transition-colors" />
+                <span className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-2xs transition-transform peer-checked:translate-x-3" />
+              </span>
+            </label>
+          </div>
+          {statRange ? (
+            <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] text-[10.5px]" data-range-summary>
+              <span className="min-w-0">
+                <span className="font-bold text-[#0F172A] tabular-nums">
+                  {statRange[0].toFixed(1)} ~ {statRange[1].toFixed(1)} s
+                </span>
+                <span className="ml-1 text-[#B45309] tabular-nums">({(statRange[1] - statRange[0]).toFixed(1)} s)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatRange(null)}
+                className="shrink-0 flex items-center gap-0.5 px-1 py-[1px] rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
+                title="구간 해제 (모든 그래프)"
+              >
+                <X className="w-3 h-3" />
+                해제
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Section 6: 동시 비교 (그래프별 두 번째 파라미터, 오른쪽 축 점선) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <span className="font-bold text-[#334155]">6. 동시 비교</span>
+            {Object.values(overlayMap).some(Boolean) && (
+              <button
+                type="button"
+                onClick={() => setOverlayMap({})}
+                className="text-[10px] font-semibold text-[#64748B] hover:text-[#DC2626] cursor-pointer"
+                title="모든 그래프의 동시 비교 끄기"
+              >
+                모두 끄기
+              </button>
+            )}
+          </div>
+          {selectedMetrics.length === 0 ? (
+            <p className="px-0.5 text-[10px] text-[#94A3B8]">표시 중인 그래프가 없습니다.</p>
+          ) : (
+            <div className="space-y-1" data-overlay-list>
+              {selectedMetrics.map(mid => {
+                const m = STANDARD_METRICS.find(x => x.id === mid);
+                if (!m) return null;
+                const cur = overlayMap[mid] && overlayMap[mid] !== mid ? overlayMap[mid] : '';
+                const cs = CATEGORY_STYLES[m.category];
+                return (
+                  <div key={mid} className="flex items-center gap-1">
+                    <span
+                      className="w-[100px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
+                      title={`${m.name} 그래프`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cs.dotColor }} />
+                      <span className="truncate">{m.name.replace(/\(Act\)$/, '')}</span>
+                    </span>
+                    <span className="relative flex-1 min-w-0">
+                      <select
+                        aria-label={`${m.name} 동시 비교`}
+                        value={cur}
+                        onChange={e => setOverlayMap(prev => ({ ...prev, [mid]: e.target.value }))}
+                        className={`w-full appearance-none h-[22px] pl-1 pr-4 rounded-md border text-[10px] font-semibold cursor-pointer focus:outline-none ${
+                          cur ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#64748B]'
+                        }`}
+                        title={cur ? `점선(오른쪽 축): ${STANDARD_METRICS.find(x => x.id === cur)?.name}` : '겹칠 항목 고르기'}
+                      >
+                        <option value="">없음</option>
+                        {STANDARD_METRICS.filter(x => x.id !== mid).map(x => (
+                          <option key={x.id} value={x.id}>
+                            + {x.name} [{x.unit}]
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${cur ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Section 7: Parameter 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
             <span className="font-bold text-[#334155]">
-              3. 파라미터 ({selectedMetrics.length})
+              7. Parameter 선택 ({selectedMetrics.length})
             </span>
             <div className="flex items-center gap-1 text-[9.5px]">
               <button
@@ -660,16 +820,21 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
             })}
           </div>
         </div>
-      </aside>
+      </div>
+      </ManagerPortal>
 
-      {/* 2. Right Chart Area (2 Columns Grid: 1행에 2개씩 배치) */}
+      {/* 2. Right Chart Area (그래프 배치: 한 행에 1·2·3개) */}
       <div className="flex-1 min-w-0">
         {selectedMetrics.length === 0 ? (
           <div className="p-12 text-center text-[#64748B] bg-white border border-[#CBD5E1] rounded-2xl shadow-xs">
             선택된 파라미터가 없습니다. 좌측 제어 설정에서 그래프를 확인할 파라미터를 선택하세요.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div
+            className={`grid gap-3.5 items-start ${
+              chartCols === 1 ? 'grid-cols-1' : chartCols === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+            }`}
+          >
             {selectedMetrics.map(metricId => {
               const metric = STANDARD_METRICS.find(m => m.id === metricId);
               if (!metric) return null;
@@ -677,6 +842,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                 <TrendChartCard
                   key={metric.id}
                   metric={metric}
+                  chartHeight={chartCols === 1 ? 420 : 272}
+                  panelBelow={chartCols === 3}
                   files={files}
                   results={results}
                   visibleFileIds={visibleFileIds}
@@ -688,6 +855,16 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   showStepTimeline={showStepTimeline}
                   alignedSteps={alignedSteps}
                   refFile={refFile}
+                  valueSort={valueSort}
+                  onChangeValueSort={setValueSort}
+                  selectedRecipeIds={selectedRecipeIds}
+                  onToggleRecipe={toggleRecipeSelect}
+                  onSetRecipeSelected={setRecipeSelected}
+                  onClearRecipeSelection={clearRecipeSelection}
+                  statRange={statRange}
+                  onSetStatRange={setStatRange}
+                  selectMode={rangeSelectMode}
+                  overlayId={overlayMap[metric.id] ?? ''}
                 />
               );
             })}
@@ -700,6 +877,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
 
 interface TrendChartCardProps {
   metric: MetricDefinition;
+  /** 그래프 높이(px): 1열 배치일 때 크게 */
+  chartHeight?: number;
+  /** 3열 배치: 커서 값 표를 그래프 아래로 (그래프 폭 확보) */
+  panelBelow?: boolean;
   files: ParsedLogFile[];
   results: AnalysisFileResult[];
   visibleFileIds: Record<string, boolean>;
@@ -728,10 +909,426 @@ interface TrendChartCardProps {
   showStepTimeline: boolean;
   alignedSteps: AlignedStepSegment[];
   refFile?: ParsedLogFile;
+  valueSort: ValueSort;
+  onChangeValueSort: (v: ValueSort) => void;
+  selectedRecipeIds: string[];
+  onToggleRecipe: (id: string) => void;
+  onSetRecipeSelected: (id: string, on: boolean) => void;
+  onClearRecipeSelection: () => void;
+  /** 구간 통계 구간 (모든 그래프 공통) */
+  statRange: [number, number] | null;
+  onSetStatRange: (r: [number, number] | null) => void;
+  /** 구간 선택 모드 (그래프 분석 매니저에서 설정, 모든 그래프 공통) */
+  selectMode: boolean;
+  /** 겹쳐 보기 항목 id (그래프 분석 매니저에서 설정, ''이면 끔) */
+  overlayId: string;
 }
+
+type ValueSort = 'no' | 'value';
+
+interface CursorValue {
+  /** 값 표에 보여 줄 짧은 이름 (로그 4번째 행 Recipe Name 기준) */
+  shortName: string;
+  fileId: string;
+  fileIdx: number;
+  fileNo: number;
+  rcpName: string;
+  color: string;
+  formatted: string;
+  numVal: number;
+  /** 겹쳐 보기 항목의 값 (겹쳐 보기를 켰을 때만) */
+  formatted2?: string;
+}
+
+/**
+ * 값 표에 보여 줄 Recipe 대표 이름 키워드.
+ * 로그 4번째 행 "Recipe Name"에 이 단어가 들어 있으면 그 단어만 표시한다.
+ * (긴 단어부터 확인하므로 YILD2_B → YILD2, YILD_B → YILD)
+ * 새 키워드가 생기면 이 목록에 추가하면 된다.
+ */
+export const RECIPE_KEYWORDS = [
+  'BBN', 'TBO', 'BGO', 'BLO', 'BLN', 'TLN',
+  'YILD', 'YILD2', 'YMTL', 'YCNT',
+  'GI_SIN', 'GI_SIO', 'a-Si', '3Layer',
+];
+
+/**
+ * 우선 키워드: 한 Recipe Name에 여러 키워드가 함께 있으면 이 목록을 먼저 확인한다.
+ * 예) A4_a-Si_3layer_sih4 → a-Si (3Layer보다 우선)
+ * 나머지 키워드는 긴 단어부터 확인한다 (YILD2_B → YILD2).
+ */
+export const RECIPE_KEYWORD_PRIORITY = ['a-Si', 'GI_SIN', 'GI_SIO'];
+
+/** 키워드 안의 '-', '.' 같은 문자를 정규식에서 글자 그대로 찾도록 처리 */
+const escapeRegExp = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const RECIPE_KEYWORD_RES = [
+  ...RECIPE_KEYWORD_PRIORITY,
+  ...RECIPE_KEYWORDS.filter(k => !RECIPE_KEYWORD_PRIORITY.includes(k)).sort((x, y) => y.length - x.length),
+]
+  .map(k => ({ k, re: new RegExp(`(?<![A-Za-z])${escapeRegExp(k)}(?![A-Za-z])`, 'i') }));
+
+/**
+ * Recipe 짧은 이름
+ * 1) 키워드(BBN, TBO, YILD2 …)가 들어 있으면 그 단어 (영단어 속에 우연히 섞인 경우는 제외: BLOCK ≠ BLO)
+ * 2) 없으면 경로를 뗀 Recipe Name 전체
+ */
+export function shortRecipeName(name: string): string {
+  const base = ((name || '').split(/[\\/]/).pop() || name || '').trim();
+  for (const { k, re } of RECIPE_KEYWORD_RES) if (re.test(base)) return k;
+  return base;
+}
+
+// ============================================================================
+// 그래프 오른쪽 커서 값 표 (Run별 한 줄)
+// ============================================================================
+interface CursorValuePanelProps {
+  /** 그래프와 같은 높이(px) */
+  height?: number;
+  /** true = 그래프 아래 전체 폭 배치 (3열) */
+  below?: boolean;
+  /** 겹쳐 보기 항목 단위 (켰을 때만) */
+  unit2?: string;
+  files: ParsedLogFile[];
+  results: AnalysisFileResult[];
+  visibleFileIds: Record<string, boolean>;
+  values: CursorValue[] | null; // null = 아직 커서를 올린 적 없음
+  timeLabel: string | null; // 예: "61.4 s · Step 2"
+  live: boolean; // true = 지금 마우스가 그래프 위에 있음, false = 마지막 위치 값 유지 중
+  unit?: string;
+  sort: ValueSort;
+  onChangeSort: (v: ValueSort) => void;
+  highlightFileId: string | null;
+  onHighlight: (id: string | null) => void;
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  onSetSelected: (id: string, on: boolean) => void;
+  onClearSelection: () => void;
+}
+
+const SegBtn: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode; title?: string }> = ({
+  active,
+  onClick,
+  children,
+  title,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    aria-pressed={active}
+    className={`flex-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+      active ? 'bg-white text-[#2563EB] shadow-2xs border border-[#BFDBFE]' : 'text-[#475569] hover:text-[#0F172A] border border-transparent'
+    }`}
+  >
+    {children}
+  </button>
+);
+
+const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
+  height = 272,
+  below = false,
+  unit2,
+  files,
+  results,
+  visibleFileIds,
+  values,
+  timeLabel,
+  live,
+  unit,
+  sort,
+  onChangeSort,
+  highlightFileId,
+  onHighlight,
+  selectedIds,
+  onToggle,
+  onSetSelected,
+  onClearSelection,
+}) => {
+  const hasSelection = selectedIds.length > 0;
+  // 드래그 선택: 처음 누른 행이 선택 안 됨이면 '선택', 선택됨이면 '해제' 모드로 지나가는 행 모두 적용
+  const dragModeRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const end = () => {
+      dragModeRef.current = null;
+    };
+    window.addEventListener('mouseup', end);
+    return () => window.removeEventListener('mouseup', end);
+  }, []);
+  // 모든 Recipe를 표시 (선택 안 된 Recipe는 흐리게 → 다시 클릭해 추가 가능) (커서 값이 없을 때도 행 자리를 유지)
+  const rows: CursorValue[] = useMemo(() => {
+    const byId = new Map((values ?? []).map(v => [v.fileId, v]));
+    const list: CursorValue[] = [];
+    files.forEach((file, idx) => {
+      const res = results.find(r => r.fileId === file.id) || results[idx];
+      const hit = visibleFileIds[file.id] === false ? undefined : byId.get(file.id);
+      list.push(
+        hit ?? {
+          shortName: shortRecipeName(file.meta.recipeName || res?.rcpName || file.fileName),
+          fileId: file.id,
+          fileIdx: idx,
+          fileNo: idx + 1,
+          rcpName: res?.rcpName || file.meta.recipeName || file.fileName,
+          color: runColor(file.id, idx, selectedIds),
+          formatted: '–',
+          numVal: NaN,
+        }
+      );
+    });
+    if (sort === 'value') {
+      list.sort((a, b) => {
+        const av = Number.isFinite(a.numVal) ? a.numVal : -Infinity;
+        const bv = Number.isFinite(b.numVal) ? b.numVal : -Infinity;
+        return bv - av || a.fileNo - b.fileNo;
+      });
+    }
+    return list;
+  }, [files, results, visibleFileIds, values, sort, selectedIds]);
+
+
+  return (
+    <div className="shrink-0 bg-white border border-slate-400 rounded-lg flex flex-col overflow-hidden" style={below ? { width: '100%', height: 150 } : { width: 160, height }} title={unit ? `단위: ${unit}` : undefined}>
+      {/* 머리글: 시점 + 정렬 / 선택 상태 */}
+      <div className="px-1 py-1 bg-[#E2E8F0] border-b border-slate-300 space-y-1">
+        <div className="flex items-center gap-1">
+          <span
+            className="flex-1 flex items-center gap-1 min-w-0 px-0.5 text-[10px] font-bold text-[#0F172A]"
+            title={live ? '현재 커서 위치' : '마지막 커서 위치의 값을 유지하고 있습니다'}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${live ? 'bg-[#2563EB]' : 'bg-slate-400'}`} />
+            <span className="truncate tabular-nums">{timeLabel ?? '커서 위치 값'}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => onChangeSort(sort === 'no' ? 'value' : 'no')}
+            title={sort === 'no' ? '현재: 번호순 (누르면 값 큰 순)' : '현재: 값 큰 순 (누르면 번호순)'}
+            aria-label="정렬 바꾸기"
+            className="shrink-0 h-[20px] flex items-center gap-0.5 px-1 rounded-md bg-white border border-slate-300 text-[9.5px] font-semibold text-[#334155] hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
+          >
+            {sort === 'no' ? <ArrowDown01 className="w-3 h-3" /> : <ArrowDownWideNarrow className="w-3 h-3" />}
+            {sort === 'no' ? '번호' : '값'}
+          </button>
+        </div>
+        {/* 선택 상태 줄: 선택이 없어도 자리를 유지해 행 위치가 밀리지 않음 (드래그 선택 중 오선택 방지) */}
+        <button
+          type="button"
+          onClick={onClearSelection}
+          disabled={!hasSelection}
+          className={`w-full flex items-center justify-between px-1.5 py-[1px] rounded-md border text-[9.5px] font-bold ${
+            hasSelection
+              ? 'bg-[#EFF6FF] border-[#BFDBFE] text-[#1D4ED8] hover:bg-[#DBEAFE] cursor-pointer'
+              : 'bg-transparent border-transparent text-[#94A3B8] cursor-default'
+          }`}
+          title={hasSelection ? '선택을 모두 해제하고 전체 Recipe를 표시합니다' : '행을 클릭하거나 누른 채 끌어서 Recipe를 선택합니다'}
+        >
+          {hasSelection ? (
+            <>
+              <span>선택 {selectedIds.length}개</span>
+              <span className="flex items-center gap-0.5">
+                전체 보기 <X className="w-3 h-3" />
+              </span>
+            </>
+          ) : (
+            <span>클릭·드래그로 선택</span>
+          )}
+        </button>
+      </div>
+
+      {/* 본문 */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin" onMouseLeave={() => onHighlight(null)}>
+        {(
+          <table className="w-full border-collapse table-fixed text-[10.5px]">
+            <tbody>
+              {rows.map((v, i) => {
+                const hi = highlightFileId === v.fileId;
+                const sel = selectedIds.includes(v.fileId);
+                const dim = hasSelection && !sel;
+                return (
+                  <tr
+                    key={v.fileId}
+                    onMouseEnter={() => {
+                      onHighlight(dim ? null : v.fileId);
+                      if (dragModeRef.current !== null) onSetSelected(v.fileId, dragModeRef.current);
+                    }}
+                    onMouseDown={e => {
+                      if (e.button !== 0) return;
+                      e.preventDefault(); // 드래그 중 글자 선택 방지
+                      dragModeRef.current = !sel;
+                      onSetSelected(v.fileId, !sel);
+                    }}
+                    aria-selected={sel}
+                    className={`cursor-pointer select-none ${dim ? 'opacity-45' : ''} ${
+                      sel ? 'bg-[#DBEAFE]' : hi ? 'bg-[#EFF6FF]' : i % 2 ? 'bg-[#F1F5F9]' : 'bg-white'
+                    }`}
+                    title={`#${v.fileNo} ${v.rcpName} (클릭: ${sel ? '선택 해제' : '선택'} · 누른 채 위아래로 끌면 여러 개)`}
+                  >
+                    <td className="pl-1 py-[2px] border-b border-slate-200 whitespace-nowrap overflow-hidden">
+                      <span className="flex items-center gap-1 min-w-0">
+                        {/* 선택해도 Run 색은 그대로: 색 원 안에 흰 체크 + 바깥 테두리로 선택 표시 */}
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0 flex items-center justify-center"
+                          style={{
+                            // 고른 Run이 있을 때 고르지 않은 Run은 회색 (고른 Run 색과 헷갈리지 않게)
+                            backgroundColor: hasSelection && !sel ? '#CBD5E1' : v.color,
+                            boxShadow: sel ? `0 0 0 1.5px #FFFFFF, 0 0 0 2.5px ${v.color}` : undefined,
+                          }}
+                        >
+                          {sel && <Check className="w-2 h-2 text-white" strokeWidth={4.5} />}
+                        </span>
+                        <span className="font-bold text-[#334155] tabular-nums shrink-0">#{v.fileNo}</span>
+                        <span className="font-semibold text-[#475569] truncate">{v.shortName}</span>
+                      </span>
+                    </td>
+                    <td className="w-[68px] pr-1 py-[2px] border-b border-slate-200 text-right font-bold text-[#0F172A] tabular-nums whitespace-nowrap">
+                      {v.formatted}
+                      {unit && Number.isFinite(v.numVal) && (
+                        <span className="ml-0.5 text-[9px] font-semibold text-[#64748B]">{unit}</span>
+                      )}
+                      {v.formatted2 !== undefined && (
+                        <div className="text-[9.5px] leading-tight font-semibold text-[#7C3AED]" title="동시 비교 항목 값">
+                          {v.formatted2}
+                          {unit2 && <span className="ml-0.5 text-[8.5px] text-[#8B5CF6]">{unit2}</span>}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+    </div>
+  );
+};
+
+// ============================================================================
+// 축 서식 팝오버용 작은 입력 부품
+// ============================================================================
+const AXIS_INPUT =
+  'w-full min-w-0 bg-white border border-slate-300 rounded px-1.5 py-[3px] text-[11px] font-semibold tabular-nums text-[#0F172A] focus:outline-none focus:border-[#2563EB]';
+
+/** 한 줄: 왼쪽 항목 이름 + 오른쪽 입력들 */
+const AxisRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-1.5">
+    <span className="text-[10.5px] font-semibold text-[#475569] truncate" title={label}>
+      {label}
+    </span>
+    <div className="flex items-center gap-1 flex-wrap min-w-0 [&>*]:flex-1">{children}</div>
+  </div>
+);
+
+/** 숫자 칸: 빈칸 = 자동(null). 입력 중인 글자('-', '1.' 등)는 그대로 유지 */
+const AxisNum: React.FC<{ value: number | null; placeholder: string; onChange: (v: number | null) => void; accent?: boolean }> = ({
+  value,
+  placeholder,
+  onChange,
+  accent,
+}) => {
+  const [text, setText] = useState<string>(value === null ? '' : String(value));
+  useEffect(() => {
+    const cur = text.trim() === '' ? null : parseFloat(text);
+    if (value !== cur && !(value === null && cur !== null && isNaN(cur))) setText(value === null ? '' : String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={text}
+      onChange={e => {
+        const t = e.target.value;
+        setText(t);
+        if (t.trim() === '') return onChange(null);
+        const v = parseFloat(t);
+        if (!isNaN(v)) onChange(v);
+      }}
+      className={`${AXIS_INPUT} ${accent ? 'border-[#FDBA74] text-[#C2410C] focus:border-[#EA580C]' : ''}`}
+    />
+  );
+};
+
+const AxisCheck: React.FC<{ checked: boolean; onChange: (c: boolean) => void; children: React.ReactNode }> = ({
+  checked,
+  onChange,
+  children,
+}) => (
+  <label className="!flex-none flex items-center gap-1 text-[10.5px] text-[#334155] cursor-pointer whitespace-nowrap">
+    <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="rounded accent-[#2563EB]" />
+    {children}
+  </label>
+);
+
+/** 구간 통계·겹쳐 보기 값 표시: 크기에 맞춰 소수 자릿수 */
+const formatStatNum = (v: number): string => {
+  if (!Number.isFinite(v)) return '-';
+  const a = Math.abs(v);
+  if (a >= 1000) return Math.round(v).toLocaleString();
+  if (a >= 10) return (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return (Math.round(v * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+interface RangeStat {
+  fileId: string;
+  fileNo: number;
+  name: string;
+  color: string;
+  n: number;
+  avg: number;
+  min: number;
+  max: number;
+  sd: number;
+  unif: number | null;
+}
+
+/** 구간 [lo, hi] 안의 행으로 Run별 통계 (그래프와 같은 시간 기준: elapsedSec − RF On 기준점) */
+const computeRangeStats = (
+  m: MetricDefinition,
+  files: ParsedLogFile[],
+  results: AnalysisFileResult[],
+  visibleFileIds: Record<string, boolean>,
+  timeAlignment: 'elapsed' | 'rfOn',
+  lo: number,
+  hi: number,
+  selectedIds: string[]
+): RangeStat[] => {
+  const out: RangeStat[] = [];
+  files.forEach((file, idx) => {
+    if (visibleFileIds[file.id] === false) return;
+    const res = results.find(r => r.fileId === file.id) || results[idx];
+    const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+    let n = 0, sum = 0, sum2 = 0, mn = Infinity, mx = -Infinity;
+    for (const r of file.rows) {
+      const x = r.elapsedSec - off;
+      if (x < lo - 1e-9 || x > hi + 1e-9) continue;
+      const v = m.getter(r);
+      if (!Number.isFinite(v)) continue;
+      n++; sum += v; sum2 += v * v;
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    if (n === 0) return;
+    const avg = sum / n;
+    const sd = Math.sqrt(Math.max(0, sum2 / n - avg * avg));
+    // Unif.% = (Max − Min) ÷ (Max + Min) × 100 (공정 종합 분석과 같은 식), 분모 0이면 평균 기준
+    const unif = mx + mn !== 0 ? ((mx - mn) / Math.abs(mx + mn)) * 100 : Math.abs(avg) > 1e-9 ? ((mx - mn) / (2 * Math.abs(avg))) * 100 : null;
+    out.push({
+      fileId: file.id,
+      fileNo: idx + 1,
+      name: shortRecipeName(file.meta.recipeName || res?.rcpName || file.fileName),
+      color: runColor(file.id, idx, selectedIds),
+      n, avg, min: mn, max: mx, sd, unif,
+    });
+  });
+  return out;
+};
 
 const TrendChartCard: React.FC<TrendChartCardProps> = ({
   metric,
+  chartHeight = 272,
+  panelBelow = false,
   files,
   results,
   visibleFileIds,
@@ -743,8 +1340,26 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   showStepTimeline,
   alignedSteps,
   refFile,
+  valueSort,
+  onChangeValueSort,
+  selectedRecipeIds,
+  onToggleRecipe,
+  onSetRecipeSelected,
+  onClearRecipeSelection,
+  statRange,
+  onSetStatRange,
+  selectMode,
+  overlayId,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // 겹쳐 보기: 두 번째 파라미터 (오른쪽 Y축, 점선) — 그래프 분석 매니저에서 설정
+  const overlayMetric = useMemo(() => STANDARD_METRICS.find(m => m.id === overlayId && m.id !== metric.id) ?? null, [overlayId, metric.id]);
+  // 구간 선택 모드(selectMode): 켜면 드래그 = 구간 선택 (꺼져 있어도 Shift+드래그로 선택) — 그래프 분석 매니저에서 설정
+  const [rangeDraft, setRangeDraft] = useState<[number, number] | null>(null);
+  const [isSelecting, setIsSelecting] = useState<boolean>(false);
+  const rangeStartRef = useRef<number>(0);
+  /** 그래프 오른쪽 여백: 겹쳐 보기를 켜면 오른쪽 Y축 눈금 자리를 확보 */
+  const PAD_R = overlayMetric ? 58 : 18;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Independent Zoom & Pan state for THIS card only
@@ -817,19 +1432,41 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
   // Hover crosshair state
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  // 값 표의 행에 마우스를 올리면 그 Recipe 선을 그래프에서 강조
+  const [highlightFileId, setHighlightFileId] = useState<string | null>(null);
+  // Step 띠를 그래프 실제 영역(padLeft ~ padRight)에 정확히 맞추기 위한 측정값
+  const bandRowRef = useRef<HTMLDivElement>(null);
+  const plotWrapRef = useRef<HTMLDivElement>(null);
+  const [trackPos, setTrackPos] = useState<{ left: number; right: number } | null>(null);
+  const [sizeTick, setSizeTick] = useState(0);
+  useEffect(() => {
+    const el = plotWrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let last = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== last) {
+        last = el.clientWidth;
+        setSizeTick(t => t + 1); // 폭이 바뀌면 그래프를 다시 그림
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // 마지막으로 마우스가 있던 시점 (값 표 유지용)
+  const [lastHoverTime, setLastHoverTime] = useState<number | null>(null);
 
   // Filter visible files list with computed colors and recipe names
   const visibleFiles = useMemo(() => {
     return files
       .map((file, idx) => {
         const isVisible = visibleFileIds[file.id] !== false;
-        const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+        const color = runColor(file.id, idx, selectedRecipeIds);
         const res = results.find(r => r.fileId === file.id);
         const rcpName = res?.rcpName || file.meta.recipeName || file.fileName;
         return { file, idx, isVisible, color, rcpName };
       })
       .filter(item => item.isVisible);
-  }, [files, visibleFileIds, results]);
+  }, [files, visibleFileIds, results, selectedRecipeIds]);
 
   // Sync when globalXFormat propagates from another card
   useEffect(() => {
@@ -886,6 +1523,27 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       autoMaxY: Math.round((maxY + padY) * 10) / 10,
     };
   }, [files, visibleFileIds, metric]);
+
+  // 겹쳐 보기 항목의 자동 Y 범위 (오른쪽 축)
+  const overlayYRange = useMemo<[number, number] | null>(() => {
+    if (!overlayMetric) return null;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    files.forEach(f => {
+      if (visibleFileIds[f.id] === false) return;
+      f.rows.forEach(r => {
+        const v = overlayMetric.getter(r);
+        if (Number.isFinite(v)) {
+          if (v < minY) minY = v;
+          if (v > maxY) maxY = v;
+        }
+      });
+    });
+    if (minY === Infinity) return [0, 100];
+    if (minY === maxY) return [minY - 1, maxY + 1];
+    const pad = (maxY - minY) * 0.1;
+    return [minY - pad, maxY + pad];
+  }, [overlayMetric, files, visibleFileIds]);
 
   // Effective X Range taking Axis Format inputs or zoom into account
   const effectiveXRange: [number, number] = useMemo(() => {
@@ -958,7 +1616,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const padLeft = 54;
-      const padRight = 18;
+      const padRight = PAD_R;
       const plotW = rect.width - padLeft - padRight;
       if (plotW <= 0) return;
 
@@ -993,7 +1651,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     return () => {
       canvas.removeEventListener('wheel', onWheel);
     };
-  }, [effectiveXRange, globalXRange]);
+  }, [effectiveXRange, globalXRange, PAD_R]);
 
   // 2. Mouse Drag Pan Listener
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1003,14 +1661,54 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const padLeft = 54;
-    const padRight = 18;
+    const padRight = PAD_R;
     const plotW = rect.width - padLeft - padRight;
     if (mouseX < padLeft || mouseX > padLeft + plotW) return;
+
+    // 구간 선택: '구간' 버튼을 켰거나 Shift를 누른 채 드래그
+    if (selectMode || e.shiftKey) {
+      e.preventDefault();
+      const t = effectiveXRange[0] + ((mouseX - padLeft) / plotW) * (effectiveXRange[1] - effectiveXRange[0]);
+      rangeStartRef.current = t;
+      setRangeDraft([t, t]);
+      setIsSelecting(true);
+      return;
+    }
 
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
     dragStartRangeRef.current = [...effectiveXRange];
   };
+
+  // 구간 선택 드래그: 놓으면 0.2초 이상일 때 모든 그래프에 구간 적용
+  useEffect(() => {
+    if (!isSelecting) return;
+    const timeAt = (clientX: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return rangeStartRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const padLeft = 54;
+      const plotW = rect.width - padLeft - PAD_R;
+      const x = Math.max(padLeft, Math.min(padLeft + plotW, clientX - rect.left));
+      return effectiveXRange[0] + ((x - padLeft) / plotW) * (effectiveXRange[1] - effectiveXRange[0]);
+    };
+    const onMove = (e: MouseEvent) => setRangeDraft([rangeStartRef.current, timeAt(e.clientX)]);
+    const onUp = (e: MouseEvent) => {
+      const a = rangeStartRef.current;
+      const b = timeAt(e.clientX);
+      const lo = Math.round(Math.min(a, b) * 10) / 10;
+      const hi = Math.round(Math.max(a, b) * 10) / 10;
+      if (hi - lo >= 0.2) onSetStatRange([lo, hi]);
+      setRangeDraft(null);
+      setIsSelecting(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isSelecting, effectiveXRange, PAD_R, onSetStatRange]);
 
   useEffect(() => {
     if (!isDragging) return;
@@ -1020,7 +1718,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const padLeft = 54;
-      const padRight = 18;
+      const padRight = PAD_R;
       const plotW = rect.width - padLeft - padRight;
       if (plotW <= 0) return;
 
@@ -1065,7 +1763,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const padLeft = 54;
-    const padRight = 18;
+    const padRight = PAD_R;
     const plotW = rect.width - padLeft - padRight;
     if (mouseX < padLeft || mouseX > padLeft + plotW) {
       setHoverTime(null);
@@ -1074,6 +1772,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     const ratio = (mouseX - padLeft) / plotW;
     const time = effectiveXRange[0] + ratio * (effectiveXRange[1] - effectiveXRange[0]);
     setHoverTime(Math.round(time * 10) / 10);
+    setLastHoverTime(Math.round(time * 10) / 10);
   };
 
   const handleMouseLeave = () => {
@@ -1083,34 +1782,28 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   };
 
   // Docked hover information calculation (방안 A: 상단 고정 도킹형 상태바)
-  const hoverInfo = useMemo(() => {
-    if (hoverTime === null || hoverTime < effectiveXRange[0] || hoverTime > effectiveXRange[1]) {
+  // 특정 시점(t)의 Step과 Recipe별 값 계산 (상단 상태바 · 오른쪽 값 표 공용)
+  const computeCursorInfo = useCallback((t: number | null) => {
+    if (t === null || t < effectiveXRange[0] || t > effectiveXRange[1]) {
       return null;
     }
 
     // 1. Current active Step at hover timestamp: "Step 4(SIN)"
-    const curStep = alignedSteps.find(s => hoverTime >= s.alignedStart && hoverTime <= s.alignedEnd);
+    const curStep = alignedSteps.find(s => t >= s.alignedStart && t <= s.alignedEnd);
     const stepStr = curStep
       ? (curStep.stepName ? `Step ${curStep.step}(${curStep.stepName})` : `Step ${curStep.step}`)
       : '';
 
     // 2. Y-values across visible files at hover timestamp
     const visibleFiles = files.filter(f => visibleFileIds[f.id] !== false);
-    const fileValues: {
-      fileIdx: number;
-      fileNo: number;
-      rcpName: string;
-      color: string;
-      formatted: string;
-      numVal: number;
-    }[] = [];
+    const fileValues: CursorValue[] = [];
 
     visibleFiles.forEach(file => {
       const fileIdx = files.indexOf(file);
-      const color = RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
+      const color = runColor(file.id, fileIdx, selectedRecipeIds);
       const res = results.find(r => r.fileId === file.id) || results[fileIdx];
       const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
-      const targetSec = hoverTime + tOnOffset;
+      const targetSec = t + tOnOffset;
 
       let closestRow: RawLogRow | null = null;
       let minDiff = Infinity;
@@ -1134,24 +1827,36 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
           const rcpName = res?.rcpName || file.meta.recipeName || file.fileName;
 
+          let formatted2: string | undefined;
+          if (overlayMetric) {
+            const y2 = overlayMetric.getter(closestRow);
+            formatted2 = Number.isFinite(y2) ? formatStatNum(y2) : '-';
+          }
           fileValues.push({
+            shortName: shortRecipeName(file.meta.recipeName || rcpName),
+            fileId: file.id,
             fileIdx,
             fileNo: fileIdx + 1,
             rcpName,
             color,
             formatted,
             numVal: yVal,
+            formatted2,
           });
         }
       }
     });
 
     return {
-      timeFormatted: `${hoverTime.toFixed(1)}`,
+      timeFormatted: `${t.toFixed(1)}`,
       fileValues,
       stepStr,
     };
-  }, [hoverTime, effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric]);
+  }, [effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric, overlayMetric, selectedRecipeIds]);
+
+  const hoverInfo = useMemo(() => computeCursorInfo(hoverTime), [computeCursorInfo, hoverTime]);
+  // 오른쪽 값 표는 마우스가 그래프를 벗어나도 마지막 커서 위치의 값을 유지
+  const panelInfo = useMemo(() => computeCursorInfo(hoverTime ?? lastHoverTime), [computeCursorInfo, hoverTime, lastHoverTime]);
 
   // 3. Canvas Render
   useEffect(() => {
@@ -1161,7 +1866,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     if (!ctx) return;
 
     const width = canvas.parentElement?.clientWidth || 450;
-    const height = 240; // Proportioned height for 2-column view
+    const height = chartHeight; // 기본 272px, 1열 배치는 더 크게 (오른쪽 값 표와 같은 높이)
     // Enforce minimum 2x Retina supersampling so text & lines are razor-sharp on all screens
     const dpr = Math.max(window.devicePixelRatio || 1, 2);
 
@@ -1175,7 +1880,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.imageSmoothingQuality = 'high';
 
     const padLeft = 54;
-    const padRight = 18;
+    const padRight = PAD_R;
     const padTop = 20;
     const padBottom = 38; // Extra room for Axis Title 'Time (sec)'
 
@@ -1374,7 +2079,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.textBaseline = 'top';
     const xStep = axisConfig.xStep !== null && axisConfig.xStep > 0 ? axisConfig.xStep : 10.0;
     const tickCount = spanX / xStep;
-    const stepMultiplier = tickCount > 30 ? Math.ceil(tickCount / 20) : 1;
+    // 눈금 숫자 사이가 최소 40px은 떨어지도록 그래프 폭에 맞춰 건너뛰기 (값 표 때문에 그래프가 좁아져도 겹치지 않게)
+    const pxPerTick = tickCount > 0 ? plotW / tickCount : plotW;
+    const stepMultiplier = Math.max(tickCount > 30 ? Math.ceil(tickCount / 20) : 1, Math.ceil(40 / Math.max(pxPerTick, 1)));
     const actualStep = xStep * stepMultiplier;
     const actualMinorStep = axisConfig.xMinorStep !== null && axisConfig.xMinorStep > 0
       ? axisConfig.xMinorStep
@@ -1444,15 +2151,44 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.rect(padLeft, padTop, plotW, plotH);
     ctx.clip();
 
-    // Plot series for each visible file
-    files.forEach((file, idx) => {
+    // 구간 통계 구간 (선택 중이면 드래그 중인 구간) — 선 아래에 옅은 호박색 띠
+    const bandRange = rangeDraft ?? statRange;
+    if (bandRange) {
+      const b0 = Math.min(bandRange[0], bandRange[1]);
+      const b1 = Math.max(bandRange[0], bandRange[1]);
+      const x0 = mapX(b0);
+      const x1 = mapX(b1);
+      ctx.save();
+      ctx.fillStyle = rangeDraft ? 'rgba(245, 158, 11, 0.16)' : 'rgba(245, 158, 11, 0.12)';
+      ctx.fillRect(x0, padTop, Math.max(1, x1 - x0), plotH);
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([]);
+      [x0, x1].forEach(x => {
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) + 0.5, padTop);
+        ctx.lineTo(Math.round(x) + 0.5, padTop + plotH);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    // Plot series for each visible file (강조된 Recipe는 맨 나중에 그려 위로 올림)
+    const drawOrder = files.map((file, idx) => ({ file, idx }));
+    // 선 끝 이름표용: Run별로 화면 안 마지막 점
+    const lastPts = new Map<string, { px: number; py: number; color: string; no: number }>();
+    if (highlightFileId) drawOrder.sort((a, b) => Number(a.file.id === highlightFileId) - Number(b.file.id === highlightFileId));
+    drawOrder.forEach(({ file, idx }) => {
       if (visibleFileIds[file.id] === false) return;
-      const color = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+      const color = runColor(file.id, idx, selectedRecipeIds);
       const res = results.find(r => r.fileId === file.id) || results[idx];
       const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+      const isHi = highlightFileId === file.id;
+      const isDim = highlightFileId !== null && !isHi;
 
+      ctx.globalAlpha = isDim ? 0.22 : 1;
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2.0;
+      ctx.lineWidth = isHi ? 3.2 : 2.0;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -1474,6 +2210,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
         const px = mapX(xVal);
         const py = mapY(yVal);
+        if (xVal >= minX && xVal <= maxX) lastPts.set(file.id, { px, py, color, no: idx + 1 });
 
         if (!started) {
           ctx.moveTo(px, py);
@@ -1485,6 +2222,82 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       ctx.stroke();
     });
+    ctx.globalAlpha = 1;
+
+    // 겹쳐 보기 항목: 같은 Run 색의 점선, 오른쪽 Y축 기준
+    const ov = overlayMetric && overlayYRange ? { m: overlayMetric, lo: overlayYRange[0], hi: overlayYRange[1] } : null;
+    if (ov) {
+      const span2 = Math.max(1e-9, ov.hi - ov.lo);
+      const mapY2 = (y: number) => padTop + plotH - ((y - ov.lo) / span2) * plotH;
+      files.forEach((file, idx) => {
+        if (visibleFileIds[file.id] === false) return;
+        const res = results.find(r => r.fileId === file.id) || results[idx];
+        const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+        const isDim = highlightFileId !== null && highlightFileId !== file.id;
+        ctx.save();
+        ctx.globalAlpha = isDim ? 0.2 : 0.95;
+        ctx.strokeStyle = runColor(file.id, idx, selectedRecipeIds);
+        ctx.lineWidth = highlightFileId === file.id ? 2.4 : 1.6;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        let started = false;
+        const marginX = Math.max(1.0, spanX * 0.05);
+        file.rows.forEach(r => {
+          const x = r.elapsedSec - off;
+          if (x < minX - marginX || x > maxX + marginX) { started = false; return; }
+          const y = ov.m.getter(r);
+          if (!Number.isFinite(y)) { started = false; return; }
+          const px = mapX(x);
+          const py = mapY2(y);
+          if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+
+    // 선 끝 이름표 (#번호, Run 색): 화면에 보이는 Run이 5개 이하일 때만, 겹치지 않게 위아래로 비켜 배치
+    if (lastPts.size > 0 && lastPts.size <= 5) {
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.font = FONT_TAG;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      const tags = [...lastPts.values()].map(t => {
+        const label = `#${t.no}`;
+        const w = ctx.measureText(label).width + 8;
+        return { ...t, label, w, y: t.py };
+      });
+      tags.sort((a, b) => a.y - b.y);
+      const H = 14;
+      const yMin = padTop + H / 2 + 1;
+      const yMax = padTop + plotH - H / 2 - 1;
+      tags.forEach((t, i) => {
+        t.y = Math.max(yMin, Math.min(yMax, t.y));
+        if (i > 0 && t.y < tags[i - 1].y + H + 1) t.y = tags[i - 1].y + H + 1;
+      });
+      for (let i = tags.length - 1; i >= 0; i--) {
+        if (tags[i].y > yMax) tags[i].y = yMax;
+        if (i < tags.length - 1 && tags[i].y > tags[i + 1].y - H - 1) tags[i].y = tags[i + 1].y - H - 1;
+      }
+      tags.forEach(t => {
+        const x = Math.max(padLeft + 2, Math.min(padLeft + plotW - t.w - 2, t.px + 5));
+        ctx.fillStyle = t.color;
+        ctx.beginPath();
+        const r = 3;
+        const y0 = Math.round(t.y - H / 2);
+        ctx.moveTo(x + r, y0);
+        ctx.arcTo(x + t.w, y0, x + t.w, y0 + H, r);
+        ctx.arcTo(x + t.w, y0 + H, x, y0 + H, r);
+        ctx.arcTo(x, y0 + H, x, y0, r);
+        ctx.arcTo(x, y0, x + t.w, y0, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(t.label, x + 4, Math.round(t.y) + 0.5);
+      });
+      ctx.restore();
+    }
 
     // 4-0. If Step Timeline is enabled, draw linked vertical dashed divider lines & top step tags
     if (showStepTimeline && alignedSteps.length > 0) {
@@ -1504,24 +2317,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           ctx.restore();
         }
 
-        // Top mini step tag inside canvas plot area
-        const visS = Math.max(minX, step.alignedStart);
-        const visE = Math.min(maxX, step.alignedEnd);
-        if (visE > minX && visS < maxX) {
-          const px0 = mapX(visS);
-          const px1 = mapX(visE);
-          const stepW = px1 - px0;
-          if (stepW > 28) {
-            ctx.save();
-            ctx.font = FONT_TAG;
-            ctx.fillStyle = '#334155';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            const tagLabel = stepW > 64 ? `S${step.step} ${step.stepName}` : `S${step.step}`;
-            ctx.fillText(tagLabel, Math.round(px0 + 5), padTop + 4);
-            ctx.restore();
-          }
-        }
+        // (그래프 안 S1·S2 등 Step 글자는 표시하지 않음: 위쪽 Step 띠와 점선 구분선으로 충분)
       });
     }
 
@@ -1580,7 +2376,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       visibleFiles.forEach(file => {
         const fileIdx = files.indexOf(file);
-        const color = RECIPE_COLORS[fileIdx % RECIPE_COLORS.length];
+        const color = runColor(file.id, fileIdx, selectedRecipeIds);
         const res = results.find(r => r.fileId === file.id) || results[fileIdx];
         const tOnOffset = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
         const targetSec = hoverTime + tOnOffset;
@@ -1683,7 +2479,71 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.strokeStyle = isDragging ? '#2563EB' : '#94A3B8';
     ctx.lineWidth = isDragging ? 1.5 : 1.2;
     ctx.strokeRect(padLeft, padTop, plotW, plotH);
+
+    // 겹쳐 보기 오른쪽 Y축 눈금 + 단위
+    if (ov) {
+      const span2 = Math.max(1e-9, ov.hi - ov.lo);
+      ctx.save();
+      ctx.font = FONT_NUM;
+      ctx.fillStyle = '#6D28D9';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      for (let k = 0; k <= 4; k++) {
+        const v = ov.lo + (span2 * k) / 4;
+        const y = padTop + plotH - (plotH * k) / 4;
+        ctx.strokeStyle = '#A78BFA';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padLeft + plotW, Math.round(y) + 0.5);
+        ctx.lineTo(padLeft + plotW + 3, Math.round(y) + 0.5);
+        ctx.stroke();
+        ctx.fillText(formatStatNum(v).replace(/\.0+$/, ''), padLeft + plotW + 5, Math.round(y));
+      }
+      ctx.font = FONT_LABEL;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      const fullLabel = `점선: ${ov.m.name} [${ov.m.unit}]`;
+      ctx.fillText(ctx.measureText(fullLabel).width > plotW * 0.55 ? `점선: [${ov.m.unit}]` : fullLabel, padLeft + plotW + PAD_R - 2, padTop - 5);
+      ctx.restore();
+    }
+
+    // 구간 길이 표시 (띠 위쪽)
+    const bandR = rangeDraft ?? statRange;
+    if (bandR) {
+      const b0 = Math.max(minX, Math.min(bandR[0], bandR[1]));
+      const b1 = Math.min(maxX, Math.max(bandR[0], bandR[1]));
+      if (b1 > b0) {
+        const label = `구간 ${Math.abs(bandR[1] - bandR[0]).toFixed(1)}s`;
+        ctx.save();
+        ctx.font = FONT_TAG;
+        const lw = ctx.measureText(label).width;
+        const cx = Math.max(padLeft + lw / 2 + 4, Math.min(padLeft + plotW - lw / 2 - 4, (mapX(b0) + mapX(b1)) / 2));
+        ctx.fillStyle = 'rgba(255, 251, 235, 0.95)';
+        ctx.fillRect(Math.round(cx - lw / 2 - 4), padTop + 2, Math.round(lw + 8), 14);
+        ctx.strokeStyle = '#D97706';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(cx - lw / 2 - 4) + 0.5, padTop + 2.5, Math.round(lw + 8), 14);
+        ctx.fillStyle = '#92400E';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, Math.round(cx), padTop + 9.5);
+        ctx.restore();
+      }
+    }
+
+    // 위쪽 Step 띠가 그래프 영역과 같은 위치·폭을 갖도록 실제 위치를 측정
+    const row = bandRowRef.current;
+    if (row) {
+      const rr = row.getBoundingClientRect();
+      const cr = canvas.getBoundingClientRect();
+      const next = {
+        left: Math.round(cr.left - rr.left + padLeft),
+        right: Math.round(rr.right - cr.right + padRight),
+      };
+      setTrackPos(p => (p && p.left === next.left && p.right === next.right ? p : next));
+    }
   }, [
+    sizeTick,
     files,
     results,
     metric,
@@ -1697,6 +2557,14 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     showStepTimeline,
     alignedSteps,
     fontsLoaded,
+    highlightFileId,
+    chartHeight,
+    overlayMetric,
+    overlayYRange,
+    statRange,
+    rangeDraft,
+    PAD_R,
+    selectedRecipeIds,
   ]);
 
   const catStyle = CATEGORY_STYLES[metric.category];
@@ -1726,9 +2594,17 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           <span className="text-[10px] text-[#475569] font-mono shrink-0">
             [{metric.unit}]
           </span>
+          {overlayMetric && (
+            <span
+              className="text-[9.5px] font-semibold px-1 py-[1px] rounded border border-[#C4B5FD] bg-[#F5F3FF] text-[#6D28D9] truncate min-w-0"
+              title={`점선(오른쪽 축): ${overlayMetric.name} [${overlayMetric.unit}]`}
+            >
+              + {overlayMetric.name}
+            </span>
+          )}
         </div>
 
-        {/* Action Buttons: 줌 리셋 + 축 서식 */}
+        {/* Action Buttons: 줌 리셋 + 축 서식 (구간 선택·겹쳐 보기는 그래프 분석 매니저) */}
         <div className="flex items-center gap-1 shrink-0">
           {isCustomOrZoomed && (
             <button
@@ -1806,7 +2682,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
         {/* Right: Axis Helper Text */}
         <span className="text-[8.5px] text-[#475569] font-mono shrink-0 hidden sm:inline whitespace-nowrap">
-          간격: {axisConfig.xStep || 10}s · 휠: 줌 · 드래그: 이동
+          간격: {axisConfig.xStep || 10}s · 휠: 줌 · {selectMode ? '드래그: 구간 선택' : '드래그: 이동 · Shift+드래그: 구간'}
         </span>
 
         {/* Dropdown Floating Popover */}
@@ -1873,10 +2749,11 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
       {/* 2-1. Step Sequence Timeline Band Bar (Top Step Indicator) */}
       {showStepTimeline && alignedSteps.length > 0 && (
-        <div className="bg-[#EAEFF5] border-b border-slate-300 px-2 py-1 flex items-center select-none">
-          {/* Left label width exactly matching canvas padLeft (52px) */}
+        <div ref={bandRowRef} className="bg-[#EAEFF5] border-b border-slate-300 px-2 py-1 flex items-center select-none relative h-[31px]">
+          {/* 왼쪽 라벨: 그래프 Y축 숫자 영역 폭에 맞춤 */}
           <div
-            className="w-[52px] shrink-0 flex items-center gap-1 text-[9px] font-bold text-[#334155] pr-1"
+            className="shrink-0 flex items-center gap-1 text-[9px] font-bold text-[#334155] pr-1"
+            style={{ width: trackPos ? Math.max(40, trackPos.left - 8 - 4) : 52 }}
             title={
               refFile
                 ? `Step 기준: #${files.findIndex(f => f.id === refFile.id) + 1} ${
@@ -1893,18 +2770,31 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
             </span>
           </div>
 
-          {/* Step track matching plot canvas width (padLeft: 52px, padRight: 18px) */}
-          <div className="flex-1 relative h-[21px] rounded overflow-hidden bg-slate-300/60 border border-slate-400 mr-[10px]">
-            {alignedSteps.map(step => {
+          {/* Step 띠: 측정한 그래프 영역(left/right)에 맞춰 배치 → 그래프 안의 Step 구분선과 정확히 일치 */}
+          <div
+            className={`h-[21px] rounded overflow-hidden bg-slate-300/60 ${
+              trackPos
+                ? 'absolute top-1/2 -translate-y-1/2 ring-1 ring-slate-400' /* ring은 폭을 줄이지 않아 Step 위치가 그래프와 1px도 어긋나지 않음 */
+                : 'flex-1 relative mr-[10px] border border-slate-400'
+            }`}
+            style={trackPos ? { left: trackPos.left, right: trackPos.right, boxSizing: 'border-box' } : undefined}
+          >
+            {alignedSteps.map((step, si) => {
               const [minX, maxX] = effectiveXRange;
               const spanX = Math.max(0.1, maxX - minX);
               const visStart = Math.max(minX, step.alignedStart);
-              const visEnd = Math.min(maxX, step.alignedEnd);
+              // 다음 Step 시작 시점까지 이어서 그림 → 샘플 간격 틈 없이 그래프 구분선과 같은 위치에서 바뀜
+              const nextStart = alignedSteps[si + 1]?.alignedStart;
+              const blockEnd = nextStart !== undefined && nextStart > step.alignedStart ? nextStart : step.alignedEnd;
+              const visEnd = Math.min(maxX, blockEnd);
               if (visEnd <= minX || visStart >= maxX) return null;
 
               const leftPct = ((visStart - minX) / spanX) * 100;
               const widthPct = Math.max(0.4, ((visEnd - visStart) / spanX) * 100);
-              const palette = STEP_PALETTE[(step.step - 1) % STEP_PALETTE.length];
+              // Step 번호가 0·음수·숫자가 아니어도 색 목록 범위를 벗어나지 않도록 보정
+              const stepIdx = Number.isFinite(step.step) ? Math.round(step.step) - 1 : 0;
+              const palette =
+                STEP_PALETTE[((stepIdx % STEP_PALETTE.length) + STEP_PALETTE.length) % STEP_PALETTE.length] ?? STEP_PALETTE[0];
 
               return (
                 <div
@@ -1917,7 +2807,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
                     ]);
                   }}
                   title={`Step ${step.step}: ${step.stepName} · ${step.durationSec}s (${step.alignedStart.toFixed(1)}s ~ ${step.alignedEnd.toFixed(1)}s) [클릭 시 Step 구간으로 줌]`}
-                  className={`absolute top-0 bottom-0 flex items-center justify-center border-r transition-all cursor-pointer hover:brightness-95 active:scale-[0.99] ${palette.badgeClass}`}
+                  className={`absolute top-0 bottom-0 flex items-center justify-center ${
+                    si > 0 && step.alignedStart > minX ? 'border-l' : ''
+                  } transition-all cursor-pointer hover:brightness-95 active:scale-[0.99] ${palette.badgeClass}`}
                   style={{
                     left: `${leftPct}%`,
                     width: `${widthPct}%`,
@@ -1937,78 +2829,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         </div>
       )}
 
-      {/* 2-2. Docked Hover Info Bar (방안 A: 상단 고정 도킹형 상태바 - 화이트톤 테마) */}
-      <div
-        className={`px-3 py-1.5 border-b transition-colors flex items-center justify-between text-xs select-none min-h-[30px] ${
-          hoverInfo
-            ? 'bg-white border-blue-300 text-slate-800 shadow-2xs'
-            : 'bg-[#F8FAFC] border-slate-300 text-slate-600'
-        }`}
-      >
-        {hoverInfo ? (
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            {/* 1. Time */}
-            <span className="font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px] font-mono tracking-tight shrink-0 shadow-2xs">
-              {hoverInfo.timeFormatted}
-            </span>
-
-            <span className="text-slate-300 font-bold shrink-0">|</span>
-
-            {/* 2. Y축 수치 */}
-            {hoverInfo.fileValues.length > 0 ? (
-              <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                {hoverInfo.fileValues.map(fv => (
-                  <div
-                    key={fv.fileNo}
-                    className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 px-2 py-0.5 rounded text-[11px] font-semibold text-slate-800 shadow-2xs"
-                    title={fv.rcpName}
-                  >
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: fv.color }} />
-                    {hoverInfo.fileValues.length > 1 && (
-                      <span className="text-slate-500 font-mono text-[10px]">#{fv.fileNo}</span>
-                    )}
-                    <span className="font-bold text-slate-900 font-mono">{fv.formatted}</span>
-                    {metric.unit && <span className="text-slate-500 text-[10px] font-medium">{metric.unit}</span>}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <span className="text-slate-400 text-[11px] font-mono">--</span>
-            )}
-
-            {/* 3. Step */}
-            {hoverInfo.stepStr && (
-              <>
-                <span className="text-slate-300 font-bold shrink-0">|</span>
-                <span className="font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded text-[11px] shrink-0 shadow-2xs">
-                  {hoverInfo.stepStr}
-                </span>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span>
-            <span>마우스 커서를 그래프 위에 올리면 실시간 시점(s), Y축 수치, Step 정보가 상단에 고정 표시됩니다</span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-1 text-[10px] font-mono shrink-0 ml-2">
-          {hoverInfo ? (
-            <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 flex items-center gap-1 text-[10px] font-medium shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-              실시간 커서
-            </span>
-          ) : (
-            <span className="text-slate-500 hidden sm:inline">
-              단위: [{metric.unit}]
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* 3. Canvas Area */}
-      <div className="p-2 bg-[#EEF2F6] flex-1 flex items-center justify-center relative min-h-[240px]">
+      {/* 3. Canvas Area + 오른쪽 커서 값 표 */}
+      <div className={`p-2 bg-[#EEF2F6] flex-1 flex ${panelBelow ? 'flex-col' : ''} items-stretch gap-1.5 relative`} style={{ minHeight: chartHeight }}>
+        <div ref={plotWrapRef} className="flex-1 min-w-0 flex items-center justify-center">
         <canvas
           ref={canvasRef}
           onMouseDown={handleMouseDown}
@@ -2017,505 +2840,366 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           onDoubleClick={handleResetCard}
           style={{ imageRendering: 'auto' }}
           className={`w-full block ${
-            isDragging
+            isSelecting || selectMode
+              ? 'cursor-col-resize'
+              : isDragging
               ? 'cursor-grabbing'
               : isCustomOrZoomed
               ? 'cursor-grab'
               : 'cursor-crosshair'
           }`}
-          title="마우스 휠: 개별 확대/축소 | 좌클릭 드래그: 개별 좌우 이동 | 더블클릭: 줌 초기화"
+          title={selectMode ? '드래그: 구간 선택 (모든 그래프에 적용) | 마우스 휠: 확대/축소 | 더블클릭: 줌 초기화' : '마우스 휠: 개별 확대/축소 | 좌클릭 드래그: 개별 좌우 이동 | Shift+드래그: 구간 선택 | 더블클릭: 줌 초기화'}
+        />
+        </div>
+
+        <CursorValuePanel
+          height={chartHeight}
+          below={panelBelow}
+          unit2={overlayMetric?.unit}
+          files={files}
+          results={results}
+          visibleFileIds={visibleFileIds}
+          values={panelInfo?.fileValues ?? null}
+          timeLabel={
+            panelInfo
+              ? `${panelInfo.timeFormatted} s${panelInfo.stepStr ? ' · ' + panelInfo.stepStr.replace(/\(.*\)$/, '') : ''}`
+              : null
+          }
+          live={hoverInfo !== null}
+          unit={metric.unit}
+          sort={valueSort}
+          onChangeSort={onChangeValueSort}
+          highlightFileId={highlightFileId}
+          onHighlight={setHighlightFileId}
+          selectedIds={selectedRecipeIds}
+          onToggle={onToggleRecipe}
+          onSetSelected={onSetRecipeSelected}
+          onClearSelection={onClearRecipeSelection}
         />
 
-        {/* 4. Excel-Style [축 서식] Clean Overlay Modal */}
+        {/* 4. [축 서식] 컴팩트 팝오버 (그래프 오른쪽 위, 그래프를 가리지 않는 작은 창) */}
         {isFormatOpen && (
-          <div className="absolute inset-2 z-30 bg-white/98 backdrop-blur-md p-3.5 flex flex-col justify-between overflow-y-auto rounded-xl shadow-lg border border-[#2563EB]/40 animate-in fade-in zoom-in-95 duration-100">
-            {/* Header */}
-            <div>
-              <div className="flex items-center justify-between pb-2 border-b border-[#E2E8F0]">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-5 h-5 rounded bg-[#2563EB]/10 flex items-center justify-center text-[#2563EB]">
-                    <SlidersHorizontal className="w-3 h-3" />
-                  </div>
-                  <h4 className="text-xs font-bold text-[#0F172A]">축 서식</h4>
-                  <span className="text-[10px] text-[#64748B]">({metric.name})</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsFormatOpen(false)}
-                  className="p-1 rounded text-[#94A3B8] hover:text-[#0F172A] hover:bg-slate-100 text-xs font-bold cursor-pointer"
-                  title="닫기"
-                >
-                  ✕
-                </button>
+          <div
+            className="absolute right-2 top-2 z-30 w-[300px] max-w-[calc(100%-16px)] bg-white rounded-lg shadow-lg border border-slate-400 text-[11px] text-[#0F172A] animate-in fade-in zoom-in-95 duration-100"
+            onMouseDown={e => e.stopPropagation()}
+          >
+            {/* 머리: 탭 + 닫기 */}
+            <div className="flex items-center gap-1 px-1.5 py-1 bg-[#E2E8F0] border-b border-slate-300 rounded-t-lg">
+              <SlidersHorizontal className="w-3 h-3 text-[#2563EB] shrink-0" />
+              <div className="flex-1 flex gap-0.5 bg-[#CBD5E1]/60 p-0.5 rounded-md">
+                <SegBtn active={formatTab === 'x'} onClick={() => setFormatTab('x')}>
+                  가로축 (시간)
+                </SegBtn>
+                <SegBtn active={formatTab === 'y'} onClick={() => setFormatTab('y')}>
+                  세로축 (값)
+                </SegBtn>
               </div>
-
-              {/* Excel Style Tabs: 가로 축 (X) vs 세로 축 (Y) */}
-              <div className="grid grid-cols-2 gap-1 bg-[#F1F5F9] p-0.5 rounded-lg text-[11px] font-semibold my-2">
-                <button
-                  type="button"
-                  onClick={() => setFormatTab('x')}
-                  className={`py-1 rounded text-center transition-all cursor-pointer ${
-                    formatTab === 'x'
-                      ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
-                      : 'text-[#64748B] hover:text-[#0F172A]'
-                  }`}
-                >
-                  가로(시간) 축 옵션 [X]
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormatTab('y')}
-                  className={`py-1 rounded text-center transition-all cursor-pointer ${
-                    formatTab === 'y'
-                      ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
-                      : 'text-[#64748B] hover:text-[#0F172A]'
-                  }`}
-                >
-                  세로(값) 축 옵션 [Y]
-                </button>
-              </div>
-
-              {/* Form Content: X-Axis Options (Excel 1:1) */}
-              {formatTab === 'x' && (
-                <div className="space-y-3 text-[11px] py-1">
-                  {/* 1. 경계 (Bounds) */}
-                  <div className="space-y-1.5">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">경계 (Time sec)</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최소값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            value={axisConfig.xMin !== null ? axisConfig.xMin : autoMinX}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xMin: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xMin: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 계산 최소값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최대값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            value={axisConfig.xMax !== null ? axisConfig.xMax : autoMaxX}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xMax: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xMax: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 계산 최대값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 2. 단위 (Units) - 주 단위 & 보조 단위 */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">단위 (Time Unit)</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">주 눈금 간격 (초)</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            min="1"
-                            value={axisConfig.xStep !== null ? axisConfig.xStep : 10.0}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xStep: isNaN(v) || v <= 0 ? 10.0 : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xStep: 10.0 }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="기본 10.0초 간격으로 복원"
-                          >
-                            10초
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">보조 눈금 간격 (초)</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="1"
-                            min="0.5"
-                            placeholder="자동 (5초)"
-                            value={axisConfig.xMinorStep !== null ? axisConfig.xMinorStep : ''}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, xMinorStep: isNaN(v) || v <= 0 ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, xMinorStep: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 보조 간격으로 복원"
-                          >
-                            자동
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. 눈금선 및 틱 (Lines & Ticks) */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">눈금선 및 축 틱 (Lines & Ticks)</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showVGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showVGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>주 세로 눈금선(Grid)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showVMinorGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showVMinorGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>보조 세로 눈금선(점선)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showTickMarks}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showTickMarks: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>축 경계 눈금 틱(Ticks)</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* 4. 일괄 적용 버튼 */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyGlobalXFormat({
-                          xMin: axisConfig.xMin,
-                          xMax: axisConfig.xMax,
-                          xStep: axisConfig.xStep,
-                          xMinorStep: axisConfig.xMinorStep,
-                          showVGrid: axisConfig.showVGrid,
-                          showVMinorGrid: axisConfig.showVMinorGrid,
-                          showTickMarks: axisConfig.showTickMarks,
-                        });
-                        setJustAppliedToAll(true);
-                        setTimeout(() => setJustAppliedToAll(false), 2000);
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E40AF] border border-[#BFDBFE] rounded text-[10px] font-bold transition-all cursor-pointer shadow-2xs"
-                      title="현재 설정된 시간축 범위 및 간격을 모든 그래프에 일괄 적용합니다"
-                    >
-                      {justAppliedToAll ? (
-                        <>
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span className="text-emerald-700">전체 적용 완료!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Globe className="w-3 h-3 text-[#2563EB]" />
-                          <span>전체 그래프 시간축 일괄 적용</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Form Content: Y-Axis Options (Excel 1:1) */}
-              {formatTab === 'y' && (
-                <div className="space-y-3 text-[11px] py-1">
-                  {/* 1. 경계 (Bounds) */}
-                  <div className="space-y-1.5">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">
-                      경계 ({metric.unit})
-                    </span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최소값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            value={axisConfig.yMin !== null ? axisConfig.yMin : autoMinY}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yMin: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yMin: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="데이터 자동 최소값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">최대값</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            value={axisConfig.yMax !== null ? axisConfig.yMax : autoMaxY}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yMax: isNaN(v) ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yMax: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="데이터 자동 최대값으로 복원"
-                          >
-                            다시 설정
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 2. 단위 (Units) - 주 단위 & 보조 단위 */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">단위 ({metric.unit})</span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">주 눈금 간격</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="자동"
-                            value={axisConfig.yStep !== null ? axisConfig.yStep : ''}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yStep: isNaN(v) || v <= 0 ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yStep: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 간격으로 복원"
-                          >
-                            자동
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">보조 눈금 간격</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            placeholder="자동"
-                            value={axisConfig.yMinorStep !== null ? axisConfig.yMinorStep : ''}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              setAxisConfig(prev => ({ ...prev, yMinorStep: isNaN(v) || v <= 0 ? null : v }));
-                            }}
-                            className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-xs font-mono font-bold focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setAxisConfig(prev => ({ ...prev, yMinorStep: null }))}
-                            className="px-1.5 py-0.5 text-[9.5px] border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded text-[#475569] shrink-0 font-medium cursor-pointer"
-                            title="자동 보조 간격으로 복원"
-                          >
-                            자동
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. 스케일 및 표시 형식 (Scale & Format) */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">스케일 및 표시 형식 (Scale & Format)</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">로그 눈금 (Log₁₀)</span>
-                        <label className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#CBD5E1] rounded cursor-pointer text-[10px]">
-                          <input
-                            type="checkbox"
-                            checked={axisConfig.isLogScale}
-                            onChange={e => setAxisConfig(prev => ({ ...prev, isLogScale: e.target.checked }))}
-                            className="rounded accent-[#2563EB]"
-                          />
-                          <span className="font-medium text-[#0F172A]">로그 스케일</span>
-                        </label>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">소수점 자릿수</span>
-                        <select
-                          value={axisConfig.decimalPlaces}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setAxisConfig(prev => ({
-                              ...prev,
-                              decimalPlaces: val === 'auto' ? 'auto' : (parseInt(val, 10) as 0 | 1 | 2),
-                            }));
-                          }}
-                          className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-1 text-[10.5px] font-medium text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
-                        >
-                          <option value="auto">자동 판별</option>
-                          <option value="0">정수 (0자리)</option>
-                          <option value="1">소수점 1자리</option>
-                          <option value="2">소수점 2자리</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] text-[#64748B]">표시 단위 축약</span>
-                        <select
-                          value={axisConfig.displayUnit}
-                          onChange={e => {
-                            setAxisConfig(prev => ({
-                              ...prev,
-                              displayUnit: e.target.value as 'auto' | 'k',
-                            }));
-                          }}
-                          className="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-1 text-[10.5px] font-medium text-[#0F172A] focus:outline-none focus:border-[#2563EB]"
-                        >
-                          <option value="auto">원래 값</option>
-                          <option value="k">천 단위 (k)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4. 기준선 및 눈금선 (Lines & Target) */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <span className="font-bold text-[#0F172A] block text-[10.5px]">기준선 및 눈금선 (Lines & Target)</span>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showHGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showHGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>주 가로 눈금선(Grid)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showHMinorGrid}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showHMinorGrid: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>보조 가로 눈금선(점선)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-[10px] text-[#475569] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={axisConfig.showZeroBaseline}
-                          onChange={e => setAxisConfig(prev => ({ ...prev, showZeroBaseline: e.target.checked }))}
-                          className="rounded accent-[#2563EB]"
-                        />
-                        <span>0.0 기준선 강조</span>
-                      </label>
-                    </div>
-
-                    {/* 공정 목표/스펙 기준선 (Target Line) */}
-                    <div className="pt-1">
-                      <span className="text-[10px] text-[#64748B] block mb-0.5">공정 목표/스펙 기준선 (Target Line)</span>
-                      <div className="flex items-center gap-1 max-w-[280px]">
-                        <input
-                          type="number"
-                          step="any"
-                          placeholder="예: 4700"
-                          value={axisConfig.targetLine !== null ? axisConfig.targetLine : ''}
-                          onChange={e => {
-                            const v = parseFloat(e.target.value);
-                            setAxisConfig(prev => ({ ...prev, targetLine: isNaN(v) ? null : v }));
-                          }}
-                          className="w-full bg-white border border-[#FDBA74] rounded px-1.5 py-0.5 text-xs font-mono font-bold text-[#C2410C] focus:outline-none focus:border-[#EA580C]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setAxisConfig(prev => ({ ...prev, targetLine: null }))}
-                          className="px-2 py-0.5 text-[9.5px] border border-orange-200 bg-orange-50 hover:bg-orange-100 rounded text-orange-700 shrink-0 font-medium cursor-pointer"
-                          title="기준선 제거"
-                        >
-                          지우기
-                        </button>
-                      </div>
-                      <span className="text-[9px] text-[#94A3B8] block mt-0.5">
-                        수치를 입력하면 차트에 주황색 목표 점선 및 배지가 오버레이됩니다.
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom Footer Actions */}
-            <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between">
-              <button
-                type="button"
-                onClick={handleResetCard}
-                className="text-[10.5px] text-[#64748B] hover:text-[#DC2626] font-medium cursor-pointer"
-              >
-                기본값 복원
-              </button>
-
               <button
                 type="button"
                 onClick={() => setIsFormatOpen(false)}
-                className="px-3 py-1 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                aria-label="축 서식 닫기"
+                className="p-0.5 rounded text-[#64748B] hover:text-[#0F172A] hover:bg-slate-300/60 cursor-pointer"
               >
-                닫기
+                <X className="w-3.5 h-3.5" />
               </button>
+            </div>
+
+            <div className="p-2 space-y-1.5">
+              {formatTab === 'x' ? (
+                <>
+                  <AxisRow label="경계 (s)">
+                    <AxisNum value={axisConfig.xMin} placeholder="최소 자동" onChange={v => setAxisConfig(p => ({ ...p, xMin: v }))} />
+                    <AxisNum value={axisConfig.xMax} placeholder="최대 자동" onChange={v => setAxisConfig(p => ({ ...p, xMax: v }))} />
+                  </AxisRow>
+                  <AxisRow label="눈금 간격 (s)">
+                    <AxisNum
+                      value={axisConfig.xStep}
+                      placeholder="주 10"
+                      onChange={v => setAxisConfig(p => ({ ...p, xStep: v !== null && v > 0 ? v : 10.0 }))}
+                    />
+                    <AxisNum
+                      value={axisConfig.xMinorStep}
+                      placeholder="보조 자동"
+                      onChange={v => setAxisConfig(p => ({ ...p, xMinorStep: v !== null && v > 0 ? v : null }))}
+                    />
+                  </AxisRow>
+                  <AxisRow label="눈금선">
+                    <AxisCheck checked={axisConfig.showVGrid} onChange={c => setAxisConfig(p => ({ ...p, showVGrid: c }))}>
+                      주
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showVMinorGrid} onChange={c => setAxisConfig(p => ({ ...p, showVMinorGrid: c }))}>
+                      보조
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showTickMarks} onChange={c => setAxisConfig(p => ({ ...p, showTickMarks: c }))}>
+                      눈금 틱
+                    </AxisCheck>
+                  </AxisRow>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyGlobalXFormat({
+                        xMin: axisConfig.xMin,
+                        xMax: axisConfig.xMax,
+                        xStep: axisConfig.xStep,
+                        xMinorStep: axisConfig.xMinorStep,
+                        showVGrid: axisConfig.showVGrid,
+                        showVMinorGrid: axisConfig.showVMinorGrid,
+                        showTickMarks: axisConfig.showTickMarks,
+                      });
+                      setJustAppliedToAll(true);
+                      setTimeout(() => setJustAppliedToAll(false), 2000);
+                    }}
+                    className="w-full flex items-center justify-center gap-1 py-1 bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E40AF] border border-[#BFDBFE] rounded text-[10.5px] font-bold cursor-pointer"
+                    title="이 가로축 설정을 모든 그래프에 똑같이 적용합니다"
+                  >
+                    {justAppliedToAll ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="text-emerald-700">모든 그래프에 적용됨</span>
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="w-3 h-3" />
+                        <span>모든 그래프에 가로축 적용</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <AxisRow label={`경계${metric.unit ? ` (${metric.unit})` : ''}`}>
+                    <AxisNum value={axisConfig.yMin} placeholder="최소 자동" onChange={v => setAxisConfig(p => ({ ...p, yMin: v }))} />
+                    <AxisNum value={axisConfig.yMax} placeholder="최대 자동" onChange={v => setAxisConfig(p => ({ ...p, yMax: v }))} />
+                  </AxisRow>
+                  <AxisRow label="눈금 간격">
+                    <AxisNum
+                      value={axisConfig.yStep}
+                      placeholder="주 자동"
+                      onChange={v => setAxisConfig(p => ({ ...p, yStep: v !== null && v > 0 ? v : null }))}
+                    />
+                    <AxisNum
+                      value={axisConfig.yMinorStep}
+                      placeholder="보조 자동"
+                      onChange={v => setAxisConfig(p => ({ ...p, yMinorStep: v !== null && v > 0 ? v : null }))}
+                    />
+                  </AxisRow>
+                  <AxisRow label="표시 형식">
+                    <select
+                      aria-label="소수 자릿수"
+                      value={axisConfig.decimalPlaces}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setAxisConfig(p => ({ ...p, decimalPlaces: val === 'auto' ? 'auto' : (parseInt(val, 10) as 0 | 1 | 2) }));
+                      }}
+                      className={AXIS_INPUT}
+                    >
+                      <option value="auto">소수 자동</option>
+                      <option value="0">정수</option>
+                      <option value="1">소수 1자리</option>
+                      <option value="2">소수 2자리</option>
+                    </select>
+                    <select
+                      aria-label="표시 단위"
+                      value={axisConfig.displayUnit}
+                      onChange={e => setAxisConfig(p => ({ ...p, displayUnit: e.target.value as 'auto' | 'k' }))}
+                      className={AXIS_INPUT}
+                    >
+                      <option value="auto">원래 값</option>
+                      <option value="k">천 단위 (k)</option>
+                    </select>
+                  </AxisRow>
+                  <AxisRow label="눈금 · 선">
+                    <AxisCheck checked={axisConfig.showHGrid} onChange={c => setAxisConfig(p => ({ ...p, showHGrid: c }))}>
+                      주
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showHMinorGrid} onChange={c => setAxisConfig(p => ({ ...p, showHMinorGrid: c }))}>
+                      보조
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.showZeroBaseline} onChange={c => setAxisConfig(p => ({ ...p, showZeroBaseline: c }))}>
+                      0 기준선
+                    </AxisCheck>
+                    <AxisCheck checked={axisConfig.isLogScale} onChange={c => setAxisConfig(p => ({ ...p, isLogScale: c }))}>
+                      로그
+                    </AxisCheck>
+                  </AxisRow>
+                  <AxisRow label="목표선">
+                    <AxisNum
+                      value={axisConfig.targetLine}
+                      placeholder="예: 4700 (없음)"
+                      onChange={v => setAxisConfig(p => ({ ...p, targetLine: v }))}
+                      accent
+                    />
+                  </AxisRow>
+                </>
+              )}
+            </div>
+
+            {/* 아래: 기본값 복원 */}
+            <div className="flex items-center justify-between px-2 py-1 border-t border-slate-200 bg-[#F8FAFC] rounded-b-lg">
+              <button
+                type="button"
+                onClick={handleResetCard}
+                className="text-[10px] text-[#64748B] hover:text-[#DC2626] font-semibold cursor-pointer"
+              >
+                기본값 복원
+              </button>
+              <span className="text-[9.5px] text-[#94A3B8]">빈칸 = 자동</span>
             </div>
           </div>
         )}
+      </div>
+
+      {/* 5. 구간 통계 (모든 그래프 공통 구간) */}
+      {statRange && (
+        <RangeStatsTable
+          range={statRange}
+          sections={[
+            { metric, stats: computeRangeStats(metric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1], selectedRecipeIds) },
+            ...(overlayMetric
+              ? [{ metric: overlayMetric, stats: computeRangeStats(overlayMetric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1], selectedRecipeIds), overlay: true }]
+              : []),
+          ]}
+          highlightFileId={highlightFileId}
+          onHighlight={setHighlightFileId}
+          onClear={() => onSetStatRange(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+/** 그래프 아래 구간 통계 표: Recipe별 Avg.·Min·Max·Max−Min·STD·Unif. (겹쳐 보기 항목은 아래 묶음) */
+const RangeStatsTable: React.FC<{
+  range: [number, number];
+  sections: { metric: MetricDefinition; stats: RangeStat[]; overlay?: boolean }[];
+  highlightFileId: string | null;
+  onHighlight: (id: string | null) => void;
+  onClear: () => void;
+}> = ({ range, sections, highlightFileId, onHighlight, onClear }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const head = ['항목', 'No.', 'Recipe', 'Avg.', 'Min', 'Max', 'Max-Min', 'STD', 'Unif.(%)'];
+    const lines = [`구간\t${range[0].toFixed(1)} ~ ${range[1].toFixed(1)} s (${(range[1] - range[0]).toFixed(1)} s)`, head.join('\t')];
+    sections.forEach(sec =>
+      sec.stats.forEach(st =>
+        lines.push(
+          [
+            `${sec.metric.name} [${sec.metric.unit}]`,
+            st.fileNo,
+            st.name,
+            formatStatNum(st.avg),
+            formatStatNum(st.min),
+            formatStatNum(st.max),
+            formatStatNum(st.max - st.min),
+            formatStatNum(st.sd),
+            st.unif === null ? '-' : st.unif.toFixed(2),
+          ].join('\t')
+        )
+      )
+    );
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* 클립보드 사용 불가 환경 */
+    }
+  };
+  const th = 'px-1 py-[3px] border border-slate-400 bg-[#DDE3EA] text-[#334155] font-bold whitespace-nowrap text-center align-middle';
+  const td = 'px-1 py-[2px] border border-slate-400 tabular-nums text-center align-middle whitespace-nowrap';
+  return (
+    <div className="border-t border-slate-300 bg-white" data-range-stats onMouseLeave={() => onHighlight(null)}>
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-[#FFFBEB] border-b border-[#FDE68A] text-[10.5px]">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Ruler className="w-3 h-3 text-[#D97706] shrink-0" />
+          <span className="font-bold text-[#92400E] whitespace-nowrap">구간 통계</span>
+          <span className="font-semibold text-[#0F172A] tabular-nums whitespace-nowrap">
+            {range[0].toFixed(1)} ~ {range[1].toFixed(1)} s
+          </span>
+          <span className="text-[#B45309] tabular-nums whitespace-nowrap">({(range[1] - range[0]).toFixed(1)} s)</span>
+          <span className="text-[9.5px] text-[#94A3B8] truncate hidden md:inline">· 모든 그래프에 같은 구간</span>
+        </span>
+        <span className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={copy}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#2563EB] hover:border-[#2563EB] cursor-pointer"
+            title="엑셀에 붙여 넣을 수 있게 표 복사"
+          >
+            <Copy className="w-3 h-3" />
+            {copied ? '복사됨' : '복사'}
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
+            title="구간 해제 (모든 그래프)"
+          >
+            <X className="w-3 h-3" />
+            해제
+          </button>
+        </span>
+      </div>
+      <div className="max-h-[220px] overflow-auto scrollbar-thin">
+        <table className="w-full border-collapse text-[10.5px]">
+          <thead className="sticky top-0 z-10">
+            <tr>
+              <th className={`${th} text-left pl-2`}>Recipe</th>
+              <th className={th}>Avg.</th>
+              <th className={th}>Min</th>
+              <th className={th}>Max</th>
+              <th className={th}>Max−Min</th>
+              <th className={th}>STD</th>
+              <th className={th}>Unif.(%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sections.map(sec => (
+              <React.Fragment key={sec.metric.id}>
+                {sections.length > 1 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className={`px-2 py-[2px] border border-slate-400 font-bold text-[10px] ${sec.overlay ? 'bg-[#F5F3FF] text-[#6D28D9]' : 'bg-[#EFF6FF] text-[#1E3A8A]'}`}
+                    >
+                      {sec.overlay ? '점선 · ' : '실선 · '}
+                      {sec.metric.name} [{sec.metric.unit}]
+                    </td>
+                  </tr>
+                )}
+                {sec.stats.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className={`${td} text-[#94A3B8]`}>
+                      이 구간에 데이터가 없습니다
+                    </td>
+                  </tr>
+                ) : (
+                  sec.stats.map((st, i) => (
+                    <tr
+                      key={st.fileId}
+                      onMouseEnter={() => onHighlight(st.fileId)}
+                      className={highlightFileId === st.fileId ? 'bg-[#DBEAFE]' : i % 2 ? 'bg-[#EDF2F7]' : 'bg-white'}
+                    >
+                      <td className={`${td} text-left pl-2 max-w-[150px] overflow-hidden`}>
+                        <span className="flex items-center gap-1 min-w-0">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: st.color }} />
+                          <span className="font-bold text-[#334155] shrink-0">#{st.fileNo}</span>
+                          <span className="font-semibold text-[#475569] truncate">{st.name}</span>
+                        </span>
+                      </td>
+                      <td className={`${td} font-bold text-[#0F172A]`}>{formatStatNum(st.avg)}</td>
+                      <td className={td}>{formatStatNum(st.min)}</td>
+                      <td className={td}>{formatStatNum(st.max)}</td>
+                      <td className={`${td} font-semibold`}>{formatStatNum(st.max - st.min)}</td>
+                      <td className={td}>{formatStatNum(st.sd)}</td>
+                      <td className={td}>{st.unif === null ? '-' : st.unif.toFixed(2)}</td>
+                    </tr>
+                  ))
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

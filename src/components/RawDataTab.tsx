@@ -1,21 +1,25 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Search,
   AlertTriangle,
   Layers,
   Filter,
   ChevronLeft,
   ChevronRight,
   X,
-  Zap,
 } from 'lucide-react';
 import { AnalysisFileResult, HeaterChannelDef, ParsedLogFile, RawLogRow } from '../types/pecvd';
+import { evaluateFind, FindCond, FindField, FindPositionBar, newCond, RawConditionFinder } from './RawConditionFinder';
 import { resolveDynamicHeaterChannels } from '../utils/csvParser';
+import { ManagerHeader, ManagerPortal, ManagerSectionTitle } from './ManagerShell';
 
 interface RawDataTabProps {
+  /** App이 만든 왼쪽 매니저 자리 (공정 분석 매니저와 같은 위치·모양) */
+  managerHost?: HTMLElement | null;
   files: ParsedLogFile[];
   results?: AnalysisFileResult[];
   selectedRunIdx?: number | null;
+  /** Log 분석 매니저에서 볼 Run(파일) 바꾸기 */
+  onSelectRunIdx?: (idx: number | null) => void;
 }
 
 interface GasDef {
@@ -38,6 +42,20 @@ const CANDIDATE_GASES: GasDef[] = [
 ];
 
 const ROW_HEIGHT = 30; // Pixel-precise row height
+// 열 너비: Step & Time 5열은 각자 너비, 나머지 묶음(Gas·Lift·T/V·Matcher·RF·Susceptor)의 모든 열은 같은 너비
+const STEP_TIME_COL_WIDTHS = [140, 45, 45, 45, 60, 30]; // Time, Step Time, All Time, Time Set, Name, No.
+// Step & Time 6열 틀 고정: 각 열의 왼쪽 위치(px) = 앞 열 너비의 합
+const STEP_TIME_STICKY_LEFT = STEP_TIME_COL_WIDTHS.map((_, i) => STEP_TIME_COL_WIDTHS.slice(0, i).reduce((a, b) => a + b, 0));
+const stickyStyle = (i: number): React.CSSProperties => ({ position: 'sticky', left: STEP_TIME_STICKY_LEFT[i] });
+const UNIFORM_COL_WIDTH = 54;
+
+/** T/V Mode 짧은 표시: PRESSURE → PRESS, POSITION → POS (원래 값은 툴팁) */
+const shortTvMode = (m: string): string => {
+  const u = (m || '').toUpperCase();
+  if (u.includes('PRESS')) return 'PRESS';
+  if (u.includes('POS')) return 'POS';
+  return m || '-';
+};
 const OVERSCAN = 25;   // Pre-rendered buffer rows above & below viewport for 60fps scrolling
 
 // ============================================================================
@@ -52,8 +70,9 @@ const TINT_RF_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D7E5F4] text-[#1
 const TINT_MATCHER_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C1E2D4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
 const TINT_MATCHER_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D8EDE4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
 
-const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C6E1DB] text-[#115E59] font-bold text-[11px] font-sans align-middle';
-const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DBECE7] text-[#115E59] font-bold text-[11px] font-sans align-middle';
+// T/V & Pressure: 연두·올리브 계열 (Matcher 민트, Gas 호박색과 구분)
+const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#DCE3B0] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
+const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAEFCC] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
 
 const TINT_LIFT_TH1 = 'py-1 px-1 border border-slate-400 bg-[#D9D7F1] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
 const TINT_LIFT_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAE8F8] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
@@ -83,9 +102,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   files,
   results = [],
   selectedRunIdx = null,
+  onSelectRunIdx,
+  managerHost = null,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
+  // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Virtual Scrolling State
@@ -93,7 +116,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   const [scrollTop, setScrollTop] = useState<number>(0);
   const [viewportHeight, setViewportHeight] = useState<number>(600);
 
-  // Link active file with selected Run in '공정 Run 매니저'
+  // Link active file with selected Run in '공정 분석 매니저'
   const activeFile = useMemo(() => {
     if (selectedRunIdx !== null && results && results[selectedRunIdx]) {
       const targetFileId = results[selectedRunIdx].fileId;
@@ -106,9 +129,10 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     return files[0] || null;
   }, [files, results, selectedRunIdx]);
 
-  // When activeFile changes via '공정 Run 매니저', reset step filter to 'all'
+  // When activeFile changes via '공정 분석 매니저', reset step filter to 'all'
   useEffect(() => {
     setSelectedStepFilter('all');
+    setSelectedRowIndex(null);
   }, [activeFile?.id]);
 
   // Measure container viewport height
@@ -125,13 +149,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Reset scroll to top when changing file, step filter, or search
+  // 파일·검색어가 바뀌면 맨 위로 (Step 선택은 아래에서 해당 Step 첫 행으로 이동)
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
     setScrollTop(0);
-  }, [activeFile?.id, selectedStepFilter, searchTerm]);
+  }, [activeFile?.id, searchTerm]);
 
   // Helper to test if a column is present in the uploaded file header
   const hasCol = (name: string): boolean => {
@@ -304,10 +328,8 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     if (!activeFile) return [];
     let rows = activeFile.rows;
 
-    if (selectedStepFilter !== 'all') {
-      const stepNum = parseInt(selectedStepFilter, 10);
-      rows = rows.filter(r => r.step === stepNum);
-    }
+    // Step 선택은 행을 걸러내지 않고 해당 Step 위치로 이동만 한다
+    // → 마우스 휠로 직전·다음 Step 로그를 이어서 볼 수 있음
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
@@ -321,7 +343,195 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     }
 
     return rows;
-  }, [activeFile, selectedStepFilter, searchTerm]);
+  }, [activeFile, searchTerm]);
+
+  // 선택한 Step 번호와, 그 Step이 차지하는 행 수
+  const selectedStepNum = selectedStepFilter === 'all' ? null : parseInt(selectedStepFilter, 10);
+  const selectedStepRowCount = useMemo(
+    () => (selectedStepNum === null ? 0 : filteredRows.reduce((n, r) => n + (r.step === selectedStepNum ? 1 : 0), 0)),
+    [filteredRows, selectedStepNum]
+  );
+
+  // Step을 고르면 그 Step의 첫 행이 표 맨 위(머리글 바로 아래)에 오도록 이동
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let top = 0;
+    if (selectedStepNum !== null) {
+      const first = filteredRows.findIndex(r => r.step === selectedStepNum);
+      if (first >= 0) top = first * ROW_HEIGHT;
+    }
+    el.scrollTop = top;
+    setScrollTop(top);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStepFilter, activeFile?.id]);
+
+  // ───────────────────────────────────────────────────────────
+  // 조건 찾기: 항목 목록 (지금 파일에 있는 열만), 조건 평가, 구간 이동
+  // ───────────────────────────────────────────────────────────
+  const findFields = useMemo<FindField[]>(() => {
+    if (!activeFile) return [];
+    const f: FindField[] = [];
+    const num = (key: string, label: string, group: string, unit: string, get: (r: RawLogRow) => number | null | undefined, hlKey = key) =>
+      f.push({ key, label, group, unit, kind: 'num', hlKey, get: r => { const v = get(r); return v === null || v === undefined || !Number.isFinite(v) ? null : v; } });
+    /** Set 대비 |편차|(%) — Set이 0보다 클 때만 */
+    const devPct = (key: string, label: string, group: string, set: (r: RawLogRow) => number | null, act: (r: RawLogRow) => number | null, hlKey: string, guard?: (r: RawLogRow) => boolean) =>
+      f.push({
+        key, label, group, unit: '%', kind: 'num', hlKey,
+        get: r => {
+          if (guard && !guard(r)) return null;
+          const sv = set(r);
+          const av = act(r);
+          if (sv === null || av === null || !(sv > 0) || !Number.isFinite(av)) return null;
+          return (Math.abs(av - sv) / sv) * 100;
+        },
+      });
+    // Step
+    num('stepTime', 'Step Time', 'Step', 's', r => r.stepTime);
+    num('allTime', 'All Time', 'Step', 's', r => r.stepAllTime);
+    num('step', 'Step No.', 'Step', '', r => r.step);
+    // Gas
+    usedGases.forEach(g => {
+      num(`gas:${g.key}:set`, `${g.name} Set`, 'Process Gas', 'sccm', g.setGetter);
+      num(`gas:${g.key}:act`, `${g.name} Act`, 'Process Gas', 'sccm', g.actGetter);
+      devPct(`gas:${g.key}:dev`, `${g.name} |편차|`, 'Process Gas', r => g.setGetter(r), r => g.actGetter(r), `gas:${g.key}:act`);
+    });
+    // Lift
+    num('spSet', 'Spacing Set', 'Lift Spacing', 'mils', r => r.liftSpacingSet);
+    num('spAct', 'Spacing Act', 'Lift Spacing', 'mils', r => r.liftSpacing);
+    devPct('spDev', 'Spacing |편차|', 'Lift Spacing', r => r.liftSpacingSet, r => r.liftSpacing, 'spAct');
+    if (hasLiftVel) num('liftVel', 'Lift Velocity', 'Lift Spacing', '', r => r.liftVelocity);
+    if (hasLiftAcc) num('liftAcc', 'Lift Acc/Dec', 'Lift Spacing', '', r => r.liftAccDec);
+    // T/V
+    f.push({ key: 'tvMode', label: 'T/V Mode', group: 'T/V & Pressure', kind: 'text', hlKey: 'tvMode', options: ['PRESS', 'POS', 'OPEN'], get: r => shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '') });
+    num('pSet', 'Press Set', 'T/V & Pressure', 'mTorr', r => r.tvPressureSet);
+    num('pAct', 'Press Act', 'T/V & Pressure', 'mTorr', r => r.tvPressure);
+    devPct('pDev', 'Press |편차|', 'T/V & Pressure', r => r.tvPressureSet, r => r.tvPressure, 'pAct', r => {
+      const m = shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '');
+      return m === 'PRESS' || m === '-';
+    });
+    num('posSet', 'Pos Set', 'T/V & Pressure', '%', r => r.tvPositionSet);
+    num('posAct', 'Pos Act', 'T/V & Pressure', '%', r => r.tvPosition);
+    // Matcher
+    num('load', 'Load', 'Matcher', '%', r => r.matcherLoad);
+    num('tune', 'Tune', 'Matcher', '%', r => r.matcherTune);
+    num('vpp', 'Vpp', 'Matcher', 'V', r => r.matcherVpp);
+    num('irms', 'Irms', 'Matcher', 'A', r => r.matcherIrms);
+    num('vdc', 'Vdc', 'Matcher', 'V', r => r.matcherDCBias);
+    // RF
+    f.push({ key: 'rfOn', label: 'RF On', group: 'RF Power', kind: 'text', hlKey: 'rfOn', options: ['On', 'Off'], get: r => r.rfOn || null });
+    num('fwdSet', 'Fwd Set', 'RF Power', 'W', r => r.rfForwardSetValue);
+    num('fwdSetA', 'Fwd Set(A)', 'RF Power', 'W', r => r.rfForwardSetValueAct);
+    num('fwdAct', 'Fwd Act', 'RF Power', 'W', r => r.rfForwardPowerAct);
+    devPct('fwdDev', 'Fwd |편차|', 'RF Power', r => (r.rfForwardSetValue > 0 ? r.rfForwardSetValue : r.rfForwardSetValueAct), r => r.rfForwardPowerAct, 'fwdAct');
+    num('refl', 'Reflect', 'RF Power', 'W', r => r.rfReflectPower);
+    // Heater (|Act − Set| 온도차 ℃)
+    activeHeaterZones.forEach(z => {
+      const zk = z.id || z.name;
+      num(`heat:${zk}:set`, `${z.name} Set`, 'Susceptor 온도', '℃', r => getZoneValues(r, z).setVal);
+      num(`heat:${zk}:act`, `${z.name}`, 'Susceptor 온도', '℃', r => getZoneValues(r, z).actVal);
+      f.push({
+        key: `heat:${zk}:diff`, label: `${z.name} |온도차|`, group: 'Susceptor 온도', unit: '℃', kind: 'num', hlKey: `heat:${zk}:act`,
+        get: r => {
+          const { setVal, actVal } = getZoneValues(r, z);
+          if (setVal === null || actVal === null || !(setVal > 0) || !Number.isFinite(actVal)) return null;
+          return Math.abs(actVal - setVal);
+        },
+      });
+    });
+    return f;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFile, usedGases, activeHeaterZones, hasLiftVel, hasLiftAcc]);
+
+  const [findConds, setFindConds] = useState<FindCond[]>(() => [newCond('refl', '>=', '')]);
+  const [findJoin, setFindJoin] = useState<'and' | 'or'>('and');
+  const [findStepOnly, setFindStepOnly] = useState<boolean>(false);
+  const [curSeg, setCurSeg] = useState<number>(-1);
+
+  // 선택 Step 안에서만 찾을 때의 위치 범위
+  const findScope = useMemo<[number, number] | null>(() => {
+    if (!findStepOnly || selectedStepNum === null) return null;
+    const first = filteredRows.findIndex(r => r.step === selectedStepNum);
+    if (first < 0) return [0, 0];
+    let last = first;
+    while (last + 1 < filteredRows.length && filteredRows[last + 1].step === selectedStepNum) last++;
+    return [first, last + 1];
+  }, [findStepOnly, selectedStepNum, filteredRows]);
+
+  const findResult = useMemo(
+    () => evaluateFind(filteredRows, findFields, findConds, findJoin, findScope),
+    [filteredRows, findFields, findConds, findJoin, findScope]
+  );
+  // 조건·파일이 바뀌면 현재 구간 표시 초기화
+  useEffect(() => {
+    setCurSeg(-1);
+  }, [findResult]);
+
+  /** 강조할 칸 키 (조건에 쓰인 항목) */
+  const hlKeys = useMemo(() => {
+    const set = new Set<string>();
+    if (findResult.hits) {
+      findConds.forEach(c => {
+        const fd = findFields.find(x => x.key === c.fieldKey);
+        if (fd) set.add(fd.hlKey);
+      });
+    }
+    return set;
+  }, [findResult, findConds, findFields]);
+
+  const stepBounds = useMemo(() => {
+    const out: { pos: number; step: number; name: string }[] = [];
+    for (let i = 1; i < filteredRows.length; i++) {
+      if (filteredRows[i].step !== filteredRows[i - 1].step) out.push({ pos: i, step: filteredRows[i].step, name: filteredRows[i].stepName });
+    }
+    return out;
+  }, [filteredRows]);
+
+
+  /** 구간으로 이동: 시작 행이 표 위에서 3번째 줄쯤 오도록 + 첫 행 선택 + 강조 칸이 보이도록 가로 이동 */
+  const goSeg = (i: number) => {
+    const segs = findResult.segments;
+    if (i < 0 || i >= segs.length) return;
+    const pos = segs[i].startPos;
+    const el = containerRef.current;
+    const top = Math.max(0, pos - 3) * ROW_HEIGHT;
+    if (el) el.scrollTop = top;
+    setScrollTop(top);
+    setCurSeg(i);
+    const rowIdx = filteredRows[pos]?.rowIndex ?? null;
+    setSelectedRowIndex(rowIdx);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const c = containerRef.current;
+      if (!c || rowIdx === null) return;
+      const cell = c.querySelector<HTMLElement>(`tr[data-row="${rowIdx}"] td.raw-hit-cell`);
+      if (!cell) return;
+      const stickyW = STEP_TIME_COL_WIDTHS.reduce((a, b) => a + b, 0);
+      const left = cell.offsetLeft;
+      const right = left + cell.offsetWidth;
+      if (left < c.scrollLeft + stickyW || right > c.scrollLeft + c.clientWidth) {
+        c.scrollLeft = Math.max(0, left - stickyW - 80);
+      }
+    }));
+  };
+  const goNext = () => {
+    const segs = findResult.segments;
+    if (segs.length === 0) return;
+    if (curSeg < 0) {
+      const topPos = Math.floor(scrollTop / ROW_HEIGHT);
+      const idx = segs.findIndex(sg => sg.startPos >= topPos);
+      goSeg(idx >= 0 ? idx : 0);
+    } else goSeg((curSeg + 1) % segs.length);
+  };
+  const goPrev = () => {
+    const segs = findResult.segments;
+    if (segs.length === 0) return;
+    if (curSeg < 0) {
+      const topPos = Math.floor(scrollTop / ROW_HEIGHT);
+      let idx = -1;
+      segs.forEach((sg, k) => { if (sg.startPos < topPos) idx = k; });
+      goSeg(idx >= 0 ? idx : segs.length - 1);
+    } else goSeg((curSeg - 1 + segs.length) % segs.length);
+  };
 
   // Virtual Window Calculation
   const totalCount = filteredRows.length;
@@ -342,7 +552,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   if (!activeFile) {
     return (
       <div className="p-16 text-center text-[#64748B] bg-white border border-slate-400 rounded-2xl shadow-xs">
-        공정 Run 데이터가 없습니다. 좌측 '공정 Run 매니저'에서 파일을 등록해주세요.
+        공정 Run 데이터가 없습니다. 좌측 '공정 분석 매니저'에서 파일을 등록해주세요.
       </div>
     );
   }
@@ -353,28 +563,28 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     if (mode.includes('PRESS')) {
       const pressVal = Math.round(r.tvPressure).toLocaleString();
       return (
-        <span className="text-[#9A3412] font-bold" title="Pressure 제어 모드 (정수)">
-          {pressVal} <span className="text-[10px] text-[#C2410C] font-sans font-semibold">(P)</span>
+        <span className="text-[#3F4A0A] font-bold" title="Pressure 제어 모드 (정수)">
+          {pressVal}<span className="ml-px text-[9px] text-[#65750F] font-sans font-semibold">(P)</span>
         </span>
       );
     }
     if (mode.includes('POS')) {
       const posVal = fmtNum(r.tvPosition, 1);
       return (
-        <span className="text-[#9A3412] font-bold" title="Position 제어 모드">
-          {posVal}% <span className="text-[10px] text-[#C2410C] font-sans font-semibold">(Pos)</span>
+        <span className="text-[#3F4A0A] font-bold" title="Position 제어 모드 (T/V 위치 %)">
+          {posVal}%{/* '%'로 Position 값임을 구분 (Pressure는 '(P)'), 64px 칸에서 잘리지 않도록 '(Pos)' 생략 */}
         </span>
       );
     }
     if (mode.includes('OPEN')) {
       return (
-        <span className="text-[#9A3412] font-bold" title="Valve Open">
+        <span className="text-[#3F4A0A] font-bold" title="Valve Open">
           OPEN
         </span>
       );
     }
     return (
-      <span className="text-[#9A3412] font-bold">
+      <span className="text-[#3F4A0A] font-bold">
         {r.tvPressure > 0 ? `${Math.round(r.tvPressure).toLocaleString()} (P)` : `${fmtNum(r.tvPosition, 1)}%`}
       </span>
     );
@@ -382,96 +592,87 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
   return (
     <div className="flex flex-col lg:flex-row gap-2 items-start w-full">
-      {/* 1. Left Sidebar: 초소형·고밀도 '로그 & Step 매니저' (공정 Run 매니저와 연동) */}
-      <div
-        className={`shrink-0 transition-all duration-200 ${
-          isSidebarCollapsed ? 'w-9' : 'w-full lg:w-[210px]'
-        } lg:sticky lg:top-2`}
+      {/* 1. Log 분석 매니저: 화면 왼쪽 끝 전체 높이 패널 (공정 분석 매니저와 같은 틀) */}
+      <ManagerPortal
+        host={managerHost}
+        collapsed={isSidebarCollapsed}
+        dataAttr="data-log-manager"
+        header={
+          <ManagerHeader
+            icon={<Layers className="w-3.5 h-3.5" />}
+            title="Log 분석 매니저"
+            collapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(v => !v)}
+          />
+        }
       >
-        <div className="bg-[#F8FAFC] border border-slate-400 rounded-2xl shadow-xs overflow-hidden flex flex-col max-h-[calc(100vh-90px)]">
-          {/* Sidebar Top Header (공정 종합 분석 카드 스타일) */}
-          <div className="px-2.5 py-1.5 bg-[#E2E8F0] border-b border-slate-400 flex items-center justify-between">
-            {!isSidebarCollapsed ? (
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="w-2 h-2 rounded-full bg-[#3182F6] shadow-xs shrink-0" />
-                <h2 className="text-[11px] font-bold text-[#0F172A] truncate">
-                  로그 & Step 매니저
-                </h2>
-              </div>
-            ) : (
-              <div className="w-full flex justify-center">
-                <Layers className="w-3.5 h-3.5 text-[#2563EB]" />
-              </div>
-            )}
-
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1 hover:bg-[#CBD5E1] rounded-md text-[#64748B] hover:text-[#0F172A] transition-colors shrink-0 cursor-pointer"
-              title={isSidebarCollapsed ? '패널 펼치기' : '패널 접기'}
-            >
-              {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-
-          {!isSidebarCollapsed && (
-            <div className="p-2 space-y-2 overflow-y-auto scrollbar-thin flex-1 text-xs">
-              {/* 1-1. 선택된 Recipe 연동 안내 뱃지 */}
-              <div className="px-2 py-1.5 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl shadow-2xs">
-                <div className="flex items-center justify-between text-[10px] font-bold text-[#2563EB]">
-                  <span>선택된 Run Recipe</span>
-                  <span className="font-mono">{activeFile.rows.length.toLocaleString()}행</span>
-                </div>
-                <div
-                  className="text-[11px] font-bold text-[#0F172A] truncate mt-0.5"
-                  title={activeFile.meta.recipeName || activeFile.fileName}
-                >
-                  {activeFile.meta.recipeName || activeFile.fileName}
-                </div>
-              </div>
-
-              {/* 1-2. 검색 (Ultra-compact 28px height) */}
-              <div className="relative">
-                <Search className="w-3 h-3 text-[#94A3B8] absolute left-2 top-2" />
-                <input
-                  type="text"
-                  placeholder="검색 (Time, Step, 모드)..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full bg-white border border-slate-300 text-[#0F172A] text-[11px] rounded-lg pl-6.5 pr-6 py-1 focus:outline-none focus:border-[#2563EB] transition-all placeholder:text-[#94A3B8]"
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-1.5 top-1.5 text-[#94A3B8] hover:text-[#0F172A] p-0.5 cursor-pointer"
-                    title="검색어 지우기"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-
-              {/* 1-3. Step 필터 & Step 별 요약 (Ultra-compact high-density vertical list) */}
+            <div className="p-2.5 flex flex-col gap-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0 text-xs scrollbar-thin [&>*]:shrink-0">
+              {/* 1. 볼 Run 선택 (Recipe 이름 한 줄) */}
               <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px] font-bold text-[#64748B] px-0.5">
-                  <span className="flex items-center gap-1">
-                    <Filter className="w-3 h-3 text-[#2563EB]" />
-                    Step 필터 ({activeFile.stepsSummary.length})
-                  </span>
-                  {selectedStepFilter !== 'all' && (
+              <ManagerSectionTitle>1. Recipe 지정</ManagerSectionTitle>
+              <select
+                aria-label="볼 Run 선택"
+                value={activeFile.id}
+                onChange={e => {
+                  const fid = e.target.value;
+                  // 공정 종합 분석과 같은 선택 상태(selectedRunIdx)를 바꿈: 그 파일의 첫 분석 결과, 없으면 파일 순서
+                  const ri = results.findIndex(r => r.fileId === fid);
+                  onSelectRunIdx?.(ri >= 0 ? ri : files.findIndex(f => f.id === fid));
+                }}
+                className="w-full px-1 py-1 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg shadow-2xs text-[11px] font-bold text-[#0F172A] truncate cursor-pointer focus:outline-none focus:border-[#2563EB]"
+                title={`${activeFile.meta.recipeName || activeFile.fileName} (${activeFile.rows.length.toLocaleString()}행) · 눌러서 다른 Run 보기`}
+              >
+                {files.map((f, i) => (
+                  <option key={f.id} value={f.id}>
+                    #{i + 1} {f.meta.recipeName || f.fileName}
+                  </option>
+                ))}
+              </select>
+              </div>
+
+              {/* 1-3. 조건 찾기 (값 조건으로 행 찾기 → 표에 강조·이동) */}
+              <RawConditionFinder
+                fields={findFields}
+                conds={findConds}
+                onChangeConds={setFindConds}
+                join={findJoin}
+                onChangeJoin={setFindJoin}
+                segments={findResult.segments}
+                hitRows={findResult.hitRows}
+                totalRows={filteredRows.length}
+                currentSeg={curSeg}
+                onGo={goSeg}
+                onNext={goNext}
+                onPrev={goPrev}
+                onClear={() => {
+                  // 지우기: 조건 1개(값 비움)와 '그리고'로 처음 상태로
+                  setFindConds([newCond(findConds[0]?.fieldKey ?? 'refl', findConds[0]?.op ?? '>=', '')]);
+                  setFindJoin('and');
+                  setCurSeg(-1);
+                }}
+                stepScope={selectedStepNum !== null ? { step: selectedStepNum, on: findStepOnly, onToggle: setFindStepOnly } : null}
+              />
+
+              {/* 1-4. Step 필터 & Step 별 요약: 남는 세로 공간을 모두 사용 */}
+              <div className="!shrink flex-1 min-h-[120px] flex flex-col gap-1">
+                <ManagerSectionTitle
+                  right={selectedStepFilter !== 'all' ? (
                     <button
                       onClick={() => setSelectedStepFilter('all')}
-                      className="text-[#2563EB] hover:underline cursor-pointer"
+                      className="text-[10px] font-semibold text-[#2563EB] hover:underline cursor-pointer whitespace-nowrap"
                     >
-                      전체 해제
+                      전체 보기
                     </button>
-                  )}
-                </div>
+                  ) : undefined}
+                >
+                  3. Step 선택 ({activeFile.stepsSummary.length})
+                </ManagerSectionTitle>
 
                 {/* All Steps Row Button */}
                 <button
                   type="button"
                   onClick={() => setSelectedStepFilter('all')}
-                  className={`w-full px-2 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
+                  className={`w-full px-1.5 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
                     selectedStepFilter === 'all'
                       ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1D4ED8] font-bold shadow-xs'
                       : 'bg-white border-slate-300 hover:bg-[#F1F5F9] text-[#334155]'
@@ -495,7 +696,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 </button>
 
                 {/* Vertical Step Items: Ultra-dense single-line layout */}
-                <div className="space-y-1 max-h-[320px] overflow-y-auto pr-0.5 scrollbar-thin">
+                <div className="flex-1 min-h-0 space-y-1 overflow-y-auto pr-0.5 scrollbar-thin">
                   {activeFile.stepsSummary.map(s => {
                     const isSelected = selectedStepFilter === s.step.toString();
                     return (
@@ -503,7 +704,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                         key={s.step}
                         type="button"
                         onClick={() => setSelectedStepFilter(s.step.toString())}
-                        className={`w-full px-2 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
+                        className={`w-full px-1.5 py-1 rounded-lg border text-left transition-all flex items-center justify-between cursor-pointer text-[11px] ${
                           isSelected
                             ? 'bg-[#EFF6FF] border-[#2563EB] ring-1 ring-[#2563EB] text-[#1D4ED8] font-bold shadow-xs'
                             : 'bg-white border-slate-300 hover:bg-[#F1F5F9] text-[#334155]'
@@ -533,7 +734,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 </div>
               </div>
 
-              {/* 1-4. Gas Auto-Filter Info (Compact single-line pill) */}
+              {/* 1-5. Gas Auto-Filter Info (Compact single-line pill) */}
               {usedGases.length > 0 && (
                 <div
                   className="px-2 py-1 bg-[#EEDBB8]/40 border border-[#FED7AA] rounded-lg text-[10px] text-[#78350F] flex items-center justify-between"
@@ -543,15 +744,13 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     <Filter className="w-2.5 h-2.5 text-[#EA580C]" />
                     Gas ({usedGases.length})
                   </span>
-                  <span className="font-mono font-semibold truncate max-w-[100px]">
+                  <span className="font-mono font-semibold truncate max-w-[80px]">
                     {usedGases.map(g => g.name).join(', ')}
                   </span>
                 </div>
               )}
             </div>
-          )}
-        </div>
-      </div>
+      </ManagerPortal>
 
       {/* 2. Right Content: Raw Data Table (공정 종합 분석과 100% 동일한 고밀도 엑셀 그리드 스타일) */}
       <div className="flex-1 min-w-0 w-full space-y-2">
@@ -580,16 +779,23 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
               <span className="h-3.5 w-px bg-slate-300 mx-0.5 hidden sm:inline-block" />
 
               <span className="text-[#4E5968] text-[11px] flex items-center gap-1 font-medium">
-                <span>표시 중:</span>
-                <strong className="font-mono text-[#2563EB] text-xs font-bold">
-                  {totalCount.toLocaleString()}
-                </strong>
-                <span>행</span>
-              </span>
-
-              <span className="inline-flex items-center gap-1 bg-[#D1FAE5] text-[#065F46] border border-[#34D399] px-1.5 py-0.2 rounded text-[10px] font-bold">
-                <Zap className="w-2.5 h-2.5 text-[#059669]" />
-                가상 스크롤 60FPS
+                {selectedStepNum !== null ? (
+                  <>
+                    <span>Step {selectedStepNum}:</span>
+                    <strong className="font-mono text-[#2563EB] text-xs font-bold">
+                      {selectedStepRowCount.toLocaleString()}
+                    </strong>
+                    <span>행 / 전체 {totalCount.toLocaleString()}행 · 휠로 앞뒤 Step 이어 보기</span>
+                  </>
+                ) : (
+                  <>
+                    <span>표시 중:</span>
+                    <strong className="font-mono text-[#2563EB] text-xs font-bold">
+                      {totalCount.toLocaleString()}
+                    </strong>
+                    <span>행</span>
+                  </>
+                )}
               </span>
 
               {selectedStepFilter !== 'all' && (
@@ -616,17 +822,16 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                 </span>
               )}
             </div>
-
-            <div className="text-[10px] text-[#475569] flex items-center gap-2">
-              <span>
-                현재 렌더링 범위: <strong className="font-mono text-[#0F172A]">{totalCount > 0 ? (startIndex + 1).toLocaleString() : 0} ~ {Math.min(endIndex, totalCount).toLocaleString()}</strong> / {totalCount.toLocaleString()}행
-              </span>
-              <span className="text-slate-300">|</span>
-              <span className="truncate max-w-[200px] font-bold text-[#1E293B]" title={activeFile.meta.recipeName || activeFile.fileName}>
-                {activeFile.meta.recipeName || activeFile.fileName}
-              </span>
-            </div>
           </div>
+
+          {/* 조건 찾기: 찾은 위치 막대 (조건 입력은 왼쪽 Log 분석 매니저) */}
+          <FindPositionBar
+            segments={findResult.segments}
+            totalRows={filteredRows.length}
+            currentSeg={curSeg}
+            stepBounds={stepBounds}
+            onGo={goSeg}
+          />
 
           {/* 2-Tier High-Density Sticky Table with Virtual Scrolling Window */}
           {/* 공정 종합 분석과 동일한 border-slate-400 일관된 그리드 + 흰색/EDF2F7 지브라 패턴 */}
@@ -635,75 +840,61 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
             onScroll={handleScroll}
             className="overflow-auto max-h-[calc(100vh-170px)] min-h-[500px] scrollbar-thin relative bg-white"
           >
-            <table className="w-full text-xs text-center border-collapse font-sans whitespace-nowrap border border-slate-400">
+            <table
+              className="raw-grid table-fixed text-xs text-center border-collapse font-sans whitespace-nowrap border border-slate-400"
+              style={{
+                width:
+                  STEP_TIME_COL_WIDTHS.reduce((a, b) => a + b, 0) +
+                  (usedGases.length * 2 + 4 + 6 + 5 + 5 + activeHeaterZones.length * 2) * UNIFORM_COL_WIDTH,
+                minWidth: '100%',
+              }}
+            >
+              <colgroup>
+                {STEP_TIME_COL_WIDTHS.map((w, i) => (
+                  <col key={`st${i}`} style={{ width: w }} />
+                ))}
+                {Array.from({ length: usedGases.length * 2 + 4 + 6 + 5 + 5 + activeHeaterZones.length * 2 }, (_, i) => (
+                  <col key={`u${i}`} style={{ width: UNIFORM_COL_WIDTH }} />
+                ))}
+              </colgroup>
               {/* Header Tier 1: Group Badges (공정 종합 분석과 동일한 카테고리 틴트 시스템) */}
               <thead className="sticky top-0 z-20 text-[11px] font-bold font-sans">
                 <tr className="border-b border-slate-400">
-                  <th colSpan={5} className={TINT_FIXED_TH1}>
-                    시퀀스 기본 정보
-                  </th>
-                  <th colSpan={5} className={TINT_RF_TH1}>
-                    RF 특성 (W)
-                  </th>
-                  <th colSpan={5} className={TINT_MATCHER_TH1}>
-                    Matcher 특성
-                  </th>
-                  <th colSpan={6} className={TINT_PRES_TH1}>
-                    T/V & Pressure 제어
-                  </th>
-                  <th colSpan={4} className={TINT_LIFT_TH1}>
-                    Lift Spacing
+                  <th colSpan={6} className={`${TINT_FIXED_TH1} z-30`} style={stickyStyle(0)}>
+                    Step & Time
                   </th>
                   {usedGases.length > 0 && (
                     <th colSpan={usedGases.length * 2} className={TINT_GAS_TH1}>
-                      공정 가스 MFC (Set & Real)
+                      Process Gas (sccm)
                     </th>
                   )}
+                  <th colSpan={4} className={TINT_LIFT_TH1}>
+                    Lift Spacing
+                  </th>
+                  <th colSpan={6} className={TINT_PRES_TH1}>
+                    T/V & Pressure
+                  </th>
+                  <th colSpan={5} className={TINT_MATCHER_TH1}>
+                    Matcher Parameter
+                  </th>
+                  <th colSpan={5} className={TINT_RF_TH1}>
+                    RF Power (W)
+                  </th>
                   <th colSpan={Math.max(2, activeHeaterZones.length * 2)} className={TINT_HEAT_TH1}>
-                    Heater Zones 온도 (℃)
+                    Susceptor Zone 온도 (℃)
                   </th>
                 </tr>
 
                 {/* Header Tier 2: Individual Column Names */}
                 <tr className="border-b border-slate-400 text-[11px] font-sans font-semibold text-[#1E293B]">
                   {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0) */}
-                  <th className={`${TINT_FIXED_TH2} sticky left-0 z-30 shadow-xs`}>
-                    Step Name
-                  </th>
-                  <th className={TINT_FIXED_TH2}>Time</th>
-                  <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step All Time</th>
-                  <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step Time</th>
-                  <th className={`${TINT_FIXED_TH2} text-[#1D4ED8]`}>Step</th>
-
-                  {/* 2. RF */}
-                  <th className={TINT_RF_TH2}>RF On</th>
-                  <th className={TINT_RF_TH2}>Fwd Set</th>
-                  <th className={TINT_RF_TH2}>Fwd Set(A)</th>
-                  <th className={`${TINT_RF_TH2} text-[#1D4ED8] font-bold`}>Fwd Act</th>
-                  <th className={`${TINT_RF_TH2} text-[#BE123C] font-bold`}>Reflect</th>
-
-                  {/* 3. Matcher */}
-                  <th className={TINT_MATCHER_TH2}>Load</th>
-                  <th className={TINT_MATCHER_TH2}>Tune</th>
-                  <th className={TINT_MATCHER_TH2}>Vpp</th>
-                  <th className={TINT_MATCHER_TH2}>Irms</th>
-                  <th className={`${TINT_MATCHER_TH2} text-[#047857] font-bold`}>Vdc</th>
-
-                  {/* 4. T/V & Pressure */}
-                  <th className={TINT_PRES_TH2}>T/V Mode</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold bg-[#F4E7CE]`} title="Mode가 Pressure면 Pressure, Position이면 Position 표시">
-                    T/V Active 제어
-                  </th>
-                  <th className={TINT_PRES_TH2}>Press Set</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412] font-bold`}>Press Act</th>
-                  <th className={TINT_PRES_TH2}>Pos Set</th>
-                  <th className={`${TINT_PRES_TH2} text-[#9A3412]`}>Pos Act</th>
-
-                  {/* 5. Lift */}
-                  <th className={TINT_LIFT_TH2}>Spacing Set</th>
-                  <th className={`${TINT_LIFT_TH2} text-[#4338CA] font-bold`}>Spacing Act</th>
-                  <th className={TINT_LIFT_TH2} title="Lift Velocity (또는 Velcovity)">Lift Velocity</th>
-                  <th className={TINT_LIFT_TH2}>Lift Acc/Dec</th>
+                  {/* Step & Time 6열은 좌우 스크롤해도 보이도록 틀 고정 */}
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(0)}>Time</th>
+                  <th className={`${TINT_FIXED_TH2} z-30 text-[#1D4ED8]`} style={stickyStyle(1)}>Step Time</th>
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(2)} title="Step All Time">All Time</th>
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(3)} title="Step Time Set">Time Set</th>
+                  <th className={`${TINT_FIXED_TH2} z-30`} style={stickyStyle(4)} title="Step Name">Name</th>
+                  <th className={`${TINT_FIXED_TH2} z-30 raw-sticky-edge`} style={stickyStyle(5)} title="Step No.">No.</th>
 
                   {/* 6. Used Gases */}
                   {usedGases.map(g => (
@@ -716,6 +907,36 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                       </th>
                     </React.Fragment>
                   ))}
+
+                  {/* 5. Lift */}
+                  <th className={TINT_LIFT_TH2}>Spacing Set</th>
+                  <th className={`${TINT_LIFT_TH2} text-[#4338CA] font-bold`}>Spacing Act</th>
+                  <th className={TINT_LIFT_TH2} title="Lift Velocity (또는 Velcovity)">Lift Velocity</th>
+                  <th className={TINT_LIFT_TH2}>Lift Acc/Dec</th>
+
+                  {/* 4. T/V & Pressure */}
+                  <th className={TINT_PRES_TH2}>T/V Mode</th>
+                  <th className={`${TINT_PRES_TH2} !text-[#3F4A0A] font-bold !bg-[#D6DE9E]`} title="Mode가 Pressure면 Pressure, Position이면 Position 표시">
+                    T/V Active 제어
+                  </th>
+                  <th className={TINT_PRES_TH2}>Press Set</th>
+                  <th className={`${TINT_PRES_TH2} text-[#556B0B] font-bold`}>Press Act</th>
+                  <th className={TINT_PRES_TH2}>Pos Set</th>
+                  <th className={`${TINT_PRES_TH2} text-[#556B0B]`}>Pos Act</th>
+
+                  {/* 3. Matcher */}
+                  <th className={TINT_MATCHER_TH2}>Load</th>
+                  <th className={TINT_MATCHER_TH2}>Tune</th>
+                  <th className={TINT_MATCHER_TH2}>Vpp</th>
+                  <th className={TINT_MATCHER_TH2}>Irms</th>
+                  <th className={`${TINT_MATCHER_TH2} text-[#047857] font-bold`}>Vdc</th>
+
+                  {/* 2. RF */}
+                  <th className={TINT_RF_TH2}>RF On</th>
+                  <th className={TINT_RF_TH2}>Fwd Set</th>
+                  <th className={TINT_RF_TH2}>Fwd Set(A)</th>
+                  <th className={`${TINT_RF_TH2} text-[#1D4ED8] font-bold`}>Fwd Act</th>
+                  <th className={`${TINT_RF_TH2} text-[#BE123C] font-bold`}>Reflect</th>
 
                   {/* 7. Dynamic Heater Zones */}
                   {activeHeaterZones.map(zone => (
@@ -748,138 +969,175 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  visibleRows.map(r => {
+                  visibleRows.map((r, vi) => {
                     const isEven = r.rowIndex % 2 === 0;
                     // 공정 종합 분석과 100% 동일한 zebra: 흰색(white)과 소프트 슬레이트(#EDF2F7)
                     const rowBgClass = isEven ? 'bg-white' : 'bg-[#EDF2F7]';
+                    // Step이 바뀌는 첫 행 → 위쪽에 파란 굵은 경계선
+                    const prev = filteredRows[startIndex + vi - 1];
+                    const isStepStart = !!prev && prev.step !== r.step;
+                    const inSelected = selectedStepNum !== null && r.step === selectedStepNum;
+                    const nameCellBg = inSelected ? 'bg-[#DBEAFE] text-[#1E3A8A]' : rowBgClass;
+                    // 조건 찾기: 맞는 행 / 조건 항목 칸 강조
+                    const rowHit = !!findResult.hits && findResult.hits[startIndex + vi] === 1;
+                    const hc = (k: string) => (rowHit && hlKeys.has(k) ? ' raw-hit-cell' : '');
 
                     return (
                       <tr
                         key={r.rowIndex}
-                        className={`group transition-colors h-[30px] ${rowBgClass} hover:bg-blue-50/80`}
+                        data-row={r.rowIndex}
+                        onClick={() => setSelectedRowIndex(prev => (prev === r.rowIndex ? null : r.rowIndex))}
+                        className={`group transition-colors h-[30px] cursor-pointer ${rowBgClass} hover:bg-blue-50/80 ${
+                          isStepStart ? 'raw-step-start' : ''
+                        } ${selectedRowIndex === r.rowIndex ? 'raw-row-selected' : ''} ${rowHit ? 'raw-row-hit' : ''}`}
                         style={{ height: `${ROW_HEIGHT}px` }}
                       >
                         {/* 1. Sequence Info: Column 1 is Step Name (Sticky left-0, matching row background) */}
                         <td
-                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 sticky left-0 z-10 truncate max-w-[130px] shadow-xs ${rowBgClass} group-hover:bg-blue-50/80`}
+                          className={`py-1 px-2 text-center text-slate-900 font-medium border border-slate-400 text-[11px] whitespace-nowrap z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(0)}
+                        >
+                          {r.timeStr}
+                        </td>
+                        {/* Step Time: 0.1s 이상일 때만 파란 강조 */}
+                        <td
+                          className={`py-1 px-1 text-center font-bold border border-slate-400 z-10 ${
+                            r.stepTime >= 0.05 ? 'text-[#2563EB]' : 'text-slate-700'
+                          } ${rowBgClass} group-hover:bg-[#EFF6FF]${hc('stepTime')}`}
+                          style={stickyStyle(1)}
+                        >
+                          {fmtNum(r.stepTime, 1)}s
+                        </td>
+                        <td
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]${hc('allTime')}`}
+                          style={stickyStyle(2)}
+                        >
+                          {fmtNum(r.stepAllTime, 1)}s
+                        </td>
+                        <td
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 z-10 ${rowBgClass} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(3)}
+                        >
+                          {r.stepTimeSet > 0 ? `${fmtNum(r.stepTimeSet, 1)}s` : '-'}
+                        </td>
+                        <td
+                          className={`py-1 px-2 text-center font-bold text-slate-900 border border-slate-400 z-10 truncate ${nameCellBg} group-hover:bg-[#EFF6FF]`}
+                          style={stickyStyle(4)}
                           title={`행 #${r.rowIndex.toLocaleString()} | ${r.stepName}`}
                         >
                           {r.stepName}
                         </td>
-                        <td className="py-1 px-2 text-center text-slate-900 font-medium border border-slate-400 text-[11px] whitespace-nowrap">
-                          {r.timeStr}
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
-                          {fmtNum(r.stepAllTime, 1)}s
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
-                          {fmtNum(r.stepTime, 1)}s
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400">
+                        <td
+                          className={`py-1 px-1 text-center text-[#2563EB] font-bold border border-slate-400 z-10 raw-sticky-edge ${rowBgClass} group-hover:bg-[#EFF6FF]${hc('step')}`}
+                          style={stickyStyle(5)}
+                        >
                           {r.step.toLocaleString()}
-                        </td>
-
-                        {/* 2. RF */}
-                        <td className="py-1 px-1 text-center border border-slate-400">
-                          <span className={r.rfOn === 'On' ? 'text-[#2563EB] font-bold' : 'text-[#94A3B8] font-medium'}>
-                            {r.rfOn}
-                          </span>
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                          {fmtNum(r.rfForwardSetValue, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400">
-                          {fmtNum(r.rfForwardSetValueAct, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center font-bold text-[#1D4ED8] border border-slate-400">
-                          {fmtNum(r.rfForwardPowerAct, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#BE123C] font-bold border border-slate-400">
-                          {fmtNum(r.rfReflectPower, 0)}
-                        </td>
-
-                        {/* 3. Matcher */}
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherLoad, 2)}
-                        </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherTune, 2)}
-                        </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherVpp, 1)}
-                        </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold">
-                          {fmtNum(r.matcherIrms, 1)}
-                        </td>
-                        <td className="py-1 px-1 text-center font-bold text-[#047857] border border-slate-400">
-                          {fmtNum(r.matcherDCBias, 1)}
-                        </td>
-
-                        {/* 4. T/V & Pressure */}
-                        <td className="py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]">
-                          {r.tvCtrlModeSet || r.tvCtrlMode || '-'}
-                        </td>
-                        {/* T/V Active 제어 (공정 종합 분석과 동일한 TINT_GAS 계열 틴트) */}
-                        <td className="py-1 px-1.5 text-center font-mono font-bold bg-[#F4E7CE]/40 group-hover:bg-[#F4E7CE]/70 border border-slate-400">
-                          {renderActiveTVControl(r)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                          {fmtNum(r.tvPressureSet, 0)}
-                        </td>
-                        {/* Press Act: 소숫점 없이 정수 콤마 표시 */}
-                        <td className="py-1 px-1 text-center text-[#9A3412] font-bold border border-slate-400">
-                          {fmtNum(r.tvPressure, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                          {fmtNum(r.tvPositionSet, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center text-[#9A3412] font-bold border border-slate-400">
-                          {fmtNum(r.tvPosition, 1)}%
-                        </td>
-
-                        {/* 5. Lift */}
-                        <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
-                          {fmtNum(r.liftSpacingSet, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-[#4338CA] font-bold">
-                          {fmtNum(r.liftSpacing, 0)}
-                        </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
-                          {hasLiftVel && r.liftVelocity !== null && r.liftVelocity !== undefined
-                            ? fmtNum(r.liftVelocity, 0)
-                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
-                        </td>
-                        <td className="py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold">
-                          {hasLiftAcc && r.liftAccDec !== null && r.liftAccDec !== undefined
-                            ? fmtNum(r.liftAccDec, 0)
-                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
                         </td>
 
                         {/* 6. Used Gases - 천자리 단위 콤마 적용 */}
                         {usedGases.map(g => (
                           <React.Fragment key={g.key}>
-                            <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                            <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc(`gas:${g.key}:set`)}`}>
                               {fmtNum(g.setGetter(r), 0)}
                             </td>
-                            <td className="py-1 px-1 text-center font-bold text-[#C2410C] border border-slate-400">
+                            <td className={`py-1 px-1 text-center font-bold text-[#C2410C] border border-slate-400${hc(`gas:${g.key}:act`)}`}>
                               {fmtNum(g.actGetter(r), 0)}
                             </td>
                           </React.Fragment>
                         ))}
+
+                        {/* 5. Lift */}
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('spSet')}`}>
+                          {fmtNum(r.liftSpacingSet, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#4338CA] font-bold${hc('spAct')}`}>
+                          {fmtNum(r.liftSpacing, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold${hc('liftVel')}`}>
+                          {hasLiftVel && r.liftVelocity !== null && r.liftVelocity !== undefined
+                            ? fmtNum(r.liftVelocity, 0)
+                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
+                        </td>
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-slate-800 font-bold${hc('liftAcc')}`}>
+                          {hasLiftAcc && r.liftAccDec !== null && r.liftAccDec !== undefined
+                            ? fmtNum(r.liftAccDec, 0)
+                            : <span className="text-slate-400 font-normal text-[10px]">-</span>}
+                        </td>
+
+                        {/* 4. T/V & Pressure */}
+                        <td
+                          className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400 text-[11px]${hc('tvMode')}`}
+                          title={r.tvCtrlModeSet || r.tvCtrlMode || ''}
+                        >
+                          {shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '')}
+                        </td>
+                        {/* T/V Active 제어 (T/V & Pressure 묶음과 같은 올리브 계열 강조) */}
+                        <td className="py-1 px-1.5 text-center font-bold tabular-nums bg-[#EEF2D6]/70 group-hover:bg-[#E3EABD] border border-slate-400">
+                          {renderActiveTVControl(r)}
+                        </td>
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('pSet')}`}>
+                          {fmtNum(r.tvPressureSet, 0)}
+                        </td>
+                        {/* Press Act: 소숫점 없이 정수 콤마 표시 */}
+                        <td className={`py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400${hc('pAct')}`}>
+                          {fmtNum(r.tvPressure, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('posSet')}`}>
+                          {fmtNum(r.tvPositionSet, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center text-[#556B0B] font-bold border border-slate-400${hc('posAct')}`}>
+                          {fmtNum(r.tvPosition, 1)}%
+                        </td>
+
+                        {/* 3. Matcher */}
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('load')}`}>
+                          {fmtNum(r.matcherLoad, 1)}
+                        </td>
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('tune')}`}>
+                          {fmtNum(r.matcherTune, 1)}
+                        </td>
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('vpp')}`}>
+                          {fmtNum(r.matcherVpp, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center border border-slate-400 text-[#047857] font-bold${hc('irms')}`}>
+                          {fmtNum(r.matcherIrms, 1)}
+                        </td>
+                        <td className={`py-1 px-1 text-center font-bold text-[#047857] border border-slate-400${hc('vdc')}`}>
+                          {fmtNum(r.matcherDCBias, 1)}
+                        </td>
+
+                        {/* 2. RF */}
+                        <td className={`py-1 px-1 text-center border border-slate-400${hc('rfOn')}`}>
+                          <span className={r.rfOn === 'On' ? 'text-[#2563EB] font-bold' : 'text-[#94A3B8] font-medium'}>
+                            {r.rfOn}
+                          </span>
+                        </td>
+                        <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc('fwdSet')}`}>
+                          {fmtNum(r.rfForwardSetValue, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center text-slate-700 font-bold border border-slate-400${hc('fwdSetA')}`}>
+                          {fmtNum(r.rfForwardSetValueAct, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center font-bold text-[#1D4ED8] border border-slate-400${hc('fwdAct')}`}>
+                          {fmtNum(r.rfForwardPowerAct, 0)}
+                        </td>
+                        <td className={`py-1 px-1 text-center text-[#BE123C] font-bold border border-slate-400${hc('refl')}`}>
+                          {fmtNum(r.rfReflectPower, 0)}
+                        </td>
 
                         {/* 7. Dynamic Heater Zones - 천자리 단위 콤마 적용 */}
                         {activeHeaterZones.map(zone => {
                           const { setVal, actVal } = getZoneValues(r, zone);
                           return (
                             <React.Fragment key={zone.id || zone.name}>
-                              <td className="py-1 px-1 text-center text-slate-800 font-bold border border-slate-400">
+                              <td className={`py-1 px-1 text-center text-slate-800 font-bold border border-slate-400${hc(`heat:${zone.id || zone.name}:set`)}`}>
                                 {setVal !== null && setVal !== undefined && !isNaN(setVal) && setVal > 0 ? (
                                   fmtNum(setVal, 0)
                                 ) : (
                                   <span className="text-slate-400 font-normal text-[10px]">-</span>
                                 )}
                               </td>
-                              <td className="py-1 px-1 text-center text-[#B91C1C] font-bold border border-slate-400">
+                              <td className={`py-1 px-1 text-center text-[#B91C1C] font-bold border border-slate-400${hc(`heat:${zone.id || zone.name}:act`)}`}>
                                 {actVal !== null && actVal !== undefined && !isNaN(actVal) && actVal > 0 ? (
                                   fmtNum(actVal, 1)
                                 ) : (

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { AnalyzerSettings, CTCLMatrixData } from '../types/pecvd';
+import { HIRUJA_SYMBOL_PNG } from '../assets/hirujaLogo';
 
 interface FileUploadScreenProps {
   ctclMatrix: CTCLMatrixData | null;
@@ -71,9 +72,8 @@ export const FileUploadScreen: React.FC<FileUploadScreenProps> = ({
       {/* Main Hero Header (Crisp Dark Slate on Light Body) */}
       <div className="text-center space-y-2.5 mb-10">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#E2E8F0] border border-[#CBD5E1] text-[#2563EB] text-xs font-bold">
-          <Layers className="w-3.5 h-3.5" />
-          <span>PECVD Process Log Analysis Tool</span>
-          <span className="bg-[#2563EB] text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-md leading-none">R1</span>
+          <img src={HIRUJA_SYMBOL_PNG} alt="H&iruja" className="w-4 h-4 object-contain" draggable={false} />
+          <span>PECVD Process Log 분석 Tool</span>
         </div>
         <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-[#0F172A]">
           공정 Log 파일 및 CTCL Matrix 등록

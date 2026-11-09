@@ -70,6 +70,10 @@ export interface RawLogRow {
   rfReflectPower: number;
   rfRampValueUp: number;
   rfRampTimeUp: number;
+  /** RF BB Mode 플래그 ('BB'가 들어간 열, Enable/True = true). 열이 없거나 값을 읽을 수 없으면 null */
+  bbMode?: boolean | null;
+  /** Specific.Gas.Adj 플래그 (Enable/True = true). 열이 없으면 null */
+  specificGasAdj?: boolean | null;
 
   // RPSC
   rpscForward: number;
@@ -159,6 +163,7 @@ export interface AnalyzerSettings {
   rampUpPostOffsetSec?: number; // Ramping Up 실제 도달 후 시작 시점 n초 (기본값: 3.0초)
   rfRampDownTimeSec: number; // 1.0
   rsdPreOffsetSec: number; // 1.0 (RSD 진입 전 시간 sec, 기본값: 1.0)
+  rsdBandW?: number; // 300 (RSD 유지 판정 범위: RSD Power ± W, 기본값: 300)
   rfTolerancePct: number; // 2%
   rfOnThresholdDepo: number; // 300 W
   rfOnThresholdPL: number; // 500 W
@@ -179,12 +184,14 @@ export interface AnalyzerSettings {
   ecRfForwardAlarmPct: number | null; // 3% (양방향)
   ecRfReflectWarningW: number | null; // 100 W (상한)
   ecRfReflectAlarmW: number | null; // 200 W (상한)
-  ecMatcherWarningPct: number | null; // 2% (상한 - Vpp, Irms, DC Bias)
+  ecMatcherWarningPct: number | null; // 2% (상한 - Vpp, Irms Unif.)
   ecMatcherAlarmPct: number | null; // 3% (상한)
   ecPressureWarningPct: number | null; // 2% (양방향)
   ecPressureAlarmPct: number | null; // 5% (양방향)
-  ecPositionWarningPct: number | null; // 0.5% (상한)
-  ecPositionAlarmPct: number | null; // 1.0% (상한)
+  ecPositionWarningPct: number | null; // T/V Position Max−Min 1% (상한)
+  ecPositionAlarmPct: number | null; // T/V Position Max−Min 2% (상한)
+  ecVdcWarningV?: number | null; // Matcher DC Bias(Vdc) Max−Min 15 V (상한)
+  ecVdcAlarmV?: number | null; // Matcher DC Bias(Vdc) Max−Min 30 V (상한)
   ecLiftSpacingWarningPct: number | null; // null (미설정, 양방향)
   ecLiftSpacingAlarmPct: number | null; // null (미설정, 양방향)
   ecGasWarningPct: number | null; // 3% (양방향)
@@ -274,6 +281,27 @@ export interface MonitoringDataRow {
   dynamicHeaterActs?: Record<string, number | null>;
 }
 
+/**
+ * H/W Control 칸 상태 (BB Mode / 연속 Depo 전환)
+ * - 'keep'  : 이전/다음 Step으로 끊기지 않고 이어짐 → "유지" 표시, 값 없음, 판정 제외
+ * - 'trans' : Set이 다음 Step 값으로 바뀐 시점 → "전환 x.x" 표시, 판정 제외 (Act 도달 시간은 툴팁)
+ */
+export type HWCellStatus = 'keep' | 'trans';
+
+/** Step 경계(이전 Step → Depo 또는 Depo → 다음 Step)의 BB / 연속 전환 정보 */
+export interface HWBoundaryInfo {
+  /** 경계 건너편 Step 번호 */
+  otherStep: number;
+  /** 경계 건너편 Step이 Depo Step인지 (연속 Depo) */
+  otherIsDepo: boolean;
+  /** 로그의 BB 열이 Enable/True인지 (열이 없으면 null) */
+  bbFlag: boolean | null;
+  /** RF가 꺼지지 않고 Step 경계를 넘어감 */
+  rfContinuous: boolean;
+  /** Specific.Gas.Adj 값 (열이 없으면 null) */
+  specificGas: boolean | null;
+}
+
 export interface HWControlStartRow {
   fileId: string;
   fileName: string;
@@ -296,6 +324,10 @@ export interface HWControlStartRow {
   plStable_tvCtrlMode: number | null;
   // PL Step
   pl_rfForwardAct: number | null;
+  /** 이전 Step(Depo)에서 이어져 들어온 경우의 경계 정보 (없으면 일반 Start) */
+  bbStart?: HWBoundaryInfo | null;
+  /** 칸별 상태 (키 = 필드 이름). 'keep'이면 "유지" */
+  cellStatus?: Partial<Record<string, HWCellStatus>>;
 }
 
 export interface HWControlEndRFRow {
@@ -317,6 +349,17 @@ export interface HWControlEndRFRow {
   pl_tvCtrlMode: number | null;
   pl_pyroAr: number | null;
   pl_pyroH2: number | null;
+  /**
+   * End 기준점: 'rfOff' = 0.0초가 RF Power Off (기본),
+   * 'stepChange' = BB 전환으로 RF가 꺼지지 않아 0.0초가 다음 Step 전환 시점
+   */
+  endRef?: 'rfOff' | 'stepChange';
+  /** 다음 Step(Depo)으로 이어지는 경우의 경계 정보 (없으면 일반 End) */
+  bbEnd?: HWBoundaryInfo | null;
+  /** 칸별 상태 (키 = 필드 이름). 'keep' = "유지", 'trans' = "전환 x.x" */
+  cellStatus?: Partial<Record<string, HWCellStatus>>;
+  /** '전환' 칸의 Act 도달 시간(초, 툴팁용). 표 값은 Set이 바뀐 시점 */
+  actReach?: Partial<Record<string, number | null>>;
 }
 
 export interface HWControlEndStepRow {
@@ -344,6 +387,10 @@ export interface HWControlEndStepRow {
   pl_tvCtrlMode: number | null;
   pl_pyroAr: number | null;
   pl_pyroH2: number | null;
+  /** End 기준점 (HWControlEndRFRow.endRef와 동일) */
+  endRef?: 'rfOff' | 'stepChange';
+  /** 칸별 상태 (HWControlEndRFRow.cellStatus와 동일) */
+  cellStatus?: Partial<Record<string, HWCellStatus>>;
 }
 
 export interface DelaysRow {
@@ -379,6 +426,8 @@ export interface DeviationStat {
   isHeaterC?: boolean; // true if unit is ℃
   isReflectW?: boolean; // true if deviation value is in Watts (W)
   uniformityPct?: number | null;
+  /** Max − Min (판정값이 Unif. 대신 편차 절대값인 항목: Vdc, T/V Position) */
+  range?: number | null;
   ratioToForwardPct?: number | null; // For RF Reflect Power: Max / 기준Set * 100
   minAlarmLevel?: 'normal' | 'warning' | 'alarm'; // Min 편차 개별 판정
   maxAlarmLevel?: 'normal' | 'warning' | 'alarm'; // Max 편차 개별 판정

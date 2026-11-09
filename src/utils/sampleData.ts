@@ -9,6 +9,7 @@ export function createSampleCTCLMatrix(): CTCLMatrixData {
   const tunes: number[] = [];
   const grid: Record<number, Record<number, ComplexNumber>> = {};
 
+  for (let t = 0; t <= 100; t += 1) tunes.push(t);
   for (let l = 0; l <= 100; l += 1) {
     loads.push(l);
     grid[l] = {};

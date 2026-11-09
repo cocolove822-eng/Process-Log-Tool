@@ -19,6 +19,7 @@ import {
   MoveHorizontal,
 } from 'lucide-react';
 import { AnalysisFileResult, AnalyzerSettings, ParsedLogFile, RawLogRow, StepSummary } from '../types/pecvd';
+import { isTvPressureActive } from '../utils/analyzer';
 
 interface SequenceGanttVisualizerProps {
   results: AnalysisFileResult[];
@@ -26,6 +27,8 @@ interface SequenceGanttVisualizerProps {
   files?: ParsedLogFile[];
   externalSelectedRunIdx?: number | null;
   onSelectRunIdx?: (idx: number | null) => void;
+  /** 값이 바뀌면 타임라인을 펼치고 화면을 타임라인으로 이동 (표 번호 칸 클릭) */
+  focusSignal?: number;
 }
 
 export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = ({
@@ -34,16 +37,24 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
   files = [],
   externalSelectedRunIdx,
   onSelectRunIdx,
+  focusSignal = 0,
 }) => {
   const [selectedRunIdx, setSelectedRunIdx] = useState<number>(0);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (externalSelectedRunIdx !== undefined && externalSelectedRunIdx !== null && externalSelectedRunIdx >= 0 && externalSelectedRunIdx < results.length) {
       setSelectedRunIdx(externalSelectedRunIdx);
     }
   }, [externalSelectedRunIdx, results.length]);
-  const [viewMode, setViewMode] = useState<'single' | 'compare'>('single');
   const [isCollapsed, setIsCollapsed] = useState<boolean>(true);
+
+  // 표 번호 칸 클릭 → 타임라인 펼치고 화면 이동
+  useEffect(() => {
+    if (!focusSignal) return;
+    setIsCollapsed(false);
+    requestAnimationFrame(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, [focusSignal]);
 
   // Control 시점 인터랙티브 하이라이트 (다중 선택/토글 누적 지원)
   const [selectedMilestoneKeys, setSelectedMilestoneKeys] = useState<string[]>([]);
@@ -70,6 +81,9 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
 
   // Raw file rows for accurate Warning threshold calculation
   const currentFile = files.find(f => f.id === currentResult.fileId) || files[selectedRunIdx];
+  // 같은 Log의 Depo들 (Depo 선택 칩) · Log 번호
+  const siblingResults = results.map((r, idx) => ({ r, idx })).filter(x => x.r.fileId === currentResult.fileId);
+  const currentFileNo = Math.max(1, files.findIndex(f => f.id === currentResult.fileId) + 1);
   const rawRows = currentFile?.rows || [];
 
   // SiH4 가스 실제 공급 여부 판별 (0 sccm 또는 미공급 시에는 트랙에 Idle로 표시)
@@ -629,8 +643,13 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
         if (rowMaxSet > 0) effectiveSet = rowMaxSet;
       }
 
-      // 공정 스텝 내 Set > 0 또는 최대 실제 유량 >= 10 sccm 인 경우 감지
-      const isDetected = (effectiveSet !== null && effectiveSet > 0) || maxAct >= 10;
+      // 선택한 Step(분석 대상 Step)에서 실제로 흐른 가스만 표시
+      //  - 유량(Act) 데이터가 있는 가스: 이 Step 안에서 Act ≥ 10 sccm인 행이 있어야 함
+      //    (이전 Step의 Set 값이 남아 있거나, 안정화 Step에서만 흐른 가스가 이 Step에 Stable로 그려지는 오류 방지)
+      //  - 유량 데이터가 아예 없는 가스: 이 Step 안의 Set > 0으로 판단
+      const hasActData = rawRows.some(r => cand.getAct(r) > 0);
+      const depoSetMax = depoRows.length > 0 ? Math.max(...depoRows.map(cand.getSet)) : 0;
+      const isDetected = hasActData ? maxDepoAct >= 10 : depoSetMax > 0;
       if (!isDetected) continue;
 
       const setVal = effectiveSet ?? (maxAct > 0 ? Math.round(maxAct) : 0);
@@ -948,37 +967,330 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
 
 
 
+  // =========================================================================
+  // [BB Mode / 연속 Depo 전환 반영]
+  //  - Depo 1(다음 Step으로 이어짐): 이어지는 항목은 Step 경계에서 Down/Off로 그리지 않고
+  //    'BB 유지 → Step N' 빗금 구간으로 실제로 꺼질 때까지 이어서 표시
+  //  - Depo 2(이전 Step에서 이어짐): 이미 켜져 있던 항목은 Step 시작 전 구간을 Idle이 아닌
+  //    'BB 유지 (Step N부터)' 빗금 구간으로 표시, Step 시작 후 새 Set ± 주의 %에 2행 연속 들어올 때까지 Ramp
+  //  - 판단 근거는 H/W Control 표와 같은 분석 결과(cellStatus, bbEnd, bbStart)
+  // =========================================================================
+  const bbEnd = e.bbEnd ?? null;
+  const bbStart = s.bbStart ?? null;
+  const bbDepoFirstIdx = rawRows.findIndex(r => r.step === currentResult.depoStep);
+  let bbDepoLastIdx = -1;
+  for (let i = rawRows.length - 1; i >= 0; i--) {
+    if (rawRows[i].step === currentResult.depoStep) { bbDepoLastIdx = i; break; }
+  }
+  const bbNextIdx = bbEnd && bbDepoLastIdx >= 0 && bbDepoLastIdx + 1 < rawRows.length ? bbDepoLastIdx + 1 : -1;
+  const bbPrevIdx = bbStart && bbDepoFirstIdx > 0 ? bbDepoFirstIdx - 1 : -1;
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  const tBbEnd = bbNextIdx >= 0 ? r1(rawRows[bbNextIdx].elapsedSec) : null;
+  const tBbStart = bbPrevIdx >= 0 ? r1(rawRows[bbDepoFirstIdx].elapsedSec) : null;
+  const endSt = (field: string) => (bbEnd && tBbEnd !== null ? e.cellStatus?.[field] : undefined);
+  const startKeep = (field: string) => tBbStart !== null && s.cellStatus?.[field] === 'keep';
+  const isRfBbEnd = e.endRef === 'stepChange' && tBbEnd !== null;
+  const isRfBbStart = startKeep('depo_rfForwardAct');
+
+  /** from 행부터 on이 이어지는 동안 진행, 처음 꺼진 행의 시간 (끝까지 켜져 있으면 마지막 행) */
+  const runFwdEnd = (on: (r: RawLogRow) => boolean, from: number): number => {
+    let k = from;
+    while (k < rawRows.length && on(rawRows[k])) k++;
+    return r1(rawRows[Math.min(k, rawRows.length - 1)].elapsedSec);
+  };
+  /** from 행부터 거꾸로 on이 이어지는 첫 행의 시간과 그 행의 Step */
+  const runBackStart = (on: (r: RawLogRow) => boolean, from: number): { t: number; step: number } => {
+    let k = from;
+    while (k - 1 >= 0 && on(rawRows[k - 1])) k--;
+    return { t: r1(rawRows[k].elapsedSec), step: rawRows[k].step };
+  };
+  /** Depo Step 안에서 값이 target ± tol(비율)에 2행 연속 들어온 시간 */
+  const reachInDepo = (val: (r: RawLogRow) => number, target: number | null | undefined, tol: number): number | null => {
+    if (!target || target <= 0 || bbDepoFirstIdx < 0) return null;
+    const inB = (r?: RawLogRow) => !!r && r.step === currentResult.depoStep && Math.abs(val(r) - target) <= target * tol;
+    for (let k = bbDepoFirstIdx; k <= bbDepoLastIdx; k++) {
+      if (inB(rawRows[k]) && inB(rawRows[k + 1])) return r1(rawRows[k].elapsedSec);
+    }
+    return null;
+  };
+  const makeOn = (setG: (r: RawLogRow) => number, actG: (r: RawLogRow) => number) => {
+    const hasSet = rawRows.some(r => setG(r) > 0);
+    return (r: RawLogRow) => (hasSet ? setG(r) > 0.1 : actG(r) >= 5);
+  };
+  const rfThr = settings?.rfOnThresholdDepo ?? 300;
+  const rfSetOfRow = (r: RawLogRow) => (r.rfForwardSetValue > 0 ? r.rfForwardSetValue : r.rfForwardSetValueAct);
+  const rfOn = (r: RawLogRow) => rfSetOfRow(r) > 0 || r.rfForwardPowerAct >= rfThr;
+  const nextStepNo = bbEnd?.otherStep;
+  const prevStepNo = bbStart?.otherStep;
+  const nextStepRowsBb = nextStepNo !== undefined ? rawRows.filter(r => r.step === nextStepNo) : [];
+  const midNextRow = nextStepRowsBb.length > 0 ? nextStepRowsBb[Math.floor(nextStepRowsBb.length / 2)] : null;
+
+  type GSeg = { s: number; e: number; kind: 'idle' | 'ramp' | 'stable' | 'down' | 'bb'; label?: string; color?: string; title?: string };
+  const BB_STRIPE: React.CSSProperties = {
+    backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.38) 0 5px, rgba(255,255,255,0) 5px 10px)',
+  };
+  const renderGSegs = (segs: GSeg[]) =>
+    segs
+      .filter(g => g.e - g.s > 0.001)
+      .map((g, i) => {
+        const base = 'absolute top-0 bottom-0 flex items-center justify-center truncate shadow-2xs';
+        const cls =
+          g.kind === 'idle'
+            ? 'bg-[#CBD5E1] text-slate-700 font-bold text-[9px] border-r border-slate-300'
+            : g.kind === 'ramp'
+              ? 'bg-[#F59E0B] text-slate-950 font-extrabold border-r border-[#D97706] text-[9px] px-1'
+              : g.kind === 'down'
+                ? 'bg-[#EF4444] text-white font-extrabold border-r-2 border-[#DC2626] text-[9px] px-1'
+                : g.kind === 'bb'
+                  ? `${g.color ?? 'bg-slate-500'} text-white font-extrabold text-[9.5px] px-1 opacity-80`
+                  : `${g.color ?? 'bg-slate-500'} text-white font-extrabold text-[10px] px-2 border-r-2 border-black/10`;
+        const def = g.kind === 'idle' ? 'Idle' : g.kind === 'ramp' ? 'Ramp' : g.kind === 'down' ? 'Down' : '';
+        return (
+          <div
+            key={`${g.kind}_${i}`}
+            style={{ left: `${toPct(g.s)}%`, width: `${pctW(g.s, g.e)}%`, ...(g.kind === 'bb' ? BB_STRIPE : {}) }}
+            className={`${base} ${cls}`}
+            title={g.title ?? `${g.label ?? def} (${g.s.toFixed(1)}s ~ ${g.e.toFixed(1)}s)`}
+          >
+            {g.label ?? def}
+          </div>
+        );
+      });
+
+  /**
+   * 한 트랙의 BB 구간 계산 (BB와 무관한 트랙이면 null → 기존 그림 그대로)
+   * - startDef: BB 유지가 아닐 때의 Idle 끝(=Ramp 시작)과 Ramp 끝(=Stable 시작)
+   * - endDef: BB 유지가 아닐 때 Stable 끝 이후 구간 (Down 등)
+   */
+  const buildBbTrack = (o: {
+    startKeepOn: boolean;
+    endKind: 'keep' | 'trans' | undefined;
+    on: (r: RawLogRow) => boolean;
+    reach: number | null;
+    startDef: { rampStart: number; rampEnd: number };
+    stableLabel: string;
+    color: string;
+    endDefSegs: (stableStart: number) => GSeg[];
+    endBbLabel?: string;
+    beforeBbSegs?: (stableStart: number) => GSeg[];
+  }): GSeg[] | null => {
+    const endBb = o.endKind !== undefined && tBbEnd !== null;
+    if (!o.startKeepOn && !endBb) return null;
+    const segs: GSeg[] = [];
+    let stableStart: number;
+    if (o.startKeepOn && tBbStart !== null && bbPrevIdx >= 0) {
+      const back = runBackStart(o.on, bbPrevIdx);
+      segs.push({ s: 0, e: back.t, kind: 'idle' });
+      segs.push({ s: back.t, e: tBbStart, kind: 'bb', color: o.color, label: `BB 유지 (Step ${back.step}부터)` });
+      const reach = o.reach !== null && o.reach > tBbStart ? o.reach : tBbStart;
+      if (reach > tBbStart) segs.push({ s: tBbStart, e: reach, kind: 'ramp', title: `새 Set 도달 중 (${tBbStart.toFixed(1)}s ~ ${reach.toFixed(1)}s)` });
+      stableStart = reach;
+    } else {
+      segs.push({ s: 0, e: o.startDef.rampStart, kind: 'idle' });
+      segs.push({ s: o.startDef.rampStart, e: o.startDef.rampEnd, kind: 'ramp' });
+      stableStart = o.startDef.rampEnd;
+    }
+    if (endBb && tBbEnd !== null && bbNextIdx >= 0) {
+      const pre = o.beforeBbSegs ? o.beforeBbSegs(stableStart) : [{ s: stableStart, e: tBbEnd, kind: 'stable' as const, color: o.color, label: o.stableLabel }];
+      segs.push(...pre);
+      const fwd = runFwdEnd(o.on, bbNextIdx);
+      segs.push({
+        s: tBbEnd,
+        e: Math.max(tBbEnd, fwd),
+        kind: 'bb',
+        color: o.color,
+        label: o.endBbLabel ?? `BB ${o.endKind === 'trans' ? '전환' : '유지'} → Step ${nextStepNo}`,
+      });
+      segs.push({ s: Math.max(tBbEnd, fwd), e: totalCumulativeTime, kind: 'idle' });
+    } else {
+      segs.push(...o.endDefSegs(stableStart));
+    }
+    return segs;
+  };
+
+  const gasWarn = gasWarningPct;
+  const sih4On = makeOn(r => r.pyroSiH4Set ?? 0, r => r.pyroSiH4 ?? 0);
+  const bbSih4Segs = hasSiH4
+    ? buildBbTrack({
+        startKeepOn: startKeep('depoStable_pyroSiH4'),
+        endKind: endSt('depo_pyroSiH4') as 'keep' | 'trans' | undefined,
+        on: sih4On,
+        reach: reachInDepo(r => r.pyroSiH4 ?? 0, p.pyroSiH4Set, gasWarn),
+        startDef: { rampStart: sih4StartStep2, rampEnd: calculatedTransitions.sih4ReachCum },
+        stableLabel: `Stable (${p.pyroSiH4Set?.toLocaleString() ?? '-'} sccm)`,
+        color: 'bg-[#059669]',
+        endDefSegs: st => [
+          { s: st, e: sih4CutCumTime, kind: 'stable', color: 'bg-[#059669]', label: `Stable (${p.pyroSiH4Set?.toLocaleString() ?? '-'} sccm)` },
+          { s: sih4CutCumTime, e: sih4ActualOffCumTime, kind: 'down' },
+          { s: sih4ActualOffCumTime, e: totalCumulativeTime, kind: 'idle' },
+        ],
+      })
+    : null;
+
+  const GAS_BB_DEFS: Record<string, { set: (r: RawLogRow) => number; act: (r: RawLogRow) => number; endF: string; startF: string; pSet: number | null | undefined }> = {
+    NH3: { set: r => r.pyroNH3Set ?? 0, act: r => r.pyroNH3 ?? 0, endF: 'depo_pyroNH3', startF: 'depoStable_pyroNH3', pSet: p.pyroNH3Set },
+    PN2: { set: r => r.pyroPN2Set ?? 0, act: r => r.pyroPN2 ?? 0, endF: 'depo_pyroPN2', startF: 'depoStable_pyroPN2', pSet: p.pyroPN2Set },
+    N2O: { set: r => r.pyroN2OSet ?? 0, act: r => r.pyroN2O ?? 0, endF: 'depo_pyroN2O', startF: 'depoStable_pyroN2O', pSet: p.pyroN2OSet },
+    H2: { set: r => r.pyroH2Set ?? 0, act: r => r.pyroH2 ?? 0, endF: 'depo_pyroH2', startF: 'depoStable_pyroH2', pSet: p.pyroH2Set },
+    Ar: {
+      set: r => Math.max(r.pyroArSet ?? 0, r.oxyArSet ?? 0),
+      act: r => Math.max(r.pyroAr ?? 0, r.oxyAr ?? 0),
+      endF: 'depo_pyroAr',
+      startF: 'depoStable_pyroAr',
+      pSet: p.pyroArSet,
+    },
+  };
+  const bbGasSegs: Record<string, GSeg[] | null> = {};
+  detectedProcessGases.forEach(g => {
+    const d = GAS_BB_DEFS[g.name];
+    if (!d) { bbGasSegs[g.name] = null; return; }
+    const label = `Stable (${g.name}${g.set ? ` ${g.set.toLocaleString()} sccm` : ''})`;
+    bbGasSegs[g.name] = buildBbTrack({
+      startKeepOn: startKeep(d.startF),
+      endKind: endSt(d.endF) as 'keep' | 'trans' | undefined,
+      on: makeOn(d.set, d.act),
+      reach: reachInDepo(d.act, g.set || d.pSet, gasWarn),
+      startDef: { rampStart: g.startTime, rampEnd: g.reachTime },
+      stableLabel: label,
+      color: 'bg-[#D97706]',
+      endDefSegs: st => [
+        { s: st, e: g.downStartTime, kind: 'stable', color: 'bg-[#D97706]', label },
+        { s: g.downStartTime, e: g.offTime, kind: 'down' },
+        { s: g.offTime, e: totalCumulativeTime, kind: 'idle' },
+      ],
+    });
+  });
+
+  const tvKind = endSt('depo_tvCtrlMode') as 'keep' | 'trans' | undefined;
+  const bbTvSegs = buildBbTrack({
+    startKeepOn: startKeep('depoStable_tvCtrlMode'),
+    endKind: tvKind,
+    on: r => isTvPressureActive(r),
+    reach: reachInDepo(r => r.tvPressure ?? 0, p.tvPressureSet, pressWarningPct),
+    startDef: { rampStart: tvModeStartStep2, rampEnd: calculatedTransitions.tvReachCum },
+    stableLabel: `Stable (${p.tvPressureSet ?? '-'} mTorr)`,
+    color: 'bg-[#0284C7]',
+    endBbLabel:
+      tvKind === 'trans' && midNextRow
+        ? `BB 전환 → Step ${nextStepNo} (${Math.round(midNextRow.tvPressureSet ?? 0).toLocaleString()} mTorr)`
+        : undefined,
+    endDefSegs: st => [
+      { s: st, e: tvOpenCumTime, kind: 'stable', color: 'bg-[#0284C7]', label: `Stable (${p.tvPressureSet ?? '-'} mTorr)` },
+      { s: tvOpenCumTime, e: tvOpenEndCumTime, kind: 'down' },
+      { s: tvOpenEndCumTime, e: totalCumulativeTime, kind: 'idle' },
+    ],
+  });
+
+  // RF: BB 전환이면 Step 경계까지 Stable(또는 RSD), 이후 다음 Step Set으로 이어지는 빗금 구간
+  const rfStableLabel = `Stable (${p.rfForwardSetValue} W)`;
+  const sih4CutBeforeBb = hasSiH4 && endSt('depo_pyroSiH4') === undefined && tBbEnd !== null && sih4CutCumTime < tBbEnd;
+  const bbRfSegs = buildBbTrack({
+    startKeepOn: isRfBbStart,
+    endKind: isRfBbEnd ? 'trans' : undefined,
+    on: rfOn,
+    reach: reachInDepo(r => r.rfForwardPowerAct, p.rfForwardSetValue, rfWarningPct),
+    startDef: { rampStart: rfOnCumTime, rampEnd: calculatedTransitions.rfReachCum },
+    stableLabel: rfStableLabel,
+    color: 'bg-[#2563EB]',
+    endBbLabel: midNextRow ? `BB 전환 → Step ${nextStepNo} (${Math.round(rfSetOfRow(midNextRow)).toLocaleString()} W)` : undefined,
+    beforeBbSegs: st =>
+      sih4CutBeforeBb && tBbEnd !== null
+        ? [
+            { s: st, e: sih4CutCumTime, kind: 'stable', color: 'bg-[#2563EB]', label: rfStableLabel },
+            { s: sih4CutCumTime, e: tBbEnd, kind: 'down', label: 'RSD' },
+          ]
+        : [{ s: st, e: tBbEnd ?? st, kind: 'stable', color: 'bg-[#2563EB]', label: rfStableLabel }],
+    endDefSegs: st =>
+      hasSiH4
+        ? [
+            { s: st, e: sih4CutCumTime, kind: 'stable', color: 'bg-[#2563EB]', label: rfStableLabel },
+            { s: sih4CutCumTime, e: mainRfOffCumTime, kind: 'down' },
+            { s: mainRfOffCumTime, e: totalCumulativeTime, kind: 'idle' },
+          ]
+        : [
+            { s: st, e: mainRfOffCumTime, kind: 'stable', color: 'bg-[#2563EB]', label: rfStableLabel },
+            { s: mainRfOffCumTime, e: totalCumulativeTime, kind: 'idle' },
+          ],
+  });
+
+  // Lift: 연속 Depo면 Step 경계에서 내려가지 않고 다음 Step Spacing으로 이어짐
+  const liftLabel = `Stable (${liftSpacingValue.toLocaleString()} mils)`;
+  const prevStepItemBb = prevStepNo !== undefined ? stepList.find(st => st.step === prevStepNo) : undefined;
+  const nextStepItemBb = nextStepNo !== undefined ? stepList.find(st => st.step === nextStepNo) : undefined;
+  const bbLiftSegs: GSeg[] | null = (() => {
+    const endBb = tBbEnd !== null && !!nextStepItemBb;
+    const startBb = tBbStart !== null && !!prevStepItemBb;
+    if (!endBb && !startBb) return null;
+    const segs: GSeg[] = [];
+    if (startBb && prevStepItemBb && tBbStart !== null) {
+      segs.push({ s: 0, e: prevStepItemBb.startElapsedSec, kind: 'idle' });
+      segs.push({ s: prevStepItemBb.startElapsedSec, e: tBbStart, kind: 'bb', color: 'bg-[#0D9488]', label: `Step ${prevStepNo}부터 이어짐` });
+      segs.push({ s: tBbStart, e: Math.max(tBbStart, liftMoveUpEnd), kind: 'ramp' });
+    } else {
+      if (step2Start > 0) segs.push({ s: 0, e: step2Start, kind: 'idle' });
+      segs.push({ s: step2Start, e: liftMoveUpEnd, kind: 'ramp' });
+    }
+    const st = startBb && tBbStart !== null ? Math.max(tBbStart, liftMoveUpEnd) : liftMoveUpEnd;
+    if (endBb && nextStepItemBb && tBbEnd !== null) {
+      const nextSp = midNextRow ? Math.round(midNextRow.liftSpacingSet || midNextRow.liftSpacing || 0) : 0;
+      const downS = nextStepItemBb.endElapsedSec;
+      const downE = Math.min(totalCumulativeTime, r1(downS + 2.0));
+      segs.push({ s: st, e: tBbEnd, kind: 'stable', color: 'bg-[#0D9488]', label: liftLabel });
+      segs.push({ s: tBbEnd, e: downS, kind: 'bb', color: 'bg-[#0D9488]', label: `→ Step ${nextStepNo}${nextSp ? ` (${nextSp.toLocaleString()} mils)` : ''}` });
+      segs.push({ s: downS, e: downE, kind: 'down' });
+      segs.push({ s: downE, e: totalCumulativeTime, kind: 'idle' });
+    } else {
+      segs.push({ s: st, e: liftDechuckStart, kind: 'stable', color: 'bg-[#0D9488]', label: liftLabel });
+      segs.push({ s: liftDechuckStart, e: liftDechuckEnd, kind: 'down' });
+      segs.push({ s: liftDechuckEnd, e: totalCumulativeTime, kind: 'idle' });
+    }
+    return segs;
+  })();
+  const hasBbView = !!(bbSih4Segs || bbTvSegs || bbRfSegs || bbLiftSegs || Object.values(bbGasSegs).some(Boolean));
+  /** Set 도달 시점: 이전 Step에서 이어진 항목은 새 Set ± 주의 % 도달 시점 */
+  const bbReach = (keep: boolean, reach: number | null, fallback: number) => (keep && tBbStart !== null ? (reach !== null && reach > tBbStart ? reach : tBbStart) : fallback);
+
   // Control 시점 핵심 지표 리스트 (상태 기반 미니멀 단색화 - Set 도달 완료 파란색, Off 빨간색)
   const controlMilestones = [
     // Depo Step Set 도달 완료 시점 (파란색 계열)
-    ...(hasSiH4 ? [{ key: 'sih4_reach', label: 'SiH4 Set 도달', time: calculatedTransitions.sih4ReachCum, color: '#2563EB', actionType: 'on' as const, group: 'depo' as const }] : []),
+    ...(hasSiH4 ? [{ key: 'sih4_reach', label: 'SiH4 Set 도달', time: bbReach(startKeep('depoStable_pyroSiH4'), reachInDepo(r => r.pyroSiH4 ?? 0, p.pyroSiH4Set, gasWarn), calculatedTransitions.sih4ReachCum), color: '#2563EB', actionType: 'on' as const, group: 'depo' as const }] : []),
     ...detectedProcessGases.map((g, idx) => ({
       key: `proc_gas_${g.name.toLowerCase()}_reach_${idx}`,
       label: `${g.name} Set 도달`,
-      time: g.reachTime,
+      time: GAS_BB_DEFS[g.name]
+        ? bbReach(startKeep(GAS_BB_DEFS[g.name].startF), reachInDepo(GAS_BB_DEFS[g.name].act, g.set || GAS_BB_DEFS[g.name].pSet, gasWarn), g.reachTime)
+        : g.reachTime,
       color: '#2563EB',
       actionType: 'on' as const,
       group: 'depo' as const,
     })),
-    { key: 'press_reach', label: 'Pressure Set 도달', time: calculatedTransitions.tvReachCum, color: '#2563EB', actionType: 'on' as const, group: 'depo' as const },
-    { key: 'rf_reach', label: 'RF Set 도달', time: calculatedTransitions.rfReachCum, color: '#2563EB', actionType: 'on' as const, group: 'depo' as const },
+    { key: 'press_reach', label: 'Pressure Set 도달', time: bbReach(startKeep('depoStable_tvCtrlMode'), reachInDepo(r => r.tvPressure ?? 0, p.tvPressureSet, pressWarningPct), calculatedTransitions.tvReachCum), color: '#2563EB', actionType: 'on' as const, group: 'depo' as const },
+    { key: 'rf_reach', label: 'RF Set 도달', time: bbReach(isRfBbStart, reachInDepo(r => r.rfForwardPowerAct, p.rfForwardSetValue, rfWarningPct), calculatedTransitions.rfReachCum), color: '#2563EB', actionType: 'on' as const, group: 'depo' as const },
     ...(liftSpacingValue > 0 ? [{ key: 'lift_reach', label: 'Lift Set 도달', time: calculatedTransitions.liftReachCum, color: '#2563EB', actionType: 'on' as const, group: 'depo' as const }] : []),
     // Depo Step 제어 종료 / 차단 완료 시점 (빨간색 계열)
-    ...(hasSiH4 ? [{ key: 'sih4_off', label: 'SiH4 Flow Off', time: sih4ActualOffCumTime, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const }] : []),
-    { key: 'rf_off', label: 'RF Off', time: mainRfOffCumTime, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const },
+    ...(hasSiH4
+      ? [endSt('depo_pyroSiH4') && tBbEnd !== null
+          ? { key: 'sih4_off', label: `SiH4 → Step ${nextStepNo} 유지`, time: tBbEnd, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const }
+          : { key: 'sih4_off', label: 'SiH4 Flow Off', time: sih4ActualOffCumTime, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const }]
+      : []),
+    isRfBbEnd && tBbEnd !== null
+      ? { key: 'rf_off', label: `RF BB 전환 → Step ${nextStepNo}`, time: tBbEnd, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const }
+      : { key: 'rf_off', label: 'RF Off', time: mainRfOffCumTime, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const },
     ...detectedProcessGases.map((g, idx) => ({
       key: `proc_gas_${g.name.toLowerCase()}_off_${idx}`,
-      label: `${g.name} Flow Off`,
-      time: g.offTime,
+      label: GAS_BB_DEFS[g.name] && endSt(GAS_BB_DEFS[g.name].endF) ? `${g.name} → Step ${nextStepNo} 유지` : `${g.name} Flow Off`,
+      time: GAS_BB_DEFS[g.name] && endSt(GAS_BB_DEFS[g.name].endF) && tBbEnd !== null ? tBbEnd : g.offTime,
       color: '#DC2626',
       actionType: 'off' as const,
       group: 'depo' as const,
     })),
-    { key: 'press_off', label: 'Pressure Off', time: tvOpenEndCumTime, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const },
+    tvKind && tBbEnd !== null
+      ? { key: 'press_off', label: `Pressure → Step ${nextStepNo} ${tvKind === 'trans' ? '전환' : '유지'}`, time: tBbEnd, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const }
+      : { key: 'press_off', label: 'Pressure Off', time: tvOpenEndCumTime, color: '#DC2626', actionType: 'off' as const, group: 'depo' as const },
   ];
 
   return (
-    <div className="bg-[#F8FAFC] border border-slate-400 rounded-xl overflow-hidden shadow-xs transition-all">
+    <div ref={rootRef} data-gantt className="bg-[#F8FAFC] border border-slate-400 rounded-xl overflow-hidden shadow-xs transition-all scroll-mt-[68px]">
       {/* Header Bar */}
       <div className="px-3 py-1.5 bg-[#E2E8F0] border-b border-slate-300 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -990,6 +1302,42 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
               공정 Sequence 타임라인
             </h3>
           </div>
+          {/* 지금 보는 Recipe (Run 선택은 공정 분석 매니저 · 표 번호 칸) */}
+          <span
+            data-gantt-recipe
+            className="flex items-center gap-1 min-w-0 max-w-[420px] px-1.5 py-0.5 rounded-md bg-white border border-slate-300 text-[11px] font-bold text-[#0F172A]"
+            title={`${currentResult.processData.rcpName} · Run 선택: 왼쪽 공정 분석 매니저 또는 아래 표의 번호 칸`}
+          >
+            <span className="shrink-0 px-1 rounded bg-[#2563EB] text-white text-[9.5px] leading-[15px] tabular-nums">#{currentFileNo}</span>
+            <span className="truncate">{currentResult.processData.rcpName}</span>
+          </span>
+          {/* 한 Log에 Depo가 여러 개일 때만: Depo 선택 칩 */}
+          {siblingResults.length > 1 && (
+            <div data-depo-chips className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-300/70" role="radiogroup" aria-label="Depo 선택">
+              {siblingResults.map(({ r, idx }) => {
+                const on = idx === selectedRunIdx;
+                return (
+                  <button
+                    key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => {
+                      setSelectedRunIdx(idx);
+                      onSelectRunIdx?.(idx);
+                    }}
+                    className={`flex items-center gap-1 px-1.5 h-[20px] rounded-md text-[10.5px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                      on ? 'bg-white text-[#1D4ED8] shadow-2xs' : 'text-[#475569] hover:text-[#0F172A]'
+                    }`}
+                    title={`#${r.displayNo} · Depo ${r.subIndex ?? ''} (Step ${r.depoStep}${r.depoStepName ? ` ${r.depoStepName}` : ''})`}
+                  >
+                    <span>Depo {r.subIndex}</span>
+                    <span className={`text-[9px] font-semibold ${on ? 'text-[#2563EB]' : 'text-[#64748B]'}`}>S{r.depoStep}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* View Controls & Feature Toggles */}
@@ -1038,33 +1386,6 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
             </button>
           </div>
 
-          <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-300 text-[11px] shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setViewMode('single')}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                viewMode === 'single'
-                  ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'text-[#475569] hover:text-[#0F172A] hover:bg-slate-100'
-              }`}
-            >
-              <Sliders className="w-3 h-3" />
-              <span>단일 런 정밀 분석</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('compare')}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                viewMode === 'compare'
-                  ? 'bg-[#0F172A] text-white shadow-xs'
-                  : 'text-[#475569] hover:text-[#0F172A] hover:bg-slate-100'
-              }`}
-            >
-              <GitCompare className="w-3 h-3" />
-              <span>레시피 타이밍 비교 (Diff)</span>
-            </button>
-          </div>
-
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -1078,61 +1399,8 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
 
       {!isCollapsed && (
         <div className="p-3 bg-[#F1F5F9]">
-          {viewMode === 'single' ? (
+          {(
             <div className="flex flex-col lg:flex-row gap-4 items-start">
-              {/* 좌측 세로: 분석 레시피 목록 (Samsung/SK hynix 실무 그리드 스타일) */}
-              <aside className="w-full lg:w-56 shrink-0 bg-[#EAEFF5] border border-slate-400 rounded-xl p-2.5 flex flex-col gap-2 shadow-2xs">
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-300">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#1E3A8A]" />
-                    <span className="text-xs font-bold text-[#0F172A]">분석 레시피</span>
-                  </div>
-                  <span className="text-[10px] font-mono font-bold text-[#334155] bg-white px-1.5 py-0.2 rounded border border-slate-300">
-                    {results.length}개 Run
-                  </span>
-                </div>
-
-                <div className="flex flex-col gap-1 overflow-y-auto max-h-[640px] pr-0.5 scrollbar-thin">
-                  {results.map((r, idx) => {
-                    const isSelected = selectedRunIdx === idx;
-                    const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
-                    return (
-                      <button
-                        key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                        type="button"
-                        onClick={() => {
-                          setSelectedRunIdx(idx);
-                          onSelectRunIdx?.(idx);
-                        }}
-                        className={`w-full text-left px-2 py-1 rounded-lg text-xs transition-all border cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#DBEAFE] text-[#1E40AF] border-[#2563EB] ring-2 ring-[#2563EB]/40 shadow-xs font-bold'
-                            : 'bg-white text-[#0F172A] hover:bg-slate-100 hover:text-[#0F172A] border-slate-300 shadow-2xs'
-                        }`}
-                      >
-                        {/* 1행: Run 번호 + 레시피 명 + Multi-Step 배지 (Step{n}) */}
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`font-mono text-[9px] px-1 py-0.2 rounded font-bold shrink-0 leading-none ${
-                            isSelected ? 'bg-[#2563EB] text-white' : 'bg-slate-200 text-[#334155] border border-slate-300'
-                          }`}>
-                            #{r.displayNo || idx + 1}
-                          </span>
-                          <span className="font-bold text-[11px] truncate flex-1 min-w-0 leading-tight" title={r.processData.rcpName}>
-                            {r.processData.rcpName}
-                          </span>
-                          {isMulti && (
-                            <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-semibold shrink-0 leading-none ${
-                              isSelected ? 'bg-[#BFDBFE] text-[#1E40AF] border border-[#93C5FD]' : 'bg-slate-200 text-[#475569] border border-slate-300'
-                            }`}>
-                              Step{r.depoStep}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </aside>
 
               {/* 우측 메인: 6-Track 타임라인 영역 */}
               <div className="flex-1 min-w-0 w-full space-y-4">
@@ -1172,6 +1440,12 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                       <span className="w-3.5 h-3.5 rounded bg-[#EF4444] border border-[#DC2626]" />
                       <span className="text-rose-900 font-bold">Down (하강/차단 · 붉은색 단색)</span>
                     </div>
+                    {hasBbView && (
+                      <div className="flex items-center gap-1.5" title="BB Mode 또는 연속 Depo로 Step 경계에서 끊기지 않고 이어지는 구간">
+                        <span className="w-3.5 h-3.5 rounded bg-[#64748B] border border-slate-500" style={BB_STRIPE} />
+                        <span className="text-slate-800 font-bold">BB 유지/전환 (Step 경계를 넘어 이어짐 · 빗금)</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1271,6 +1545,10 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                         </span>
                       </div>
                       <div className="h-7 w-full bg-[#CBD5E1]/40 rounded-lg border border-slate-300 relative overflow-hidden shadow-2xs">
+                        {bbLiftSegs ? (
+                          renderGSegs(bbLiftSegs)
+                        ) : (
+                        <>
                         {/* 0. Idle before ramp (스텝 시작 전) */}
                         {step2Start > 0 && (
                           <div
@@ -1314,6 +1592,8 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                         >
                           Idle
                         </div>
+                        </>
+                        )}
                       </div>
                     </div>
 
@@ -1331,6 +1611,10 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                         )}
                       </div>
                       <div className="h-7 w-full bg-[#CBD5E1]/40 rounded-lg border border-slate-300 relative overflow-hidden shadow-2xs">
+                        {bbSih4Segs ? (
+                          renderGSegs(bbSih4Segs)
+                        ) : (
+                        <>
                         {hasSiH4 ? (
                           <>
                             {/* Idle */}
@@ -1392,6 +1676,8 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                             <span>Idle (공정 미공급 · 0 sccm)</span>
                           </div>
                         )}
+                        </>
+                        )}
                       </div>
                     </div>
 
@@ -1411,6 +1697,10 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                           </span>
                         </div>
                         <div className="h-7 w-full bg-[#CBD5E1]/40 rounded-lg border border-slate-300 relative overflow-hidden shadow-2xs">
+                          {bbGasSegs[gas.name] ? (
+                            renderGSegs(bbGasSegs[gas.name] ?? [])
+                          ) : (
+                          <>
                           {/* 0. Idle before ramp */}
                           {gas.startTime > 0 && (
                             <div
@@ -1463,6 +1753,8 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                               Idle
                             </div>
                           )}
+                          </>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1478,6 +1770,10 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                         </span>
                       </div>
                       <div className="h-7 w-full bg-[#CBD5E1]/40 rounded-lg border border-slate-300 relative overflow-hidden shadow-2xs">
+                        {bbTvSegs ? (
+                          renderGSegs(bbTvSegs)
+                        ) : (
+                        <>
                         {/* Idle (Open) */}
                         {tvModeStartStep2 > 0 && (
                           <div
@@ -1530,6 +1826,8 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                             Idle
                           </div>
                         )}
+                        </>
+                        )}
                       </div>
                     </div>
 
@@ -1544,6 +1842,10 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                         </span>
                       </div>
                       <div className="h-7 w-full bg-[#CBD5E1]/40 rounded-lg border border-slate-300 relative overflow-hidden shadow-2xs">
+                        {bbRfSegs ? (
+                          renderGSegs(bbRfSegs)
+                        ) : (
+                        <>
                         {/* Idle */}
                         <div
                           style={{ left: `${toPct(0)}%`, width: `${pctW(0, rfOnCumTime)}%` }}
@@ -1598,6 +1900,8 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                             Idle
                           </div>
                         )}
+                        </>
+                        )}
                       </div>
                     </div>
 
@@ -1615,17 +1919,25 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                             | {step2End.toFixed(1)}s ({stab1StepItem?.stepName ? `${stab1StepItem.stepName} 끝` : `Step ${stab1StepItem?.step ?? 2} 끝`})
                           </span>
                         )}
-                        {rfOnCumTime >= zoomRange.start && rfOnCumTime <= zoomRange.end && (
-                          <span className="text-[#1E3A8A] font-bold">▲ {rfOnCumTime}s (Main RF)</span>
-                        )}
-                        {hasSiH4 && sih4CutCumTime >= zoomRange.start && sih4CutCumTime <= zoomRange.end && (
+                        {isRfBbStart && tBbStart !== null
+                          ? tBbStart >= zoomRange.start && tBbStart <= zoomRange.end && (
+                              <span className="text-[#1E3A8A] font-bold">▲ {tBbStart.toFixed(1)}s (Step {prevStepNo}에서 BB 이어짐)</span>
+                            )
+                          : rfOnCumTime >= zoomRange.start && rfOnCumTime <= zoomRange.end && (
+                              <span className="text-[#1E3A8A] font-bold">▲ {rfOnCumTime}s (Main RF)</span>
+                            )}
+                        {hasSiH4 && !endSt('depo_pyroSiH4') && sih4CutCumTime >= zoomRange.start && sih4CutCumTime <= zoomRange.end && (
                           <span className="text-[#065F46] font-bold">▲ {sih4CutCumTime}s (SiH4 차단)</span>
                         )}
-                        {mainRfOffCumTime >= zoomRange.start && mainRfOffCumTime <= zoomRange.end && (
-                          <span className="text-[#9F1239] font-bold">▲ {mainRfOffCumTime}s (RF Off)</span>
-                        )}
+                        {isRfBbEnd && tBbEnd !== null
+                          ? tBbEnd >= zoomRange.start && tBbEnd <= zoomRange.end && (
+                              <span className="text-[#9F1239] font-bold">▲ {tBbEnd.toFixed(1)}s (BB 전환 → Step {nextStepNo})</span>
+                            )
+                          : mainRfOffCumTime >= zoomRange.start && mainRfOffCumTime <= zoomRange.end && (
+                              <span className="text-[#9F1239] font-bold">▲ {mainRfOffCumTime}s (RF Off)</span>
+                            )}
                         {detectedProcessGases.map((dg, idx) => (
-                          dg.offTime >= zoomRange.start && dg.offTime <= zoomRange.end ? (
+                          !(GAS_BB_DEFS[dg.name] && endSt(GAS_BB_DEFS[dg.name].endF)) && dg.offTime >= zoomRange.start && dg.offTime <= zoomRange.end ? (
                             <span key={`ruler_gas_off_${idx}`} className="text-[#B45309] font-bold">
                               ▲ {dg.offTime.toFixed(1)}s ({dg.name} Off)
                             </span>
@@ -1805,90 +2117,6 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
                     </div>
                   </div>
                   </div>
-                </div>
-              </div>
-            </div>
-        ) : (
-            /* 4. Multi-Recipe Diff Comparison View - Subtle 3% Tint Matrix */
-            <div className="space-y-3">
-              <div className="bg-[#F8FAFC] border border-slate-300 rounded-xl p-3.5 space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <GitCompare className="w-4 h-4 text-[#475569]" />
-                    <span className="font-bold text-[#0F172A]">전체 레시피 End-to-End 시퀀스 타이밍 동기화 비교 (Full Recipe Diff)</span>
-                  </div>
-                  <span className="text-[10px] text-[#64748B] font-medium">STAB1 ➔ Main RF ➔ SiH4 차단 ➔ Power Lift (PL) 전 구간 비교</span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {results.map((r, idx) => {
-                    const runS = r.hwStart;
-                    const runEndStep = r.hwEndStep;
-                    const runP = r.processData;
-
-                    const runStableDur = runEndStep.totalStepTimeStable ?? 15.0;
-                    const runDepoDur = runEndStep.totalStepTimeDepo ?? 65.7;
-                    const runPlDur = runEndStep.totalStepTimePL ?? 5.0;
-                    const runTotalCum = Math.max(1, runStableDur + runDepoDur + 5.0 + runPlDur + 5.0);
-
-                    const runRfOnCum = Math.round((runStableDur + (runS.depo_rfForwardAct ?? 3.1)) * 10) / 10;
-                    const runRfOffCum = Math.round((runStableDur + (runEndStep.depo_rfOffTime ?? 65.1)) * 10) / 10;
-                    const runPlRfOnCum = Math.round((runStableDur + runDepoDur + 5.0 + (runS.pl_rfForwardAct ?? 0.8)) * 10) / 10;
-
-                    const rToPct = (t: number) => Math.min(100, Math.max(0, (t / runTotalCum) * 100));
-                    const rPctW = (st: number, en: number) => Math.max(0, rToPct(en) - rToPct(st));
-
-                    return (
-                      <div
-                        key={`${r.fileId || 'item'}_${idx}`}
-                        className="p-2.5 rounded-xl bg-white border border-slate-300 hover:border-slate-400 hover:shadow-2xs transition-all space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-[#EFF6FF] text-[#1E40AF] font-mono font-bold text-[10px] border border-[#BFDBFE]">
-                              #{idx + 1}
-                            </span>
-                            <span className="font-bold text-[#0F172A]">{runP.rcpName}</span>
-                            <span className="text-[10px] text-[#64748B] font-mono">(Lift: {Math.round(runP.liftSpacingSet ?? 450)} mils)</span>
-                          </div>
-
-                          <div className="flex items-center gap-3 font-mono text-[11px] flex-wrap">
-                            <span className="text-[#065F46] font-semibold">SiH4: {runS.depoStable_pyroSiH4 ?? 0.5}s</span>
-                            <span className="text-[#94A3B8]">➔</span>
-                            <span className="text-[#1E3A8A] font-semibold">Main RF: {runRfOnCum}s</span>
-                            <span className="text-[#94A3B8]">➔</span>
-                            <span className="text-[#9F1239] font-semibold">Depo Off: {runRfOffCum}s</span>
-                            <span className="text-[#94A3B8]">➔</span>
-                            <span className="text-[#1E3A8A] font-bold">PL RF: {runPlRfOnCum}s</span>
-                          </div>
-                        </div>
-
-                        {/* Visual Progress Bar for this recipe - Solid Engineering Matrix */}
-                        <div className="h-5 w-full bg-[#CBD5E1]/40 rounded-lg overflow-hidden flex text-[9px] font-extrabold border border-slate-300 shadow-2xs">
-                          {/* STAB1 Zone */}
-                          <div style={{ width: `${rPctW(0, runStableDur)}%` }} className="bg-[#CBD5E1] border-r border-slate-300 flex items-center justify-between text-slate-800 px-1 truncate">
-                            <span>STAB1</span>
-                          </div>
-                          {/* SIO RF Active (Solid Royal Blue) */}
-                          <div style={{ width: `${rPctW(runStableDur, runRfOffCum)}%` }} className="bg-[#2563EB] text-white border-r-2 border-[#1D4ED8] flex items-center justify-between px-2 truncate shadow-2xs">
-                            <span>Main SIO RF ({runP.rfForwardSetValue}W)</span>
-                          </div>
-                          {/* PL Stable (Solid Amber) */}
-                          <div style={{ width: `${rPctW(runRfOffCum, runPlRfOnCum)}%` }} className="bg-[#D97706] text-white flex items-center justify-center border-r border-[#B45309] px-1 truncate shadow-2xs">
-                            PL Stb
-                          </div>
-                          {/* PL Step (Solid Teal) */}
-                          <div style={{ width: `${rPctW(runPlRfOnCum, runPlRfOnCum + 4.0)}%` }} className="bg-[#0D9488] text-white border-r-2 border-[#0F766E] flex items-center justify-center px-1 truncate shadow-2xs">
-                            Power Lift
-                          </div>
-                          {/* Post Off */}
-                          <div style={{ width: `${rPctW(runPlRfOnCum + 4.0, runTotalCum)}%` }} className="bg-[#CBD5E1] text-slate-700 flex items-center justify-center px-1 truncate">
-                            Idle
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { AnalysisFileResult, AnalyzerSettings } from '../types/pecvd';
+import { fmtHwStatus, hwStatusOf } from './hwStatus';
 
 /**
  * Copy 2D array / table data to clipboard in TSV format
@@ -111,10 +112,21 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
   const wsMon = XLSX.utils.aoa_to_sheet([monHeaders, ...monRows]);
   XLSX.utils.book_append_sheet(wb, wsMon, 'Monitoring Data');
 
+  /** BB / 연속 Depo 칸: '유지' / '전환 x.x', 그 외 값 또는 '-' */
+  const hx = (
+    row: { cellStatus?: Partial<Record<string, 'keep' | 'trans'>> },
+    field: string,
+    val: number | null | undefined
+  ): string | number => {
+    const st = hwStatusOf(row, field);
+    if (st) return fmtHwStatus(st, val);
+    return val ?? '-';
+  };
+
   // 3. HW Control Start
   const startHeaders = [
     'No.', 'RCP Name',
-    'Depo Stable: N2O', 'Depo Stable: NH3', 'Depo Stable: PN2', 'Depo Stable: H2', 'Depo Stable: SiH4', 'Depo Stable: T/V',
+    'Depo Stable: Ar', 'Depo Stable: N2O', 'Depo Stable: NH3', 'Depo Stable: PN2', 'Depo Stable: H2', 'Depo Stable: SiH4', 'Depo Stable: T/V',
     'Depo: RF Power(Act)',
     'PL Stable: Ar', 'PL Stable: H2', 'PL Stable: T/V',
     'PL: RF Power(Act)'
@@ -123,8 +135,8 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     const s = r.hwStart;
     return [
       s.no, s.rcpName,
-      s.depoStable_pyroN2O ?? '-', s.depoStable_pyroNH3 ?? '-', s.depoStable_pyroPN2 ?? '-', s.depoStable_pyroH2 ?? '-', s.depoStable_pyroSiH4 ?? '-', s.depoStable_tvCtrlMode ?? '-',
-      s.depo_rfForwardAct ?? '-',
+      hx(s, 'depoStable_pyroAr', s.depoStable_pyroAr), hx(s, 'depoStable_pyroN2O', s.depoStable_pyroN2O), hx(s, 'depoStable_pyroNH3', s.depoStable_pyroNH3), hx(s, 'depoStable_pyroPN2', s.depoStable_pyroPN2), hx(s, 'depoStable_pyroH2', s.depoStable_pyroH2), hx(s, 'depoStable_pyroSiH4', s.depoStable_pyroSiH4), hx(s, 'depoStable_tvCtrlMode', s.depoStable_tvCtrlMode),
+      hx(s, 'depo_rfForwardAct', s.depo_rfForwardAct),
       s.plStable_pyroAr ?? '-', s.plStable_pyroH2 ?? '-', s.plStable_tvCtrlMode ?? '-',
       s.pl_rfForwardAct ?? '-'
     ];
@@ -136,14 +148,15 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
   const endRFHeaders = [
     'No.', 'RCP Name',
     'Depo: RF Power(A)', 'Depo: T/V', 'Depo: SiH4', 'Depo: Ar', 'Depo: N2O', 'Depo: NH3', 'Depo: PN2', 'Depo: H2',
-    'PL: RF Power(A)', 'PL: T/V', 'PL: Ar', 'PL: H2'
+    'PL: RF Power(A)', 'PL: T/V', 'PL: Ar', 'PL: H2', 'End 기준 (0.0sec)'
   ];
   const endRFRows = results.map(r => {
     const e = r.hwEndRF;
     return [
       e.no, e.rcpName,
-      e.depo_rfForwardAct ?? '-', e.depo_tvCtrlMode ?? '-', e.depo_pyroSiH4 ?? '-', e.depo_pyroAr ?? '-', e.depo_pyroN2O ?? '-', e.depo_pyroNH3 ?? '-', e.depo_pyroPN2 ?? '-', e.depo_pyroH2 ?? '-',
-      e.pl_rfForwardAct ?? '-', e.pl_tvCtrlMode ?? '-', e.pl_pyroAr ?? '-', e.pl_pyroH2 ?? '-'
+      hx(e, 'depo_rfForwardAct', e.depo_rfForwardAct), hx(e, 'depo_tvCtrlMode', e.depo_tvCtrlMode), hx(e, 'depo_pyroSiH4', e.depo_pyroSiH4), hx(e, 'depo_pyroAr', e.depo_pyroAr), hx(e, 'depo_pyroN2O', e.depo_pyroN2O), hx(e, 'depo_pyroNH3', e.depo_pyroNH3), hx(e, 'depo_pyroPN2', e.depo_pyroPN2), hx(e, 'depo_pyroH2', e.depo_pyroH2),
+      e.pl_rfForwardAct ?? '-', e.pl_tvCtrlMode ?? '-', e.pl_pyroAr ?? '-', e.pl_pyroH2 ?? '-',
+      e.endRef === 'stepChange' ? 'Step 전환(BB)' : 'RF Off'
     ];
   });
   const wsEndRF = XLSX.utils.aoa_to_sheet([endRFHeaders, ...endRFRows]);
@@ -172,9 +185,9 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     'RF Power Min(W)', 'RF Power Min Dev(%)', 'RF Power Max(W)', 'RF Power Max Dev(%)',
     'Vpp Min(V)', 'Vpp Max(V)', 'Vpp Unif.(%)',
     'Irms Min(A)', 'Irms Max(A)', 'Irms Unif.(%)',
-    'DC Bias Min(V)', 'DC Bias Max(V)', 'DC Bias Unif.(%)',
+    'DC Bias Min(V)', 'DC Bias Max(V)', 'DC Bias Max-Min(V)',
     'T/V Press Min(mTorr)', 'T/V Press Min Dev(%)', 'T/V Press Max(mTorr)', 'T/V Press Max Dev(%)',
-    'T/V Pos Min(%)', 'T/V Pos Max(%)', 'T/V Pos Unif.(%)',
+    'T/V Pos Min(%)', 'T/V Pos Max(%)', 'T/V Pos Max-Min(%)',
     'Lift Spacing Min(mm)', 'Lift Spacing Min Dev(%)', 'Lift Spacing Max(mm)', 'Lift Spacing Max Dev(%)',
     'SiH4 Min(sccm)', 'SiH4 Min Dev(%)', 'SiH4 Max(sccm)', 'SiH4 Max Dev(%)',
     'N2O Min(sccm)', 'N2O Min Dev(%)', 'N2O Max(sccm)', 'N2O Max Dev(%)',
@@ -216,9 +229,9 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
       d.rfForward.min !== null && d.rfForward.min !== undefined ? Math.round(d.rfForward.min) : '-', d.rfForward.minDevPct ?? '-', d.rfForward.max !== null && d.rfForward.max !== undefined ? Math.round(d.rfForward.max) : '-', d.rfForward.maxDevPct ?? '-',
       d.matcherVpp.min !== null && d.matcherVpp.min !== undefined ? Math.round(d.matcherVpp.min) : '-', d.matcherVpp.max !== null && d.matcherVpp.max !== undefined ? Math.round(d.matcherVpp.max) : '-', d.matcherVpp.uniformityPct ?? '-',
       d.matcherIrms.min !== null && d.matcherIrms.min !== undefined ? Math.round(d.matcherIrms.min) : '-', d.matcherIrms.max !== null && d.matcherIrms.max !== undefined ? Math.round(d.matcherIrms.max) : '-', d.matcherIrms.uniformityPct ?? '-',
-      d.matcherDCBias.min !== null && d.matcherDCBias.min !== undefined ? Math.round(d.matcherDCBias.min) : '-', d.matcherDCBias.max !== null && d.matcherDCBias.max !== undefined ? Math.round(d.matcherDCBias.max) : '-', d.matcherDCBias.uniformityPct ?? '-',
+      d.matcherDCBias.min !== null && d.matcherDCBias.min !== undefined ? Math.round(d.matcherDCBias.min) : '-', d.matcherDCBias.max !== null && d.matcherDCBias.max !== undefined ? Math.round(d.matcherDCBias.max) : '-', d.matcherDCBias.range ?? '-',
       d.tvPressure.min !== null && d.tvPressure.min !== undefined ? Math.round(d.tvPressure.min) : '-', d.tvPressure.minDevPct ?? '-', d.tvPressure.max !== null && d.tvPressure.max !== undefined ? Math.round(d.tvPressure.max) : '-', d.tvPressure.maxDevPct ?? '-',
-      d.tvPosition.min ?? '-', d.tvPosition.max ?? '-', d.tvPosition.uniformityPct ?? '-',
+      d.tvPosition.min ?? '-', d.tvPosition.max ?? '-', d.tvPosition.range ?? '-',
       d.liftSpacing.min !== null && d.liftSpacing.min !== undefined ? Math.round(d.liftSpacing.min) : '-', d.liftSpacing.minDevPct ?? '-', d.liftSpacing.max !== null && d.liftSpacing.max !== undefined ? Math.round(d.liftSpacing.max) : '-', d.liftSpacing.maxDevPct ?? '-',
       d.pyroSiH4.min !== null && d.pyroSiH4.min !== undefined ? Math.round(d.pyroSiH4.min) : '-', d.pyroSiH4.minDevPct ?? '-', d.pyroSiH4.max !== null && d.pyroSiH4.max !== undefined ? Math.round(d.pyroSiH4.max) : '-', d.pyroSiH4.maxDevPct ?? '-',
       d.pyroN2O.min !== null && d.pyroN2O.min !== undefined ? Math.round(d.pyroN2O.min) : '-', d.pyroN2O.minDevPct ?? '-', d.pyroN2O.max !== null && d.pyroN2O.max !== undefined ? Math.round(d.pyroN2O.max) : '-', d.pyroN2O.maxDevPct ?? '-',
@@ -243,7 +256,7 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     return [
       s.no, s.rcpName,
       s.totalStepTimeDepo ?? '-', s.totalStepTimePL ?? '-',
-      s.depo_rfOffTime ?? '-', s.depo_rfForwardAct ?? '-', s.depo_tvCtrlMode ?? '-', s.depo_pyroSiH4 ?? '-', s.depo_pyroAr ?? '-', s.depo_pyroN2O ?? '-', s.depo_pyroNH3 ?? '-', s.depo_pyroPN2 ?? '-', s.depo_pyroH2 ?? '-',
+      s.depo_rfOffTime ?? '-', hx(s, 'depo_rfForwardAct', s.depo_rfForwardAct), hx(s, 'depo_tvCtrlMode', s.depo_tvCtrlMode), hx(s, 'depo_pyroSiH4', s.depo_pyroSiH4), hx(s, 'depo_pyroAr', s.depo_pyroAr), hx(s, 'depo_pyroN2O', s.depo_pyroN2O), hx(s, 'depo_pyroNH3', s.depo_pyroNH3), hx(s, 'depo_pyroPN2', s.depo_pyroPN2), hx(s, 'depo_pyroH2', s.depo_pyroH2),
       s.pl_rfOffTime ?? '-', s.pl_rfForwardAct ?? '-', s.pl_tvCtrlMode ?? '-', s.pl_pyroAr ?? '-', s.pl_pyroH2 ?? '-'
     ];
   });
@@ -257,9 +270,9 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
     ['RF Generator', 'Reflect Power (구간 Max W)', `${settings.ecRfReflectWarningW ?? 100} W`, `${settings.ecRfReflectAlarmW ?? 200} W`, '상한'],
     ['Matcher', 'Vpp Uniformity %', `${settings.ecMatcherWarningPct ?? 2}%`, `${settings.ecMatcherAlarmPct ?? 3}%`, '상한'],
     ['Matcher', 'Irms Uniformity %', `${settings.ecMatcherWarningPct ?? 2}%`, `${settings.ecMatcherAlarmPct ?? 3}%`, '상한'],
-    ['Matcher', 'DC Bias Uniformity %', `${settings.ecMatcherWarningPct ?? 2}%`, `${settings.ecMatcherAlarmPct ?? 3}%`, '상한'],
+    ['Matcher', 'DC Bias Max−Min (V)', `${settings.ecVdcWarningV ?? 15} V`, `${settings.ecVdcAlarmV ?? 30} V`, '상한'],
     ['Throttle Valve', 'Pressure (Set 대비 편차 %)', `±${settings.ecPressureWarningPct ?? 2}%`, `±${settings.ecPressureAlarmPct ?? 5}%`, '양방향(±)'],
-    ['Throttle Valve', 'Position Uniformity %', `${settings.ecPositionWarningPct ?? 0.5}%`, `${settings.ecPositionAlarmPct ?? 1.0}%`, '상한'],
+    ['Throttle Valve', 'Position Max−Min (%)', `${settings.ecPositionWarningPct ?? 1}%`, `${settings.ecPositionAlarmPct ?? 2}%`, '상한'],
     ['Lift Spacing', 'Lift Spacing (Set 대비 편차 %)', settings.ecLiftSpacingWarningPct ? `±${settings.ecLiftSpacingWarningPct}%` : '미설정', settings.ecLiftSpacingAlarmPct ? `±${settings.ecLiftSpacingAlarmPct}%` : '미설정', '양방향(±)'],
     ['Gas', '전체 Gas 유량 (Set 대비 편차 %)', `±${settings.ecGasWarningPct ?? 3}%`, `±${settings.ecGasAlarmPct ?? 5}%`, '양방향(±)'],
     ['Heater Zone', 'Heater Temp (온도차 ℃)', `±${settings.ecHeaterWarningC ?? 5} ℃`, `±${settings.ecHeaterAlarmC ?? 10} ℃`, '양방향(±)'],

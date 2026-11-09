@@ -29,6 +29,7 @@ import {
   ParsedLogFile,
 } from '../types/pecvd';
 import { copyTableToClipboard } from '../utils/exportUtils';
+import { fmtHwStatus, hwBoundaryBadge, hwStatusOf, isBbEndRow } from '../utils/hwStatus';
 import { normalizeCriteria } from '../utils/analyzer';
 import { interpolateCTCL } from '../utils/ctclParser';
 import { SequenceGanttVisualizer } from './SequenceGanttVisualizer';
@@ -154,13 +155,21 @@ export const TABLE_TH_UNIT_CLASS =
 export const TINT_FIXED_TH1 = 'py-1 px-1 border border-slate-400 bg-[#CBD5E1] text-[#0F172A] font-bold text-[11px] font-sans align-middle';
 export const TINT_FIXED_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DDE3EA] text-[#0F172A] font-bold text-[11px] font-sans align-middle';
 
-// 2) RF Power & Matcher 계통 - 아이스 블루 틴트 (음영 밝기 조절로 또렷한 대비)
+// 2) RF Power 계통 (Power·RSD·Max Ref.·RF Delay) - 아이스 블루 틴트 (음영 밝기 조절로 또렷한 대비)
 export const TINT_RF_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C2D7EF] text-[#1E3A8A] font-bold text-[11px] font-sans align-middle';
 export const TINT_RF_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D7E5F4] text-[#1E3A8A] font-bold text-[11px] font-sans align-middle';
 
-// 3) Pressure, Spacing & Throttle Valve (T/V) 계통 - 세이지/틸 틴트
-export const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C6E1DB] text-[#115E59] font-bold text-[11px] font-sans align-middle';
-export const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#DBECE7] text-[#115E59] font-bold text-[11px] font-sans align-middle';
+// 3) Pressure & Throttle Valve (Pres.·T/V Pos.) 계통 - 연두·올리브 틴트 (원본 로그 탭과 동일)
+export const TINT_PRES_TH1 = 'py-1 px-1 border border-slate-400 bg-[#DCE3B0] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
+export const TINT_PRES_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAEFCC] text-[#4D5A0E] font-bold text-[11px] font-sans align-middle';
+
+// 3-1) Lift / Spacing 계통 - 연보라 틴트 (원본 로그 탭 Lift Spacing과 동일)
+export const TINT_LIFT_TH1 = 'py-1 px-1 border border-slate-400 bg-[#D9D7F1] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
+export const TINT_LIFT_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#EAE8F8] text-[#3730A3] font-bold text-[11px] font-sans align-middle';
+
+// 3-2) Matcher 계통 (Load·Tune·R·X·Vpp·Irms·Vdc) - 민트 틴트 (원본 로그 탭 Matcher Parameter와 동일)
+export const TINT_MATCHER_TH1 = 'py-1 px-1 border border-slate-400 bg-[#C1E2D4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
+export const TINT_MATCHER_TH2 = 'py-0.5 px-0.5 border border-slate-400 bg-[#D8EDE4] text-[#065F46] font-bold text-[11px] font-sans align-middle';
 
 // 4) Gas MFC 계통 - 앰버/샌드 틴트
 export const TINT_GAS_TH1 = 'py-1 px-1 border border-slate-400 bg-[#EEDBB8] text-[#78350F] font-bold text-[11px] font-sans align-middle';
@@ -189,6 +198,9 @@ interface IntegratedDashboardProps {
   onNavigateToCtcl?: () => void;
 }
 
+/** 표 번호 칸: 눌러서 타임라인 보기 (마우스를 올리면 번호가 파랗게) */
+const NO_CELL_LINK_CLASS = 'cursor-pointer hover:[&>span]:text-[#2563EB] hover:[&>span]:underline hover:[&>span]:underline-offset-2';
+
 export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
   results,
   settings,
@@ -206,6 +218,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 }) => {
   const { theme, themeMode } = useTheme();
   const [copiedTable, setCopiedTable] = useState<string | null>(null);
+  // 표 번호 칸 클릭: 그 Recipe를 선택하고 공정 Sequence 타임라인을 펼쳐 보여줌
+  const [ganttFocus, setGanttFocus] = useState<number>(0);
+  const focusTimeline = (idx: number) => {
+    onSelectRunIdx?.(idx);
+    setGanttFocus(k => k + 1);
+  };
   const [isDelaySettingsOpen, setIsDelaySettingsOpen] = useState<boolean>(false);
   const [activeDevTab, setActiveDevTab] = useState<'rfMatcher' | 'presLift' | 'gas' | 'heater' | 'all'>('rfMatcher');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -877,38 +895,50 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     `End PL: ${getAlias('rf_power', 'Power')}`,
     `End PL: ${getAlias('tv_mode', 'T/V')}`,
     `End PL: ${getAlias('ar', 'Ar')}`,
-    `End PL: ${getAlias('h2', 'H2')}`
+    `End PL: ${getAlias('h2', 'H2')}`,
+    'End 기준 (0.0sec)'
   ];
+  /** H/W Control 칸 문자열: '유지' / '전환 x.x' / 일반 값 */
+  const hwTxt = (
+    row: { cellStatus?: Partial<Record<string, 'keep' | 'trans'>> } | null | undefined,
+    field: string,
+    val: number | null | undefined,
+    signed = true
+  ): string => {
+    const st = hwStatusOf(row, field);
+    return st ? fmtHwStatus(st, val) : fmtSec(val, signed);
+  };
   const hwTimingRows = results.map(r => {
     const s = r.hwStart;
     const e = r.hwEndRF;
     return [
       s.no,
       s.rcpName,
-      fmtSec(s.depoStable_pyroAr, true),
-      fmtSec(s.depoStable_pyroN2O, true),
-      fmtSec(s.depoStable_pyroNH3, true),
-      fmtSec(s.depoStable_pyroPN2, true),
-      fmtSec(s.depoStable_pyroH2, true),
-      fmtSec(s.depoStable_pyroSiH4, true),
-      fmtSec(s.depoStable_tvCtrlMode, true),
-      fmtSec(s.depo_rfForwardAct, true),
-      fmtSec(s.plStable_pyroAr, true),
-      fmtSec(s.plStable_pyroH2, true),
-      fmtSec(s.plStable_tvCtrlMode, true),
-      fmtSec(s.pl_rfForwardAct, true),
-      fmtSec(e.depo_rfForwardAct, true),
-      fmtSec(e.depo_tvCtrlMode, true),
-      fmtSec(e.depo_pyroSiH4, true),
-      fmtSec(e.depo_pyroAr, true),
-      fmtSec(e.depo_pyroN2O, true),
-      fmtSec(e.depo_pyroNH3, true),
-      fmtSec(e.depo_pyroPN2, true),
-      fmtSec(e.depo_pyroH2, true),
-      fmtSec(e.pl_rfForwardAct, true),
-      fmtSec(e.pl_tvCtrlMode, true),
-      fmtSec(e.pl_pyroAr, true),
-      fmtSec(e.pl_pyroH2, true)
+      hwTxt(s, 'depoStable_pyroAr', s.depoStable_pyroAr),
+      hwTxt(s, 'depoStable_pyroN2O', s.depoStable_pyroN2O),
+      hwTxt(s, 'depoStable_pyroNH3', s.depoStable_pyroNH3),
+      hwTxt(s, 'depoStable_pyroPN2', s.depoStable_pyroPN2),
+      hwTxt(s, 'depoStable_pyroH2', s.depoStable_pyroH2),
+      hwTxt(s, 'depoStable_pyroSiH4', s.depoStable_pyroSiH4),
+      hwTxt(s, 'depoStable_tvCtrlMode', s.depoStable_tvCtrlMode),
+      hwTxt(s, 'depo_rfForwardAct', s.depo_rfForwardAct),
+      hwTxt(s, 'plStable_pyroAr', s.plStable_pyroAr),
+      hwTxt(s, 'plStable_pyroH2', s.plStable_pyroH2),
+      hwTxt(s, 'plStable_tvCtrlMode', s.plStable_tvCtrlMode),
+      hwTxt(s, 'pl_rfForwardAct', s.pl_rfForwardAct),
+      hwTxt(e, 'depo_rfForwardAct', e.depo_rfForwardAct),
+      hwTxt(e, 'depo_tvCtrlMode', e.depo_tvCtrlMode),
+      hwTxt(e, 'depo_pyroSiH4', e.depo_pyroSiH4),
+      hwTxt(e, 'depo_pyroAr', e.depo_pyroAr),
+      hwTxt(e, 'depo_pyroN2O', e.depo_pyroN2O),
+      hwTxt(e, 'depo_pyroNH3', e.depo_pyroNH3),
+      hwTxt(e, 'depo_pyroPN2', e.depo_pyroPN2),
+      hwTxt(e, 'depo_pyroH2', e.depo_pyroH2),
+      hwTxt(e, 'pl_rfForwardAct', e.pl_rfForwardAct),
+      hwTxt(e, 'pl_tvCtrlMode', e.pl_tvCtrlMode),
+      hwTxt(e, 'pl_pyroAr', e.pl_pyroAr),
+      hwTxt(e, 'pl_pyroH2', e.pl_pyroH2),
+      isBbEndRow(e) ? 'Step 전환(BB)' : 'RF Off'
     ];
   });
 
@@ -918,9 +948,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     `${getAlias('rf_power', 'Power')} Min(W)`, `${getAlias('rf_power', 'Power')} ΔMin(%)`, `${getAlias('rf_power', 'Power')} Max(W)`, `${getAlias('rf_power', 'Power')} ΔMax(%)`,
     `${getAlias('matcher_vpp', 'Vpp')} Min(V)`, `${getAlias('matcher_vpp', 'Vpp')} Max(V)`, `${getAlias('matcher_vpp', 'Vpp')} Unif.(%)`,
     `${getAlias('matcher_irms', 'Irms')} Min(A)`, `${getAlias('matcher_irms', 'Irms')} Max(A)`, `${getAlias('matcher_irms', 'Irms')} Unif.(%)`,
-    `${getAlias('matcher_vdc', 'DC Bias')} Min(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Max(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Unif.(%)`,
+    `${getAlias('matcher_vdc', 'DC Bias')} Min(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Max(V)`, `${getAlias('matcher_vdc', 'DC Bias')} Max-Min(V)`,
     `${getAlias('tv_press', 'Pres.')} Min(mTorr)`, `${getAlias('tv_press', 'Pres.')} ΔMin(%)`, `${getAlias('tv_press', 'Pres.')} Max(mTorr)`, `${getAlias('tv_press', 'Pres.')} ΔMax(%)`,
-    `${getAlias('tv_pos', 'T/V')} Min(%)`, `${getAlias('tv_pos', 'T/V')} Max(%)`, `${getAlias('tv_pos', 'T/V')} Unif.(%)`,
+    `${getAlias('tv_pos', 'T/V')} Min(%)`, `${getAlias('tv_pos', 'T/V')} Max(%)`, `${getAlias('tv_pos', 'T/V')} Max-Min(%)`,
     `${getAlias('lift_spacing', 'Spacing')} Min(mm)`, `${getAlias('lift_spacing', 'Spacing')} ΔMin(%)`, `${getAlias('lift_spacing', 'Spacing')} Max(mm)`, `${getAlias('lift_spacing', 'Spacing')} ΔMax(%)`,
     `${getAlias('ar', 'Ar')} Min(sccm)`, `${getAlias('ar', 'Ar')} ΔMin(%)`, `${getAlias('ar', 'Ar')} Max(sccm)`, `${getAlias('ar', 'Ar')} ΔMax(%)`,
     `${getAlias('sih4', 'SiH4')} Min(sccm)`, `${getAlias('sih4', 'SiH4')} ΔMin(%)`, `${getAlias('sih4', 'SiH4')} Max(sccm)`, `${getAlias('sih4', 'SiH4')} ΔMax(%)`,
@@ -939,9 +969,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       fmtInt(d.rfForward.min), fmtPct(d.rfForward.minDevPct), fmtInt(d.rfForward.max), fmtPct(d.rfForward.maxDevPct),
       fmtInt(d.matcherVpp.min), fmtInt(d.matcherVpp.max), fmtPct(d.matcherVpp.uniformityPct),
       fmtInt(d.matcherIrms.min), fmtInt(d.matcherIrms.max), fmtPct(d.matcherIrms.uniformityPct),
-      fmtInt(d.matcherDCBias.min), fmtInt(d.matcherDCBias.max), fmtPct(d.matcherDCBias.uniformityPct),
+      fmtInt(d.matcherDCBias.min), fmtInt(d.matcherDCBias.max), fmt(d.matcherDCBias.range, 1),
       fmtInt(d.tvPressure.min), fmtPct(d.tvPressure.minDevPct), fmtInt(d.tvPressure.max), fmtPct(d.tvPressure.maxDevPct),
-      fmt(d.tvPosition.min), fmt(d.tvPosition.max), fmtPct(d.tvPosition.uniformityPct),
+      fmt(d.tvPosition.min), fmt(d.tvPosition.max), fmt(d.tvPosition.range, 1),
       fmtInt(d.liftSpacing.min), fmtPct(d.liftSpacing.minDevPct), fmtInt(d.liftSpacing.max), fmtPct(d.liftSpacing.maxDevPct),
       fmtInt(d.pyroAr.min), fmtPct(d.pyroAr.minDevPct), fmtInt(d.pyroAr.max), fmtPct(d.pyroAr.maxDevPct),
       fmtInt(d.pyroSiH4.min), fmtPct(d.pyroSiH4.minDevPct), fmtInt(d.pyroSiH4.max), fmtPct(d.pyroSiH4.maxDevPct),
@@ -1014,8 +1044,8 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     return [
       s.no,
       fmtSec(s.totalStepTimeDepo), fmtSec(s.totalStepTimePL),
-      fmtSec(s.depo_rfOffTime), fmtSec(s.depo_rfForwardAct), fmtSec(s.depo_tvCtrlMode),
-      fmtSec(s.depo_pyroSiH4), fmtSec(s.depo_pyroAr), fmtSec(s.depo_pyroN2O), fmtSec(s.depo_pyroNH3), fmtSec(s.depo_pyroPN2), fmtSec(s.depo_pyroH2),
+      fmtSec(s.depo_rfOffTime), hwTxt(s, 'depo_rfForwardAct', s.depo_rfForwardAct, false), hwTxt(s, 'depo_tvCtrlMode', s.depo_tvCtrlMode, false),
+      hwTxt(s, 'depo_pyroSiH4', s.depo_pyroSiH4, false), hwTxt(s, 'depo_pyroAr', s.depo_pyroAr, false), hwTxt(s, 'depo_pyroN2O', s.depo_pyroN2O, false), hwTxt(s, 'depo_pyroNH3', s.depo_pyroNH3, false), hwTxt(s, 'depo_pyroPN2', s.depo_pyroPN2, false), hwTxt(s, 'depo_pyroH2', s.depo_pyroH2, false),
       fmtSec(s.pl_rfOffTime), fmtSec(s.pl_rfForwardAct), fmtSec(s.pl_tvCtrlMode),
       fmtSec(s.pl_pyroAr), fmtSec(s.pl_pyroH2)
     ];
@@ -1052,6 +1082,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           files={files}
           externalSelectedRunIdx={selectedRunIdx}
           onSelectRunIdx={onSelectRunIdx}
+          focusSignal={ganttFocus}
         />
 
         {/* --------------------------------------------------------- */}
@@ -1171,7 +1202,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="overflow-x-auto max-h-[360px] scrollbar-thin">
-              <table className={`w-full min-w-[1340px] text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+              <table className={`pd-grid w-full min-w-[1340px] text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={TABLE_COL_NO_STYLE} />
                   <col style={TABLE_COL_RCP_STYLE} />
@@ -1198,7 +1229,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
 
                     {/* Lift (1 col) - Sage/Teal 3% */}
-                    <th colSpan={1} className={TINT_PRES_TH1}>
+                    <th colSpan={1} className={TINT_LIFT_TH1}>
                       Lift
                     </th>
 
@@ -1218,7 +1249,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
 
                     {/* Lift Spacing (1 col) - Sage/Teal 3% */}
-                    <th rowSpan={2} className={TINT_PRES_TH1}>
+                    <th rowSpan={2} className={TINT_LIFT_TH1}>
                       <div>{getAlias('lift_spacing', 'Spacing')}</div>
                     </th>
 
@@ -1255,7 +1286,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
 
                     {/* Lift Sub-header */}
-                    <th className={`${TINT_PRES_TH2} leading-tight`}>
+                    <th className={`${TINT_LIFT_TH2} leading-tight`}>
                       <div>Home</div>
                       <div>Spacing</div>
                     </th>
@@ -1333,7 +1364,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                         } ${theme.tableRowHover}`}
                       >
-                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                           {isMulti ? (
                             <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                               {p.no}
@@ -1455,7 +1486,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="w-full overflow-x-auto scrollbar-thin max-h-[460px]">
-            <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+            <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={TABLE_COL_NO_STYLE} />
                 <col style={TABLE_COL_RCP_STYLE} />
@@ -1494,7 +1525,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     RSD
                   </th>
                   {/* Matcher 7 (Blue 3%) */}
-                  <th colSpan={7} className={TINT_RF_TH1}>Matcher</th>
+                  <th colSpan={7} className={TINT_MATCHER_TH1}>Matcher</th>
                 </tr>
 
                 {/* Tier 2 Header: Matcher Sub-headers */}
@@ -1503,13 +1534,13 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   <th className={TINT_RF_TH2}>Power</th>
                   <th className={TINT_RF_TH2}>Time</th>
                   {/* Matcher Sub-headers */}
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_load', 'Load')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_tune', 'Tune')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_r', 'R')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_x', 'X')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_vpp', 'Vpp')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_irms', 'Irms')}</th>
-                  <th className={TINT_RF_TH2}>{getAlias('matcher_vdc', 'Vdc')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_load', 'Load')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_tune', 'Tune')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_r', 'R')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_x', 'X')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_vpp', 'Vpp')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_irms', 'Irms')}</th>
+                  <th className={TINT_MATCHER_TH2}>{getAlias('matcher_vdc', 'Vdc')}</th>
                 </tr>
 
                 {/* Tier 3 Header with Units */}
@@ -1548,7 +1579,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {m.no}
@@ -1601,7 +1632,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             <td
                               style={getSelectedTdStyle(isSelected)}
                               className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
-                              title={rVal !== null ? `Matcher R (저항): ${fmt(rVal, 2)} Ω (클릭 시 CTCL 시뮬레이터로 이동)` : 'CTCL Matrix 미연결'}
+                              title={rVal !== null ? `Matcher R (저항): ${fmt(rVal, 2)} Ω (클릭 시 원본 Log Data 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
                               onClick={onNavigateToCtcl ? (e) => { e.stopPropagation(); onSelectRunIdx?.(idx); onNavigateToCtcl(); } : undefined}
                             >
                               <span className={onNavigateToCtcl && rVal !== null ? 'group-hover:text-[#2563EB] group-hover:underline' : ''}>
@@ -1611,7 +1642,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             <td
                               style={getSelectedTdStyle(isSelected)}
                               className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
-                              title={xVal !== null ? `Matcher X (리액턴스): ${fmt(xVal, 2)} Ω (클릭 시 CTCL 시뮬레이터로 이동)` : 'CTCL Matrix 미연결'}
+                              title={xVal !== null ? `Matcher X (리액턴스): ${fmt(xVal, 2)} Ω (클릭 시 원본 Log Data 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
                               onClick={onNavigateToCtcl ? (e) => { e.stopPropagation(); onSelectRunIdx?.(idx); onNavigateToCtcl(); } : undefined}
                             >
                               <span className={onNavigateToCtcl && xVal !== null ? 'group-hover:text-[#2563EB] group-hover:underline' : ''}>
@@ -1671,7 +1702,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           {/* 전체 채널 상세 뷰 (24열) - [Monitoring Data] 공정 중 실제 값과 디자인 100% 동일 */}
           {/* ============================================================== */}
           <div className="w-full overflow-x-auto scrollbar-thin max-h-[460px]">
-              <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+              <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={TABLE_COL_NO_STYLE} />
                   <col style={TABLE_COL_RCP_STYLE} />
@@ -1692,7 +1723,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     </th>
                     <th colSpan={12} className={TINT_HEAT_TH1}>
                       <div className="text-[11px] font-bold font-sans tracking-tight text-[#9F1239]">H/W Control End 시점 <span className="text-[10px] text-[#475569] font-normal">(sec)</span></div>
-                      <div className="text-[10px] text-[#475569] font-medium font-sans tracking-tight">(0.0sec = RF Power Off)</div>
+                      <div className="text-[10px] text-[#475569] font-medium font-sans tracking-tight">
+                        (0.0sec = RF Power Off{results.some(r => isBbEndRow(r.hwEndRF)) ? ' · BB 행은 Step 전환 시점' : ''})
+                      </div>
                     </th>
                   </tr>
 
@@ -1786,6 +1819,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   {results.map((r, idx) => {
                     const s = r.hwStart;
                     const e = r.hwEndRF;
+                    const bbBadge = hwBoundaryBadge(s, e);
                     const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
                     const isSelected = selectedRunIdx === idx;
 
@@ -1793,10 +1827,37 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       val: number | null | undefined,
                       isLast = false,
                       isAlarm = false,
-                      isWarn = false
+                      isWarn = false,
+                      status?: 'keep' | 'trans',
+                      actReach?: number | null
                     ) => {
                       const formatted = fmtSec(val, true);
                       const cellStyle = getSelectedTdStyle(isSelected, false, isLast);
+
+                      // BB / 연속 Depo: '유지'·'전환' 칸은 주의·경보 판정 제외
+                      if (status) {
+                        return (
+                          <td
+                            className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] whitespace-nowrap`}
+                            style={cellStyle}
+                            title={
+                              status === 'keep'
+                                ? '다른 Step으로 끊기지 않고 이어짐 (판정 제외)'
+                                : `Act 도달 ${actReach !== null && actReach !== undefined && isFinite(actReach) ? actReach.toFixed(1) : '-'}초`
+                            }
+                          >
+                            <span
+                              className={`inline-flex items-center justify-center px-1 py-[1px] rounded border text-[10px] font-semibold leading-none ${
+                                status === 'keep'
+                                  ? 'bg-slate-100 border-slate-300 text-slate-500 dark:bg-slate-700 dark:border-slate-500 dark:text-slate-300'
+                                  : 'bg-sky-50 border-sky-300 text-sky-800 dark:bg-sky-900/40 dark:border-sky-600 dark:text-sky-200'
+                              }`}
+                            >
+                              {fmtHwStatus(status, val)}
+                            </span>
+                          </td>
+                        );
+                      }
 
                       return (
                         <td
@@ -1824,7 +1885,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                         } ${theme.tableRowHover}`}
                       >
-                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                           {isMulti ? (
                             <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                               {s.no}
@@ -1841,18 +1902,26 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                                 Depo {r.subIndex}
                               </span>
                             )}
+                            {bbBadge && (
+                              <span
+                                title={bbBadge.title}
+                                className="text-[9px] px-1 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-300 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600 font-mono font-bold shrink-0 cursor-help"
+                              >
+                                {bbBadge.label}
+                              </span>
+                            )}
                           </div>
                         </td>
                         {/* Start Depo. Stable (7 cols) */}
-                        {renderCleanTd(s.depoStable_pyroAr)}
-                        {renderCleanTd(s.depoStable_pyroN2O)}
-                        {renderCleanTd(s.depoStable_pyroNH3)}
-                        {renderCleanTd(s.depoStable_pyroPN2)}
-                        {renderCleanTd(s.depoStable_pyroH2)}
-                        {renderCleanTd(s.depoStable_pyroSiH4)}
-                        {renderCleanTd(s.depoStable_tvCtrlMode)}
+                        {renderCleanTd(s.depoStable_pyroAr, false, false, false, hwStatusOf(s, 'depoStable_pyroAr'))}
+                        {renderCleanTd(s.depoStable_pyroN2O, false, false, false, hwStatusOf(s, 'depoStable_pyroN2O'))}
+                        {renderCleanTd(s.depoStable_pyroNH3, false, false, false, hwStatusOf(s, 'depoStable_pyroNH3'))}
+                        {renderCleanTd(s.depoStable_pyroPN2, false, false, false, hwStatusOf(s, 'depoStable_pyroPN2'))}
+                        {renderCleanTd(s.depoStable_pyroH2, false, false, false, hwStatusOf(s, 'depoStable_pyroH2'))}
+                        {renderCleanTd(s.depoStable_pyroSiH4, false, false, false, hwStatusOf(s, 'depoStable_pyroSiH4'))}
+                        {renderCleanTd(s.depoStable_tvCtrlMode, false, false, false, hwStatusOf(s, 'depoStable_tvCtrlMode'))}
                         {/* Start Depo. Power (1 col) */}
-                        {renderCleanTd(s.depo_rfForwardAct)}
+                        {renderCleanTd(s.depo_rfForwardAct, false, false, false, hwStatusOf(s, 'depo_rfForwardAct'))}
                         {/* Start PL Stable (3 cols) */}
                         {renderCleanTd(s.plStable_pyroAr)}
                         {renderCleanTd(s.plStable_pyroH2)}
@@ -1860,14 +1929,14 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         {/* Start PL Power (1 col) */}
                         {renderCleanTd(s.pl_rfForwardAct)}
                         {/* End Depo. Step (8 cols) */}
-                        {renderCleanTd(e.depo_rfForwardAct)}
-                        {renderCleanTd(e.depo_tvCtrlMode, false, false, e.depo_tvCtrlMode !== null && e.depo_tvCtrlMode > 3.0)}
-                        {renderCleanTd(e.depo_pyroSiH4, false, e.depo_pyroSiH4 !== null && e.depo_pyroSiH4 > 0.1)}
-                        {renderCleanTd(e.depo_pyroAr)}
-                        {renderCleanTd(e.depo_pyroN2O)}
-                        {renderCleanTd(e.depo_pyroNH3)}
-                        {renderCleanTd(e.depo_pyroPN2)}
-                        {renderCleanTd(e.depo_pyroH2)}
+                        {renderCleanTd(e.depo_rfForwardAct, false, false, false, hwStatusOf(e, 'depo_rfForwardAct'), e.actReach?.depo_rfForwardAct)}
+                        {renderCleanTd(e.depo_tvCtrlMode, false, false, e.depo_tvCtrlMode !== null && e.depo_tvCtrlMode > 3.0, hwStatusOf(e, 'depo_tvCtrlMode'), e.actReach?.depo_tvCtrlMode)}
+                        {renderCleanTd(e.depo_pyroSiH4, false, e.depo_pyroSiH4 !== null && e.depo_pyroSiH4 > 0.1, false, hwStatusOf(e, 'depo_pyroSiH4'))}
+                        {renderCleanTd(e.depo_pyroAr, false, false, false, hwStatusOf(e, 'depo_pyroAr'))}
+                        {renderCleanTd(e.depo_pyroN2O, false, false, false, hwStatusOf(e, 'depo_pyroN2O'))}
+                        {renderCleanTd(e.depo_pyroNH3, false, false, false, hwStatusOf(e, 'depo_pyroNH3'))}
+                        {renderCleanTd(e.depo_pyroPN2, false, false, false, hwStatusOf(e, 'depo_pyroPN2'))}
+                        {renderCleanTd(e.depo_pyroH2, false, false, false, hwStatusOf(e, 'depo_pyroH2'))}
                         {/* End PL Step (4 cols) */}
                         {renderCleanTd(e.pl_rfForwardAct)}
                         {renderCleanTd(e.pl_tvCtrlMode, false, false, e.pl_tvCtrlMode !== null && e.pl_tvCtrlMode > 5.0)}
@@ -1982,7 +2051,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="overflow-x-auto max-h-[460px] scrollbar-thin flex-1">
-            <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+            <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={TABLE_COL_NO_STYLE} />
                 <col style={TABLE_COL_RCP_STYLE} />
@@ -2012,9 +2081,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {/* RF Power */}
                       <th colSpan={4} className={TINT_RF_TH1}>{getAlias('rf_power', 'Power')}</th>
                       {/* Matcher Vpp, Irms, Vdc */}
-                      <th colSpan={3} className={TINT_RF_TH1}>{getAlias('matcher_vpp', 'Vpp')}</th>
-                      <th colSpan={3} className={TINT_RF_TH1}>{getAlias('matcher_irms', 'Irms')}</th>
-                      <th colSpan={3} className={TINT_RF_TH1}>{getAlias('matcher_vdc', 'DC Bias')}</th>
+                      <th colSpan={3} className={TINT_MATCHER_TH1}>{getAlias('matcher_vpp', 'Vpp')}</th>
+                      <th colSpan={3} className={TINT_MATCHER_TH1}>{getAlias('matcher_irms', 'Irms')}</th>
+                      <th colSpan={3} className={TINT_MATCHER_TH1}>{getAlias('matcher_vdc', 'DC Bias')}</th>
                     </>
                   )}
 
@@ -2025,7 +2094,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th colSpan={4} className={TINT_PRES_TH1}>{getAlias('tv_press', 'Pres.')}</th>
                       <th colSpan={3} className={TINT_PRES_TH1}>{getAlias('tv_pos', 'T/V Pos.')}</th>
                       {/* Lift Spacing */}
-                      <th colSpan={4} className={TINT_PRES_TH1}>{getAlias('lift_spacing', 'Spacing')}</th>
+                      <th colSpan={4} className={TINT_LIFT_TH1}>{getAlias('lift_spacing', 'Spacing')}</th>
                     </>
                   )}
 
@@ -2073,19 +2142,19 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th className={TINT_RF_TH2}>ΔMax</th>
 
                       {/* Matcher Vpp */}
-                      <th className={TINT_RF_TH2}>Min</th>
-                      <th className={TINT_RF_TH2}>Max</th>
-                      <th className={TINT_RF_TH2}>Unif.</th>
+                      <th className={TINT_MATCHER_TH2}>Min</th>
+                      <th className={TINT_MATCHER_TH2}>Max</th>
+                      <th className={TINT_MATCHER_TH2}>Unif.</th>
 
                       {/* Matcher Irms */}
-                      <th className={TINT_RF_TH2}>Min</th>
-                      <th className={TINT_RF_TH2}>Max</th>
-                      <th className={TINT_RF_TH2}>Unif.</th>
+                      <th className={TINT_MATCHER_TH2}>Min</th>
+                      <th className={TINT_MATCHER_TH2}>Max</th>
+                      <th className={TINT_MATCHER_TH2}>Unif.</th>
 
-                      {/* Matcher DC Bias */}
-                      <th className={TINT_RF_TH2}>Min</th>
-                      <th className={TINT_RF_TH2}>Max</th>
-                      <th className={TINT_RF_TH2}>Unif.</th>
+                      {/* Matcher DC Bias: 판정 = Max − Min (V) */}
+                      <th className={TINT_MATCHER_TH2}>Min</th>
+                      <th className={TINT_MATCHER_TH2}>Max</th>
+                      <th className={TINT_MATCHER_TH2}>Max−Min</th>
                     </>
                   )}
 
@@ -2097,16 +2166,16 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <th className={TINT_PRES_TH2}>Max</th>
                       <th className={TINT_PRES_TH2}>ΔMax</th>
 
-                      {/* T/V */}
+                      {/* T/V: 판정 = Max − Min (%) */}
                       <th className={TINT_PRES_TH2}>Min</th>
                       <th className={TINT_PRES_TH2}>Max</th>
-                      <th className={TINT_PRES_TH2}>Unif.</th>
+                      <th className={TINT_PRES_TH2}>Max−Min</th>
 
                       {/* Spacing */}
-                      <th className={TINT_PRES_TH2}>Min</th>
-                      <th className={TINT_PRES_TH2}>ΔMin</th>
-                      <th className={TINT_PRES_TH2}>Max</th>
-                      <th className={TINT_PRES_TH2}>ΔMax</th>
+                      <th className={TINT_LIFT_TH2}>Min</th>
+                      <th className={TINT_LIFT_TH2}>ΔMin</th>
+                      <th className={TINT_LIFT_TH2}>Max</th>
+                      <th className={TINT_LIFT_TH2}>ΔMax</th>
                     </>
                   )}
 
@@ -2184,7 +2253,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {/* Matcher DC Bias */}
                       <th className={TINT_UNIT_TH}>(V)</th>
                       <th className={TINT_UNIT_TH}>(V)</th>
-                      <th className={TINT_UNIT_TH}>(%)</th>
+                      <th className={TINT_UNIT_TH}>(V)</th>
                     </>
                   )}
 
@@ -2280,7 +2349,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {d.no}
@@ -2319,10 +2388,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherIrms.max)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherIrms.uniformityPct, 1), d.matcherIrms.alarmLevel)}</td>
 
-                          {/* Matcher DC Bias: Min, Max, Unif. (rfMatcher 탭 시 마지막 컬럼) */}
+                          {/* Matcher DC Bias: Min, Max, Max−Min (rfMatcher 탭 시 마지막 컬럼) */}
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.min)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'rfMatcher')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherDCBias.uniformityPct, 1), d.matcherDCBias.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'rfMatcher')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherDCBias.range, 1), d.matcherDCBias.alarmLevel)}</td>
                         </>
                       )}
 
@@ -2335,10 +2404,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.tvPressure.max)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.tvPressure, 'max')}</td>
 
-                          {/* T/V Pos: Min, Max, Unif. */}
+                          {/* T/V Pos: Min, Max, Max−Min */}
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(d.tvPosition.min)}</td>
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(d.tvPosition.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.tvPosition.uniformityPct, 1), d.tvPosition.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.tvPosition.range, 1), d.tvPosition.alarmLevel)}</td>
 
                           {/* Lift Spacing: Min, Min 편차, Max, Max 편차 (presLift 탭 시 마지막 컬럼) */}
                           <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.liftSpacing.min)}</td>
@@ -2465,7 +2534,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           </div>
 
           <div className="w-full overflow-x-auto scrollbar-thin max-h-[460px]">
-            <table className={`w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
+            <table className={`pd-grid w-full text-center border-collapse font-sans whitespace-nowrap text-[11px] border ${theme.tableBorder} table-fixed`} style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={TABLE_COL_NO_STYLE} />
                 <col style={TABLE_COL_RCP_STYLE} />
@@ -2544,7 +2613,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={TABLE_TD_NO_CLASS}>
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {d.no}

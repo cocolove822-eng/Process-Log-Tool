@@ -9,7 +9,7 @@ import { FileUploadScreen } from './components/FileUploadScreen';
 import { IntegratedDashboard } from './components/IntegratedDashboard';
 import { TrendTab } from './components/TrendTab';
 import { RawDataTab } from './components/RawDataTab';
-import { CtclViewerTab } from './components/CtclViewerTab';
+import { CtclPanel } from './components/CtclPanel';
 import { ThemePreviewModal } from './components/ThemePreviewModal';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { LeftRunSidebar } from './components/LeftRunSidebar';
@@ -17,7 +17,6 @@ import { AnalyzerSettings, CTCLMatrixData, ParsedLogFile } from './types/pecvd';
 import { DEFAULT_SETTINGS, analyzeLogFileSteps } from './utils/analyzer';
 import { parseRawLogFile } from './utils/csvParser';
 import { parseCTCLWorkbook } from './utils/ctclParser';
-import { exportResultsToExcel } from './utils/exportUtils';
 import { createSampleCTCLMatrix } from './utils/sampleData';
 
 function AppContent() {
@@ -26,6 +25,10 @@ function AppContent() {
   const [ctclMatrix, setCtclMatrix] = useState<CTCLMatrixData | null>(null);
   const [settings, setSettings] = useState<AnalyzerSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<string>('integrated');
+  // 그래프 분석 / Log 분석 매니저가 그려질 왼쪽 자리 (DOM 노드)
+  const [managerHost, setManagerHost] = useState<HTMLElement | null>(null);
+  // 원본 로그 탭 맨 위 CTCL Matrix 패널 펼침 여부 (기본 접힘)
+  const [isCtclOpen, setIsCtclOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number | null>(null);
@@ -118,10 +121,6 @@ function AppContent() {
     );
   };
 
-  const handleExportExcel = () => {
-    if (results.length === 0) return;
-    exportResultsToExcel(results, settings, `PECVD_Analysis_R1_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
 
   return (
     <div className={`min-h-screen ${theme.appBg} ${theme.appText} flex flex-col font-sans transition-colors selection:bg-[#3182F6]/20`}>
@@ -130,7 +129,9 @@ function AppContent() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         fileCount={files.length}
-        onExportExcel={handleExportExcel}
+        ctclMatrix={ctclMatrix}
+        onUploadCtclFile={handleUploadCtclFile}
+        onSelectCtclSheet={handleSelectCtclSheet}
       />
 
       {/* Main Content Area */}
@@ -146,7 +147,8 @@ function AppContent() {
         </main>
       ) : (
         <div className="flex-1 flex w-full max-w-[1920px] mx-auto min-h-0 relative">
-          {/* Dedicated Left Run & CTCL Manager Sidebar */}
+          {/* 공정 분석 매니저: '공정 종합 분석' 탭에서만 표시 */}
+          {activeTab === 'integrated' && (
           <LeftRunSidebar
             files={files}
             ctclMatrix={ctclMatrix}
@@ -166,9 +168,13 @@ function AppContent() {
             onChangeManualDepoStep={handleChangeManualDepoStep}
             onSelectCtclSheet={handleSelectCtclSheet}
           />
+          )}
+
+          {/* 그래프 분석 / Log 분석 매니저 자리: 각 탭이 이 자리에 패널을 그림 (공정 분석 매니저와 같은 위치) */}
+          {activeTab !== 'integrated' && <div ref={setManagerHost} className="contents" />}
 
           {/* Main Dashboard & Tabs Area */}
-          <main className="flex-1 min-w-0 p-2 lg:p-3 space-y-2 overflow-y-auto">
+          <main className="flex-1 min-w-0 p-2 lg:p-3 space-y-2 overflow-x-clip">
             {/* Error notification banner if any */}
             {errorMessage && (
               <div className="p-4 bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] text-xs rounded-2xl flex items-center justify-between shadow-xs">
@@ -205,36 +211,40 @@ function AppContent() {
                 onClearAllFiles={handleClearAllFiles}
                 onChangeManualDepoStep={handleChangeManualDepoStep}
                 onChangeManualPlSteps={handleChangeManualPlSteps}
-                onNavigateToCtcl={() => setActiveTab('ctcl')}
+                onNavigateToCtcl={() => {
+                  setIsCtclOpen(true);
+                  setActiveTab('raw');
+                }}
               />
             )}
 
-            {/* Tab 2: 타임 트렌드 (Trend) */}
+            {/* Tab 2: 그래프 분석 (Trend) */}
             {activeTab === 'trend' && (
-              <TrendTab files={files} results={results} />
+              <TrendTab files={files} results={results} managerHost={managerHost} />
             )}
 
-            {/* Tab 3: 원본 로그 (Raw Data) */}
+            {/* Tab 3: 원본 로그 (Raw Data) — 맨 위에 CTCL Matrix 간략 패널(접고 펴기) */}
             {activeTab === 'raw' && (
-              <RawDataTab
-                files={files}
-                results={results}
-                selectedRunIdx={selectedRunIdx}
-              />
-            )}
-
-            {/* Tab 4: CTCL 매트릭스 */}
-            {activeTab === 'ctcl' && (
-              <CtclViewerTab
-                ctclMatrix={ctclMatrix}
-                results={results}
-                selectedRunIdx={selectedRunIdx}
-                onSelectRunIdx={setSelectedRunIdx}
-                onUploadCtclFile={handleUploadCtclFile}
-                onSelectCtclSheet={handleSelectCtclSheet}
-                onLoadSampleCtcl={() => setCtclMatrix(createSampleCTCLMatrix())}
-                onNavigateToIntegrated={() => setActiveTab('integrated')}
-              />
+              <div className="space-y-2">
+                <CtclPanel
+                  ctclMatrix={ctclMatrix}
+                  results={results}
+                  selectedRunIdx={selectedRunIdx}
+                  onSelectRunIdx={setSelectedRunIdx}
+                  onUploadCtclFile={handleUploadCtclFile}
+                  onSelectCtclSheet={handleSelectCtclSheet}
+                  onLoadSampleCtcl={() => setCtclMatrix(createSampleCTCLMatrix())}
+                  open={isCtclOpen}
+                  onToggle={setIsCtclOpen}
+                />
+                <RawDataTab
+                  files={files}
+                  results={results}
+                  selectedRunIdx={selectedRunIdx}
+                  onSelectRunIdx={setSelectedRunIdx}
+                  managerHost={managerHost}
+                />
+              </div>
             )}
           </main>
         </div>
