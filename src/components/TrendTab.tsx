@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow } from 'lucide-react';
+import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow, Ruler, Copy } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 
 export interface AlignedStepSegment {
@@ -275,6 +275,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
     });
   const clearRecipeSelection = () => setSelectedRecipeIds([]);
   const [resetAllKey, setResetAllKey] = useState<number>(0);
+  // 구간 통계: 한 그래프에서 고른 시간 구간을 모든 그래프에 함께 적용 [시작, 끝] (그래프 x축 기준 초)
+  const [statRange, setStatRange] = useState<[number, number] | null>(null);
   const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
   const [valueView, setValueView] = useState<ValueView>('list');
@@ -308,6 +310,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
   // When alignment mode changes, clear global manual X bounds to let auto bounds recompute
   useEffect(() => {
     setGlobalXFormat(null);
+    setStatRange(null); // 시간 기준이 바뀌면 구간의 의미가 달라지므로 해제
   }, [timeAlignment]);
 
   // Reset card zoom & custom axis bounds when visible files change so charts automatically fit the newly visible recipe!
@@ -730,6 +733,8 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results }) => {
                   onSetRecipeSelected={setRecipeSelected}
                   onToggleRecipeGroup={toggleRecipeGroup}
                   onClearRecipeSelection={clearRecipeSelection}
+                  statRange={statRange}
+                  onSetStatRange={setStatRange}
                 />
               );
             })}
@@ -783,6 +788,9 @@ interface TrendChartCardProps {
   onSetRecipeSelected: (id: string, on: boolean) => void;
   onToggleRecipeGroup: (ids: string[]) => void;
   onClearRecipeSelection: () => void;
+  /** 구간 통계 구간 (모든 그래프 공통) */
+  statRange: [number, number] | null;
+  onSetStatRange: (r: [number, number] | null) => void;
 }
 
 type ValueView = 'list' | 'group';
@@ -798,6 +806,8 @@ interface CursorValue {
   color: string;
   formatted: string;
   numVal: number;
+  /** 겹쳐 보기 항목의 값 (겹쳐 보기를 켰을 때만) */
+  formatted2?: string;
 }
 
 /**
@@ -879,6 +889,8 @@ interface CursorValuePanelProps {
   height?: number;
   /** true = 그래프 아래 전체 폭 배치 (3열) */
   below?: boolean;
+  /** 겹쳐 보기 항목 단위 (켰을 때만) */
+  unit2?: string;
   files: ParsedLogFile[];
   results: AnalysisFileResult[];
   visibleFileIds: Record<string, boolean>;
@@ -921,6 +933,7 @@ const SegBtn: React.FC<{ active: boolean; onClick: () => void; children: React.R
 const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
   height = 272,
   below = false,
+  unit2,
   files,
   results,
   visibleFileIds,
@@ -1085,6 +1098,12 @@ const CursorValuePanel: React.FC<CursorValuePanelProps> = ({
                       {unit && Number.isFinite(v.numVal) && (
                         <span className="ml-0.5 text-[9px] font-semibold text-[#64748B]">{unit}</span>
                       )}
+                      {v.formatted2 !== undefined && (
+                        <div className="text-[9.5px] leading-tight font-semibold text-[#7C3AED]" title="겹쳐 보기 항목 값">
+                          {v.formatted2}
+                          {unit2 && <span className="ml-0.5 text-[8.5px] text-[#8B5CF6]">{unit2}</span>}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1228,6 +1247,69 @@ const AxisCheck: React.FC<{ checked: boolean; onChange: (c: boolean) => void; ch
   </label>
 );
 
+/** 구간 통계·겹쳐 보기 값 표시: 크기에 맞춰 소수 자릿수 */
+const formatStatNum = (v: number): string => {
+  if (!Number.isFinite(v)) return '-';
+  const a = Math.abs(v);
+  if (a >= 1000) return Math.round(v).toLocaleString();
+  if (a >= 10) return (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return (Math.round(v * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+interface RangeStat {
+  fileId: string;
+  fileNo: number;
+  name: string;
+  color: string;
+  n: number;
+  avg: number;
+  min: number;
+  max: number;
+  sd: number;
+  unif: number | null;
+}
+
+/** 구간 [lo, hi] 안의 행으로 Run별 통계 (그래프와 같은 시간 기준: elapsedSec − RF On 기준점) */
+const computeRangeStats = (
+  m: MetricDefinition,
+  files: ParsedLogFile[],
+  results: AnalysisFileResult[],
+  visibleFileIds: Record<string, boolean>,
+  timeAlignment: 'elapsed' | 'rfOn',
+  lo: number,
+  hi: number
+): RangeStat[] => {
+  const out: RangeStat[] = [];
+  files.forEach((file, idx) => {
+    if (visibleFileIds[file.id] === false) return;
+    const res = results.find(r => r.fileId === file.id) || results[idx];
+    const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+    let n = 0, sum = 0, sum2 = 0, mn = Infinity, mx = -Infinity;
+    for (const r of file.rows) {
+      const x = r.elapsedSec - off;
+      if (x < lo - 1e-9 || x > hi + 1e-9) continue;
+      const v = m.getter(r);
+      if (!Number.isFinite(v)) continue;
+      n++; sum += v; sum2 += v * v;
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    if (n === 0) return;
+    const avg = sum / n;
+    const sd = Math.sqrt(Math.max(0, sum2 / n - avg * avg));
+    // Unif.% = (Max − Min) ÷ (Max + Min) × 100 (공정 종합 분석과 같은 식), 분모 0이면 평균 기준
+    const unif = mx + mn !== 0 ? ((mx - mn) / Math.abs(mx + mn)) * 100 : Math.abs(avg) > 1e-9 ? ((mx - mn) / (2 * Math.abs(avg))) * 100 : null;
+    out.push({
+      fileId: file.id,
+      fileNo: idx + 1,
+      name: shortRecipeName(file.meta.recipeName || res?.rcpName || file.fileName),
+      color: RECIPE_COLORS[idx % RECIPE_COLORS.length],
+      n, avg, min: mn, max: mx, sd, unif,
+    });
+  });
+  return out;
+};
+
 const TrendChartCard: React.FC<TrendChartCardProps> = ({
   metric,
   chartHeight = 272,
@@ -1252,8 +1334,20 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   onSetRecipeSelected,
   onToggleRecipeGroup,
   onClearRecipeSelection,
+  statRange,
+  onSetStatRange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // 겹쳐 보기: 두 번째 파라미터 (오른쪽 Y축, 점선)
+  const [overlayId, setOverlayId] = useState<string>('');
+  const overlayMetric = useMemo(() => STANDARD_METRICS.find(m => m.id === overlayId && m.id !== metric.id) ?? null, [overlayId, metric.id]);
+  // 구간 선택 모드: 켜면 드래그 = 구간 선택 (꺼져 있어도 Shift+드래그로 선택)
+  const [selectMode, setSelectMode] = useState<boolean>(false);
+  const [rangeDraft, setRangeDraft] = useState<[number, number] | null>(null);
+  const [isSelecting, setIsSelecting] = useState<boolean>(false);
+  const rangeStartRef = useRef<number>(0);
+  /** 그래프 오른쪽 여백: 겹쳐 보기를 켜면 오른쪽 Y축 눈금 자리를 확보 */
+  const PAD_R = overlayMetric ? 58 : 18;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Independent Zoom & Pan state for THIS card only
@@ -1418,6 +1512,27 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     };
   }, [files, visibleFileIds, metric]);
 
+  // 겹쳐 보기 항목의 자동 Y 범위 (오른쪽 축)
+  const overlayYRange = useMemo<[number, number] | null>(() => {
+    if (!overlayMetric) return null;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    files.forEach(f => {
+      if (visibleFileIds[f.id] === false) return;
+      f.rows.forEach(r => {
+        const v = overlayMetric.getter(r);
+        if (Number.isFinite(v)) {
+          if (v < minY) minY = v;
+          if (v > maxY) maxY = v;
+        }
+      });
+    });
+    if (minY === Infinity) return [0, 100];
+    if (minY === maxY) return [minY - 1, maxY + 1];
+    const pad = (maxY - minY) * 0.1;
+    return [minY - pad, maxY + pad];
+  }, [overlayMetric, files, visibleFileIds]);
+
   // Effective X Range taking Axis Format inputs or zoom into account
   const effectiveXRange: [number, number] = useMemo(() => {
     if (cardXRange) return cardXRange;
@@ -1489,7 +1604,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const padLeft = 54;
-      const padRight = 18;
+      const padRight = PAD_R;
       const plotW = rect.width - padLeft - padRight;
       if (plotW <= 0) return;
 
@@ -1524,7 +1639,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     return () => {
       canvas.removeEventListener('wheel', onWheel);
     };
-  }, [effectiveXRange, globalXRange]);
+  }, [effectiveXRange, globalXRange, PAD_R]);
 
   // 2. Mouse Drag Pan Listener
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1534,14 +1649,54 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const padLeft = 54;
-    const padRight = 18;
+    const padRight = PAD_R;
     const plotW = rect.width - padLeft - padRight;
     if (mouseX < padLeft || mouseX > padLeft + plotW) return;
+
+    // 구간 선택: '구간' 버튼을 켰거나 Shift를 누른 채 드래그
+    if (selectMode || e.shiftKey) {
+      e.preventDefault();
+      const t = effectiveXRange[0] + ((mouseX - padLeft) / plotW) * (effectiveXRange[1] - effectiveXRange[0]);
+      rangeStartRef.current = t;
+      setRangeDraft([t, t]);
+      setIsSelecting(true);
+      return;
+    }
 
     setIsDragging(true);
     dragStartXRef.current = e.clientX;
     dragStartRangeRef.current = [...effectiveXRange];
   };
+
+  // 구간 선택 드래그: 놓으면 0.2초 이상일 때 모든 그래프에 구간 적용
+  useEffect(() => {
+    if (!isSelecting) return;
+    const timeAt = (clientX: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return rangeStartRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const padLeft = 54;
+      const plotW = rect.width - padLeft - PAD_R;
+      const x = Math.max(padLeft, Math.min(padLeft + plotW, clientX - rect.left));
+      return effectiveXRange[0] + ((x - padLeft) / plotW) * (effectiveXRange[1] - effectiveXRange[0]);
+    };
+    const onMove = (e: MouseEvent) => setRangeDraft([rangeStartRef.current, timeAt(e.clientX)]);
+    const onUp = (e: MouseEvent) => {
+      const a = rangeStartRef.current;
+      const b = timeAt(e.clientX);
+      const lo = Math.round(Math.min(a, b) * 10) / 10;
+      const hi = Math.round(Math.max(a, b) * 10) / 10;
+      if (hi - lo >= 0.2) onSetStatRange([lo, hi]);
+      setRangeDraft(null);
+      setIsSelecting(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isSelecting, effectiveXRange, PAD_R, onSetStatRange]);
 
   useEffect(() => {
     if (!isDragging) return;
@@ -1551,7 +1706,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const padLeft = 54;
-      const padRight = 18;
+      const padRight = PAD_R;
       const plotW = rect.width - padLeft - padRight;
       if (plotW <= 0) return;
 
@@ -1596,7 +1751,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const padLeft = 54;
-    const padRight = 18;
+    const padRight = PAD_R;
     const plotW = rect.width - padLeft - padRight;
     if (mouseX < padLeft || mouseX > padLeft + plotW) {
       setHoverTime(null);
@@ -1660,6 +1815,11 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
           const rcpName = res?.rcpName || file.meta.recipeName || file.fileName;
 
+          let formatted2: string | undefined;
+          if (overlayMetric) {
+            const y2 = overlayMetric.getter(closestRow);
+            formatted2 = Number.isFinite(y2) ? formatStatNum(y2) : '-';
+          }
           fileValues.push({
             shortName: shortRecipeName(file.meta.recipeName || rcpName),
             fileId: file.id,
@@ -1669,6 +1829,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
             color,
             formatted,
             numVal: yVal,
+            formatted2,
           });
         }
       }
@@ -1679,7 +1840,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       fileValues,
       stepStr,
     };
-  }, [effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric]);
+  }, [effectiveXRange, alignedSteps, files, results, visibleFileIds, timeAlignment, metric, overlayMetric]);
 
   const hoverInfo = useMemo(() => computeCursorInfo(hoverTime), [computeCursorInfo, hoverTime]);
   // 오른쪽 값 표는 마우스가 그래프를 벗어나도 마지막 커서 위치의 값을 유지
@@ -1707,7 +1868,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.imageSmoothingQuality = 'high';
 
     const padLeft = 54;
-    const padRight = 18;
+    const padRight = PAD_R;
     const padTop = 20;
     const padBottom = 38; // Extra room for Axis Title 'Time (sec)'
 
@@ -1978,6 +2139,28 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.rect(padLeft, padTop, plotW, plotH);
     ctx.clip();
 
+    // 구간 통계 구간 (선택 중이면 드래그 중인 구간) — 선 아래에 옅은 호박색 띠
+    const bandRange = rangeDraft ?? statRange;
+    if (bandRange) {
+      const b0 = Math.min(bandRange[0], bandRange[1]);
+      const b1 = Math.max(bandRange[0], bandRange[1]);
+      const x0 = mapX(b0);
+      const x1 = mapX(b1);
+      ctx.save();
+      ctx.fillStyle = rangeDraft ? 'rgba(245, 158, 11, 0.16)' : 'rgba(245, 158, 11, 0.12)';
+      ctx.fillRect(x0, padTop, Math.max(1, x1 - x0), plotH);
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([]);
+      [x0, x1].forEach(x => {
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) + 0.5, padTop);
+        ctx.lineTo(Math.round(x) + 0.5, padTop + plotH);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
     // Plot series for each visible file (강조된 Recipe는 맨 나중에 그려 위로 올림)
     const drawOrder = files.map((file, idx) => ({ file, idx }));
     if (highlightFileId) drawOrder.sort((a, b) => Number(a.file.id === highlightFileId) - Number(b.file.id === highlightFileId));
@@ -2025,6 +2208,38 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
       ctx.stroke();
     });
     ctx.globalAlpha = 1;
+
+    // 겹쳐 보기 항목: 같은 Run 색의 점선, 오른쪽 Y축 기준
+    const ov = overlayMetric && overlayYRange ? { m: overlayMetric, lo: overlayYRange[0], hi: overlayYRange[1] } : null;
+    if (ov) {
+      const span2 = Math.max(1e-9, ov.hi - ov.lo);
+      const mapY2 = (y: number) => padTop + plotH - ((y - ov.lo) / span2) * plotH;
+      files.forEach((file, idx) => {
+        if (visibleFileIds[file.id] === false) return;
+        const res = results.find(r => r.fileId === file.id) || results[idx];
+        const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+        const isDim = highlightFileId !== null && highlightFileId !== file.id;
+        ctx.save();
+        ctx.globalAlpha = isDim ? 0.2 : 0.95;
+        ctx.strokeStyle = RECIPE_COLORS[idx % RECIPE_COLORS.length];
+        ctx.lineWidth = highlightFileId === file.id ? 2.4 : 1.6;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        let started = false;
+        const marginX = Math.max(1.0, spanX * 0.05);
+        file.rows.forEach(r => {
+          const x = r.elapsedSec - off;
+          if (x < minX - marginX || x > maxX + marginX) { started = false; return; }
+          const y = ov.m.getter(r);
+          if (!Number.isFinite(y)) { started = false; return; }
+          const px = mapX(x);
+          const py = mapY2(y);
+          if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
 
     // 4-0. If Step Timeline is enabled, draw linked vertical dashed divider lines & top step tags
     if (showStepTimeline && alignedSteps.length > 0) {
@@ -2207,6 +2422,57 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     ctx.lineWidth = isDragging ? 1.5 : 1.2;
     ctx.strokeRect(padLeft, padTop, plotW, plotH);
 
+    // 겹쳐 보기 오른쪽 Y축 눈금 + 단위
+    if (ov) {
+      const span2 = Math.max(1e-9, ov.hi - ov.lo);
+      ctx.save();
+      ctx.font = FONT_NUM;
+      ctx.fillStyle = '#6D28D9';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      for (let k = 0; k <= 4; k++) {
+        const v = ov.lo + (span2 * k) / 4;
+        const y = padTop + plotH - (plotH * k) / 4;
+        ctx.strokeStyle = '#A78BFA';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padLeft + plotW, Math.round(y) + 0.5);
+        ctx.lineTo(padLeft + plotW + 3, Math.round(y) + 0.5);
+        ctx.stroke();
+        ctx.fillText(formatStatNum(v).replace(/\.0+$/, ''), padLeft + plotW + 5, Math.round(y));
+      }
+      ctx.font = FONT_LABEL;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      const fullLabel = `점선: ${ov.m.name} [${ov.m.unit}]`;
+      ctx.fillText(ctx.measureText(fullLabel).width > plotW * 0.55 ? `점선: [${ov.m.unit}]` : fullLabel, padLeft + plotW + PAD_R - 2, padTop - 5);
+      ctx.restore();
+    }
+
+    // 구간 길이 표시 (띠 위쪽)
+    const bandR = rangeDraft ?? statRange;
+    if (bandR) {
+      const b0 = Math.max(minX, Math.min(bandR[0], bandR[1]));
+      const b1 = Math.min(maxX, Math.max(bandR[0], bandR[1]));
+      if (b1 > b0) {
+        const label = `구간 ${Math.abs(bandR[1] - bandR[0]).toFixed(1)}s`;
+        ctx.save();
+        ctx.font = FONT_TAG;
+        const lw = ctx.measureText(label).width;
+        const cx = Math.max(padLeft + lw / 2 + 4, Math.min(padLeft + plotW - lw / 2 - 4, (mapX(b0) + mapX(b1)) / 2));
+        ctx.fillStyle = 'rgba(255, 251, 235, 0.95)';
+        ctx.fillRect(Math.round(cx - lw / 2 - 4), padTop + 2, Math.round(lw + 8), 14);
+        ctx.strokeStyle = '#D97706';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(cx - lw / 2 - 4) + 0.5, padTop + 2.5, Math.round(lw + 8), 14);
+        ctx.fillStyle = '#92400E';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, Math.round(cx), padTop + 9.5);
+        ctx.restore();
+      }
+    }
+
     // 위쪽 Step 띠가 그래프 영역과 같은 위치·폭을 갖도록 실제 위치를 측정
     const row = bandRowRef.current;
     if (row) {
@@ -2235,6 +2501,11 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
     fontsLoaded,
     highlightFileId,
     chartHeight,
+    overlayMetric,
+    overlayYRange,
+    statRange,
+    rangeDraft,
+    PAD_R,
   ]);
 
   const catStyle = CATEGORY_STYLES[metric.category];
@@ -2266,8 +2537,51 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           </span>
         </div>
 
-        {/* Action Buttons: 줌 리셋 + 축 서식 */}
+        {/* Action Buttons: 겹쳐 보기 + 구간 + 줌 리셋 + 축 서식 */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* 겹쳐 보기: 두 번째 파라미터 (오른쪽 Y축, 점선) */}
+          <span className="relative">
+            <select
+              aria-label="겹쳐 보기"
+              value={overlayMetric ? overlayMetric.id : ''}
+              onChange={e => setOverlayId(e.target.value)}
+              className={`appearance-none max-w-[118px] pl-1.5 pr-4 py-0.5 text-[10px] font-semibold rounded-lg border shadow-2xs cursor-pointer focus:outline-none ${
+                overlayMetric ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#0F172A] hover:bg-slate-100'
+              }`}
+              title={overlayMetric ? `겹쳐 보기: ${overlayMetric.name} (오른쪽 축, 점선)` : '다른 파라미터를 오른쪽 축에 점선으로 겹쳐 보기'}
+            >
+              <option value="">겹쳐 보기</option>
+              {STANDARD_METRICS.filter(m => m.id !== metric.id).map(m => (
+                <option key={m.id} value={m.id}>
+                  + {m.name} [{m.unit}]
+                </option>
+              ))}
+            </select>
+            <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${overlayMetric ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
+          </span>
+          {overlayMetric && (
+            <button
+              type="button"
+              onClick={() => setOverlayId('')}
+              className="p-0.5 rounded text-[#7C3AED] hover:bg-[#EDE9FE] cursor-pointer"
+              title="겹쳐 보기 끄기"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+          {/* 구간 선택 모드 */}
+          <button
+            type="button"
+            onClick={() => setSelectMode(v => !v)}
+            aria-pressed={selectMode}
+            className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-lg border shadow-2xs cursor-pointer transition-all ${
+              selectMode ? 'bg-[#F59E0B] border-[#D97706] text-white' : 'bg-white border-slate-300 text-[#0F172A] hover:bg-slate-100'
+            }`}
+            title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그). 고른 구간은 모든 그래프에 적용되고 아래에 구간 통계가 나옵니다."
+          >
+            <Ruler className="w-3 h-3" />
+            구간
+          </button>
           {isCustomOrZoomed && (
             <button
               onClick={handleResetCard}
@@ -2344,7 +2658,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
         {/* Right: Axis Helper Text */}
         <span className="text-[8.5px] text-[#475569] font-mono shrink-0 hidden sm:inline whitespace-nowrap">
-          간격: {axisConfig.xStep || 10}s · 휠: 줌 · 드래그: 이동
+          간격: {axisConfig.xStep || 10}s · 휠: 줌 · {selectMode ? '드래그: 구간 선택' : '드래그: 이동 · Shift+드래그: 구간'}
         </span>
 
         {/* Dropdown Floating Popover */}
@@ -2502,19 +2816,22 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           onDoubleClick={handleResetCard}
           style={{ imageRendering: 'auto' }}
           className={`w-full block ${
-            isDragging
+            isSelecting || selectMode
+              ? 'cursor-col-resize'
+              : isDragging
               ? 'cursor-grabbing'
               : isCustomOrZoomed
               ? 'cursor-grab'
               : 'cursor-crosshair'
           }`}
-          title="마우스 휠: 개별 확대/축소 | 좌클릭 드래그: 개별 좌우 이동 | 더블클릭: 줌 초기화"
+          title={selectMode ? '드래그: 구간 선택 (모든 그래프에 적용) | 마우스 휠: 확대/축소 | 더블클릭: 줌 초기화' : '마우스 휠: 개별 확대/축소 | 좌클릭 드래그: 개별 좌우 이동 | Shift+드래그: 구간 선택 | 더블클릭: 줌 초기화'}
         />
         </div>
 
         <CursorValuePanel
           height={chartHeight}
           below={panelBelow}
+          unit2={overlayMetric?.unit}
           files={files}
           results={results}
           visibleFileIds={visibleFileIds}
@@ -2709,6 +3026,162 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* 5. 구간 통계 (모든 그래프 공통 구간) */}
+      {statRange && (
+        <RangeStatsTable
+          range={statRange}
+          sections={[
+            { metric, stats: computeRangeStats(metric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1]) },
+            ...(overlayMetric
+              ? [{ metric: overlayMetric, stats: computeRangeStats(overlayMetric, files, results, visibleFileIds, timeAlignment, statRange[0], statRange[1]), overlay: true }]
+              : []),
+          ]}
+          highlightFileId={highlightFileId}
+          onHighlight={setHighlightFileId}
+          onClear={() => onSetStatRange(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+/** 그래프 아래 구간 통계 표: Run별 평균·최소·최대·Max−Min·σ·Unif.·행 수 (겹쳐 보기 항목은 아래 묶음) */
+const RangeStatsTable: React.FC<{
+  range: [number, number];
+  sections: { metric: MetricDefinition; stats: RangeStat[]; overlay?: boolean }[];
+  highlightFileId: string | null;
+  onHighlight: (id: string | null) => void;
+  onClear: () => void;
+}> = ({ range, sections, highlightFileId, onHighlight, onClear }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const head = ['항목', 'No.', 'Run', '평균', '최소', '최대', 'Max-Min', 'σ', 'Unif.(%)', '행 수'];
+    const lines = [`구간\t${range[0].toFixed(1)} ~ ${range[1].toFixed(1)} s (${(range[1] - range[0]).toFixed(1)} s)`, head.join('\t')];
+    sections.forEach(sec =>
+      sec.stats.forEach(st =>
+        lines.push(
+          [
+            `${sec.metric.name} [${sec.metric.unit}]`,
+            st.fileNo,
+            st.name,
+            formatStatNum(st.avg),
+            formatStatNum(st.min),
+            formatStatNum(st.max),
+            formatStatNum(st.max - st.min),
+            formatStatNum(st.sd),
+            st.unif === null ? '-' : st.unif.toFixed(2),
+            st.n,
+          ].join('\t')
+        )
+      )
+    );
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* 클립보드 사용 불가 환경 */
+    }
+  };
+  const th = 'px-1 py-[3px] border border-slate-300 bg-[#E2E8F0] text-[#334155] font-bold whitespace-nowrap text-center align-middle';
+  const td = 'px-1 py-[2px] border border-slate-200 tabular-nums text-center align-middle whitespace-nowrap';
+  return (
+    <div className="border-t border-slate-300 bg-white" data-range-stats onMouseLeave={() => onHighlight(null)}>
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-[#FFFBEB] border-b border-[#FDE68A] text-[10.5px]">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <Ruler className="w-3 h-3 text-[#D97706] shrink-0" />
+          <span className="font-bold text-[#92400E] whitespace-nowrap">구간 통계</span>
+          <span className="font-semibold text-[#0F172A] tabular-nums whitespace-nowrap">
+            {range[0].toFixed(1)} ~ {range[1].toFixed(1)} s
+          </span>
+          <span className="text-[#B45309] tabular-nums whitespace-nowrap">({(range[1] - range[0]).toFixed(1)} s)</span>
+          <span className="text-[9.5px] text-[#94A3B8] truncate hidden md:inline">· 모든 그래프에 같은 구간</span>
+        </span>
+        <span className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={copy}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#2563EB] hover:border-[#2563EB] cursor-pointer"
+            title="엑셀에 붙여 넣을 수 있게 표 복사"
+          >
+            <Copy className="w-3 h-3" />
+            {copied ? '복사됨' : '복사'}
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
+            title="구간 해제 (모든 그래프)"
+          >
+            <X className="w-3 h-3" />
+            해제
+          </button>
+        </span>
+      </div>
+      <div className="max-h-[220px] overflow-auto scrollbar-thin">
+        <table className="w-full border-collapse text-[10.5px]">
+          <thead className="sticky top-0 z-10">
+            <tr>
+              <th className={`${th} text-left pl-2`}>Run</th>
+              <th className={th}>평균</th>
+              <th className={th}>최소</th>
+              <th className={th}>최대</th>
+              <th className={th}>Max−Min</th>
+              <th className={th}>σ</th>
+              <th className={th}>Unif.(%)</th>
+              <th className={th}>행 수</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sections.map(sec => (
+              <React.Fragment key={sec.metric.id}>
+                {sections.length > 1 && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className={`px-2 py-[2px] border border-slate-200 font-bold text-[10px] ${sec.overlay ? 'bg-[#F5F3FF] text-[#6D28D9]' : 'bg-[#EFF6FF] text-[#1E3A8A]'}`}
+                    >
+                      {sec.overlay ? '점선 · ' : '실선 · '}
+                      {sec.metric.name} [{sec.metric.unit}]
+                    </td>
+                  </tr>
+                )}
+                {sec.stats.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className={`${td} text-[#94A3B8]`}>
+                      이 구간에 데이터가 없습니다
+                    </td>
+                  </tr>
+                ) : (
+                  sec.stats.map((st, i) => (
+                    <tr
+                      key={st.fileId}
+                      onMouseEnter={() => onHighlight(st.fileId)}
+                      className={highlightFileId === st.fileId ? 'bg-[#EFF6FF]' : i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}
+                    >
+                      <td className={`${td} text-left pl-2 max-w-[150px] overflow-hidden`}>
+                        <span className="flex items-center gap-1 min-w-0">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: st.color }} />
+                          <span className="font-bold text-[#334155] shrink-0">#{st.fileNo}</span>
+                          <span className="font-semibold text-[#475569] truncate">{st.name}</span>
+                        </span>
+                      </td>
+                      <td className={`${td} font-bold text-[#0F172A]`}>{formatStatNum(st.avg)}</td>
+                      <td className={td}>{formatStatNum(st.min)}</td>
+                      <td className={td}>{formatStatNum(st.max)}</td>
+                      <td className={`${td} font-semibold`}>{formatStatNum(st.max - st.min)}</td>
+                      <td className={td}>{formatStatNum(st.sd)}</td>
+                      <td className={td}>{st.unif === null ? '-' : st.unif.toFixed(2)}</td>
+                      <td className={`${td} text-[#64748B]`}>{st.n.toLocaleString()}</td>
+                    </tr>
+                  ))
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
