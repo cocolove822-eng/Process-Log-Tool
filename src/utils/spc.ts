@@ -44,19 +44,19 @@ export const SPC_METRICS: SpcMetricDef[] = [
   { id: 'reflectMax', name: 'RF Reflect Max', unit: 'W', digits: 1, group: 'RF', get: r => r.monitoringData?.rfReflectPowerMax },
   {
     id: 'rfRamp',
-    name: 'RF 도달 시간',
+    name: 'RF 도달 소요시간',
     unit: 's',
     digits: 1,
     group: 'Time',
     get: r => (r.tReach !== null && r.tReach !== undefined && r.tOn !== null && r.tOn !== undefined ? r.tReach - r.tOn : null),
   },
-  { id: 'vdcRange', name: 'Vdc Max−Min', unit: 'V', digits: 1, group: 'Matcher', get: r => r.deviation?.matcherDCBias?.range },
-  { id: 'dcBiasAvg', name: 'DC Bias Avg', unit: 'V', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherDCBiasAvg },
-  { id: 'vppAvg', name: 'Vpp Avg', unit: 'V', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherVppAvg },
+  { id: 'dcBiasAvg', name: 'Vdc Avg', unit: 'V', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherDCBiasAvg },
   { id: 'irmsAvg', name: 'Irms Avg', unit: 'A', digits: 2, group: 'Matcher', get: r => r.monitoringData?.matcherIrmsAvg },
-  { id: 'loadAvg', name: 'Matcher Load Avg', unit: '%', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherLoadAvg },
-  { id: 'tuneAvg', name: 'Matcher Tune Avg', unit: '%', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherTuneAvg },
+  { id: 'loadAvg', name: 'Load Avg', unit: '%', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherLoadAvg },
+  { id: 'tuneAvg', name: 'Tune Avg', unit: '%', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherTuneAvg },
   { id: 'tvPosAvg', name: 'T/V Position Avg', unit: '%', digits: 1, group: 'Pressure', get: r => r.monitoringData?.tvPositionAvg },
+  // 요청 순서 목록에 없던 항목: 삭제하지 않고 맨 뒤에 유지
+  { id: 'vppAvg', name: 'Vpp Avg', unit: 'V', digits: 1, group: 'Matcher', get: r => r.monitoringData?.matcherVppAvg },
 ];
 
 export const SPC_DEFAULT_METRICS = ['reflectMax', 'rfRamp', 'dcBiasAvg', 'tvPosAvg'];
