@@ -141,6 +141,8 @@ export interface CTCLMatrixData {
   loads: number[]; // e.g. 0 to 100
   tunes: number[]; // e.g. 0 to 100
   grid: Record<number, Record<number, ComplexNumber>>; // [load][tune] = {r, x}
+  /** 원본 엑셀 축 형식: 'fraction' = 0~1 비율이라 ×100 해서 %로 바꿈, 'percent' = 원래 0~100 */
+  axisScale?: 'fraction' | 'percent';
 }
 
 export type CriterionState = 'include' | 'exclude' | 'ignore';

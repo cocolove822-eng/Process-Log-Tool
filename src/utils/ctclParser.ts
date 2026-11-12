@@ -117,6 +117,31 @@ export function parseCTCLWorkbook(buffer: ArrayBuffer, fileName: string, selecte
   loads.sort((a, b) => a - b);
   tunes.sort((a, b) => a - b);
 
+  // 축 단위 맞춤: 공정 Log의 Matcher Load/Tune은 0~100(%)
+  //  - 엑셀 축이 0~1 비율(최대값 ≤ 1.5)이면 ×100 해서 %로 바꿈 (예: 0.43 → 43)
+  //  - 원래 0~100이면 그대로
+  const maxAxis = Math.max(loads[loads.length - 1] ?? 0, tunes[tunes.length - 1] ?? 0);
+  const minAxis = Math.min(loads[0] ?? 0, tunes[0] ?? 0);
+  const isFraction = loads.length > 1 && tunes.length > 1 && minAxis >= 0 && maxAxis > 0 && maxAxis <= 1.5;
+  if (isFraction) {
+    const pct = (v: number) => Math.round(v * 100 * 1e6) / 1e6; // 0.07*100 = 7.000000000000001 같은 오차 제거
+    const scaledGrid: Record<number, Record<number, ComplexNumber>> = {};
+    for (const l of loads) {
+      const row: Record<number, ComplexNumber> = {};
+      for (const [t, v] of Object.entries(grid[l] || {})) row[pct(Number(t))] = v;
+      scaledGrid[pct(l)] = row;
+    }
+    return {
+      fileName,
+      sheetName: targetSheet,
+      availableSheets: sheetNames,
+      loads: loads.map(pct),
+      tunes: tunes.map(pct),
+      grid: scaledGrid,
+      axisScale: 'fraction',
+    };
+  }
+
   return {
     fileName,
     sheetName: targetSheet,
@@ -124,7 +149,29 @@ export function parseCTCLWorkbook(buffer: ArrayBuffer, fileName: string, selecte
     loads,
     tunes,
     grid,
+    axisScale: 'percent',
   };
+}
+
+/**
+ * 정렬된 축에서 값 v를 둘러싼 두 칸의 위치 [i0, i1] (축 간격과 상관없이)
+ * - 축 범위 밖이면 가장자리 칸으로 맞춤 (i0 = i1)
+ * - 값이 칸에 딱 맞으면 i0 = i1 = 그 칸
+ */
+export function bracketAxis(arr: number[], v: number): [number, number] {
+  const n = arr.length;
+  if (n === 0) return [-1, -1];
+  if (v <= arr[0]) return [0, 0];
+  if (v >= arr[n - 1]) return [n - 1, n - 1];
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] <= v) lo = mid;
+    else hi = mid;
+  }
+  if (arr[lo] === v) return [lo, lo];
+  return [lo, hi];
 }
 
 /**
@@ -135,31 +182,21 @@ export function interpolateCTCL(matrix: CTCLMatrixData, load: number, tune: numb
   if (!matrix || matrix.loads.length === 0 || matrix.tunes.length === 0) {
     return null;
   }
+  if (!Number.isFinite(load) || !Number.isFinite(tune)) return null;
 
   const { loads, tunes, grid } = matrix;
-  const minLoad = loads[0];
-  const maxLoad = loads[loads.length - 1];
-  const minTune = tunes[0];
-  const maxTune = tunes[tunes.length - 1];
+  // 둘러싼 이웃 칸 찾기 (축 간격 1%, 0.01, 2%, 5%, 고르지 않은 간격 모두)
+  const [i0, i1] = bracketAxis(loads, load);
+  const [j0, j1] = bracketAxis(tunes, tune);
+  const L0 = loads[i0];
+  const L1 = loads[i1];
+  const T0 = tunes[j0];
+  const T1 = tunes[j1];
+  // 범위 밖이면 가장자리로 맞춘 값
+  const cl = Math.max(loads[0], Math.min(loads[loads.length - 1], load));
+  const ct = Math.max(tunes[0], Math.min(tunes[tunes.length - 1], tune));
 
-  // Clamp
-  const clampedLoad = Math.max(minLoad, Math.min(maxLoad, load));
-  const clampedTune = Math.max(minTune, Math.min(maxTune, tune));
-
-  // Find nearest bounding integers / grid coordinates
-  const floorLoad = Math.floor(clampedLoad);
-  const ceilLoad = Math.ceil(clampedLoad);
-  const floorTune = Math.floor(clampedTune);
-  const ceilTune = Math.ceil(clampedTune);
-
-  const L0 = findClosestCoordinate(loads, floorLoad);
-  const L1 = findClosestCoordinate(loads, ceilLoad === floorLoad ? (floorLoad + 1 <= maxLoad ? floorLoad + 1 : floorLoad) : ceilLoad);
-  const T0 = findClosestCoordinate(tunes, floorTune);
-  const T1 = findClosestCoordinate(tunes, ceilTune === floorTune ? (floorTune + 1 <= maxTune ? floorTune + 1 : floorTune) : ceilTune);
-
-  const getPt = (l: number, t: number): ComplexNumber | null => {
-    return grid[l]?.[t] || null;
-  };
+  const getPt = (l: number, t: number): ComplexNumber | null => grid[l]?.[t] || null;
 
   const p00 = getPt(L0, T0);
   const p10 = getPt(L1, T0) || p00;
@@ -168,11 +205,8 @@ export function interpolateCTCL(matrix: CTCLMatrixData, load: number, tune: numb
 
   if (!p00) return null;
 
-  const dL = L1 - L0;
-  const dT = T1 - T0;
-
-  const u = dL === 0 ? 0 : (clampedLoad - L0) / dL;
-  const v = dT === 0 ? 0 : (clampedTune - T0) / dT;
+  const u = L1 === L0 ? 0 : (cl - L0) / (L1 - L0);
+  const v = T1 === T0 ? 0 : (ct - T0) / (T1 - T0);
 
   const r00 = p00.r;
   const r10 = p10?.r ?? r00;
@@ -184,8 +218,7 @@ export function interpolateCTCL(matrix: CTCLMatrixData, load: number, tune: numb
   const x01 = p01?.x ?? x00;
   const x11 = p11?.x ?? x10;
 
-  // Bilinear formula:
-  // f(u,v) = (1-u)(1-v)*f00 + u(1-v)*f10 + (1-u)v*f01 + uv*f11
+  // 쌍선형 보간: f(u,v) = (1-u)(1-v)*f00 + u(1-v)*f10 + (1-u)v*f01 + uv*f11
   const interpR = (1 - u) * (1 - v) * r00 + u * (1 - v) * r10 + (1 - u) * v * r01 + u * v * r11;
   const interpX = (1 - u) * (1 - v) * x00 + u * (1 - v) * x10 + (1 - u) * v * x01 + u * v * x11;
 
@@ -193,18 +226,4 @@ export function interpolateCTCL(matrix: CTCLMatrixData, load: number, tune: numb
     r: Math.round(interpR * 100) / 100,
     x: Math.round(interpX * 100) / 100,
   };
-}
-
-function findClosestCoordinate(arr: number[], target: number): number {
-  if (arr.includes(target)) return target;
-  let closest = arr[0];
-  let minDiff = Math.abs(target - arr[0]);
-  for (let i = 1; i < arr.length; i++) {
-    const diff = Math.abs(target - arr[i]);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = arr[i];
-    }
-  }
-  return closest;
 }

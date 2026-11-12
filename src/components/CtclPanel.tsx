@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, FileSpreadsheet, RotateCcw, Sparkles, Upload } from 'lucide-react';
 import { AnalysisFileResult, CTCLMatrixData } from '../types/pecvd';
-import { interpolateCTCL } from '../utils/ctclParser';
+import { bracketAxis, interpolateCTCL } from '../utils/ctclParser';
 import { useTheme } from '../context/ThemeContext';
 import { TABLE_TD_DATA_CLASS, TINT_FIXED_TH1, TINT_FIXED_TH2, TINT_RF_TH1, TINT_RF_TH2 } from './IntegratedDashboard';
 
@@ -68,12 +68,15 @@ export const CtclPanel: React.FC<CtclPanelProps> = ({
   };
 
   const fmt2 = (v: number | null | undefined) => (v === null || v === undefined || isNaN(v) ? '-' : v.toFixed(2));
-  const floorL = Math.floor(testLoad);
-  const ceilL = Math.ceil(testLoad);
-  const floorT = Math.floor(testTune);
-  const ceilT = Math.ceil(testTune);
-  const visibleLoads = ctclMatrix ? ctclMatrix.loads.filter(l => l >= floorL - 3 && l <= ceilL + 3) : [];
-  const visibleTunes = ctclMatrix ? ctclMatrix.tunes.filter(t => t >= floorT - 4 && t <= ceilT + 4) : [];
+  // 보간에 쓰인 둘러싼 칸 (축 간격과 상관없이) + 앞뒤 몇 칸
+  const [li0, li1] = ctclMatrix ? bracketAxis(ctclMatrix.loads, testLoad) : [-1, -1];
+  const [ti0, ti1] = ctclMatrix ? bracketAxis(ctclMatrix.tunes, testTune) : [-1, -1];
+  const floorL = ctclMatrix && li0 >= 0 ? ctclMatrix.loads[li0] : NaN;
+  const ceilL = ctclMatrix && li1 >= 0 ? ctclMatrix.loads[li1] : NaN;
+  const floorT = ctclMatrix && ti0 >= 0 ? ctclMatrix.tunes[ti0] : NaN;
+  const ceilT = ctclMatrix && ti1 >= 0 ? ctclMatrix.tunes[ti1] : NaN;
+  const visibleLoads = ctclMatrix && li0 >= 0 ? ctclMatrix.loads.slice(Math.max(0, li0 - 3), li1 + 4) : [];
+  const visibleTunes = ctclMatrix && ti0 >= 0 ? ctclMatrix.tunes.slice(Math.max(0, ti0 - 4), ti1 + 5) : [];
 
   return (
     <section
@@ -124,6 +127,15 @@ export const CtclPanel: React.FC<CtclPanelProps> = ({
                 {ctclMatrix.fileName}
               </span>
               <span className="text-[#94A3B8]">· {ctclMatrix.loads.length}×{ctclMatrix.tunes.length}</span>
+              {ctclMatrix.axisScale === 'fraction' && (
+                <span
+                  data-ctcl-scale
+                  className="px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold whitespace-nowrap"
+                  title="CTCL 엑셀의 Load·Tune 축이 0~1 비율이라, 공정 Log와 같은 %(0~100)로 바꿔 계산합니다"
+                >
+                  축 0~1 → %
+                </span>
+              )}
             </span>
             <span className="h-3.5 w-px bg-slate-300" />
             <span className="font-semibold text-[#0F172A] tabular-nums whitespace-nowrap">
