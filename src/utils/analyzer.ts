@@ -240,6 +240,28 @@ export function isStepRfRows(stepRows: RawLogRow[]): boolean {
  * 기본값: SiH4 Gas + RF Power 동시 만족 (일반 증착 Depo Step)
  * SiH4 제외 + RF 포함: SiH4 미공급 & RF 플라즈마 방전 스텝 (PowerLift Step 9, 10, 11 등)
  */
+/**
+ * Step의 대표 이름: 그 Step 행들에서 가장 많이 쓰인 StepName (같으면 먼저 나온 이름)
+ * - 장비가 Step 전환 순간 다음 Step 이름을 0.1초 먼저 기록하는 경우가 있어,
+ *   경계의 한두 줄 이름 때문에 Step 전체 판정이 바뀌지 않도록 대표 이름으로 판정
+ */
+export function stepDominantName(stepRows: RawLogRow[]): string {
+  const cnt = new Map<string, number>();
+  for (const r of stepRows) {
+    const n = (r.stepName || '').trim();
+    if (n) cnt.set(n, (cnt.get(n) ?? 0) + 1);
+  }
+  let best = '';
+  let bestN = 0;
+  cnt.forEach((n, name) => {
+    if (n > bestN) {
+      best = name;
+      bestN = n;
+    }
+  });
+  return best;
+}
+
 export function detectAllDepoSteps(
   file: ParsedLogFile,
   settings: AnalyzerSettings
@@ -268,6 +290,13 @@ export function detectAllDepoSteps(
     return (r.rfForwardPowerAct ?? 0) >= 50 && (!hasRfCmdInFile || rfCmdOf(r));
   };
 
+  // 실제 RF 방전 Step: 방전 행이 1초(10행) 이상 또는 Step 행 수의 30% 이상
+  //  (대체 규칙에도 같은 기준 적용 → 앞 Step의 RF Set 값만 남은 Step은 후보가 되지 않음)
+  const hasRealDischarge = (stepRows: RawLogRow[]) => {
+    const cnt = stepRows.filter(isRfDischargeRow).length;
+    return cnt >= 10 || (cnt > 0 && cnt >= stepRows.length * 0.3);
+  };
+
   // 사용자가 SiH4를 필수로 포함하는 일반 증착(Deposition) 스텝을 검색 중인지 여부
   const isStandardDepoSearch = criteria.sih4 === 'include';
 
@@ -281,7 +310,8 @@ export function detectAllDepoSteps(
     // 반대로 SiH4를 '제외(exclude)'로 설정한 경우, 사용자는 PowerLift(PL, Steps 9, 10, 11) 등
     // SiH4가 공급되지 않는 RF 플라즈마 방전 스텝 분석을 명시적으로 요구하는 것이므로 PL/고간격 제외 필터를 해제합니다.
     if (isStandardDepoSearch) {
-      const hasNonDepoName = stepRows.some(r => r.stepName && isNonDepoStep(r.stepName));
+      // 대표 이름(가장 많이 쓰인 이름) 기준: 경계에 섞인 다음/이전 Step 이름 한 줄로 제외되지 않게
+      const hasNonDepoName = isNonDepoStep(stepDominantName(stepRows));
       if (hasNonDepoName) {
         continue; // 배기(Pump), 가스 안정화(Stable), 퍼지(Purge), 파워리프트(PL), 플라즈마 전처리(H2_PT 등) 스텝은 확실히 제외
       }
@@ -299,7 +329,8 @@ export function detectAllDepoSteps(
     } else {
       // SiH4 제외 모드: 이름이 Pump·Vent·Evac·Idle 등인 유휴 Step은 RF가 Step 대부분(50% 이상) 방전하지 않으면 제외
       // (앞 Step(PL 등)에서 넘어온 RF 꼬리 몇 행이나 Set 잔류 값 때문에 PUMP가 남던 문제 방지)
-      const isPureIdle = stepRows.some(r => r.stepName && /(?:pump|pmp|vent|evac|idle|delay|펌프|배기)/i.test(r.stepName) && !/(?:pl|power_?lift|파워리프트)/i.test(r.stepName));
+      const domName = stepDominantName(stepRows);
+      const isPureIdle = !!domName && /(?:pump|pmp|vent|evac|idle|delay|펌프|배기)/i.test(domName) && !/(?:pl|power_?lift|파워리프트)/i.test(domName);
       if (isPureIdle) {
         const dischargeCnt = stepRows.filter(isRfDischargeRow).length;
         if (dischargeCnt < stepRows.length * 0.5) continue;
@@ -315,8 +346,7 @@ export function detectAllDepoSteps(
     // 2. RF 플라즈마 방전 감지: 'RF 명령(Fwd Set > 0 또는 RF On)이 있고 Act ≥ 50W인 행'이
     //    1초(10행) 이상 또는 Step 행 수의 30% 이상일 때만 방전 Step으로 인정
     //    (Set 값만 남은 행, 앞 Step에서 넘어온 몇 행짜리 RF 꼬리는 방전으로 보지 않음)
-    const rfDischargeCnt = stepRows.filter(isRfDischargeRow).length;
-    const hasRf = rfDischargeCnt >= 10 || (rfDischargeCnt > 0 && rfDischargeCnt >= stepRows.length * 0.3);
+    const hasRf = hasRealDischarge(stepRows);
 
     // 3. Ar 가스 공급 감지 (실제 유량 >= 10 sccm 또는 Set값 > 0)
     const hasAr = stepRows.some(r => {
@@ -363,8 +393,7 @@ export function detectAllDepoSteps(
       const candidatePlSteps = allSteps.filter(s => {
         const stepRows = rows.filter(r => r.step === s);
         const hasSiH4InStep = stepRows.some(r => (r.pyroSiH4Set ?? 0) > 0 || (r.pyroSiH4 ?? 0) >= 10);
-        const hasRfInStep = stepRows.some(r => (r.rfForwardPowerAct ?? 0) >= 50 || (r.rfForwardSetValue ?? 0) > 0);
-        return !hasSiH4InStep && hasRfInStep;
+        return !hasSiH4InStep && hasRealDischarge(stepRows);
       });
       if (candidatePlSteps.length > 0) {
         return candidatePlSteps;
@@ -375,7 +404,7 @@ export function detectAllDepoSteps(
     // 후보 스텝 중 총 RF 방전 에너지가 가장 큰 주 증착 스텝 우선 채택!
     const candidateGasRfSteps = allSteps.filter(s => {
       const stepRows = rows.filter(r => r.step === s);
-      const isExcluded = stepRows.some(r => r.stepName && isNonDepoStep(r.stepName));
+      const isExcluded = isNonDepoStep(stepDominantName(stepRows));
       if (isExcluded) return false;
 
       const hasGas = stepRows.some(r =>
@@ -383,8 +412,7 @@ export function detectAllDepoSteps(
         (r.pyroN2OSet ?? 0) > 0 || (r.pyroN2O ?? 0) >= 10 ||
         (r.pyroNH3Set ?? 0) > 0 || (r.pyroNH3 ?? 0) >= 10
       );
-      const hasRf = stepRows.some(r => (r.rfForwardPowerAct ?? 0) >= 50 || (r.rfForwardSetValue ?? 0) > 0);
-      return hasGas && hasRf;
+      return hasGas && hasRealDischarge(stepRows);
     });
 
     if (candidateGasRfSteps.length > 0) {
@@ -398,9 +426,9 @@ export function detectAllDepoSteps(
       // 2순위: 비-Depo 스텝 중 실질적 RF 방전이 유지된 스텝 (RF 총 방전 에너지가 가장 큰 스텝 순위)
       const validRfSteps = allSteps.filter(s => {
         const stepRows = rows.filter(r => r.step === s);
-        const isExcluded = stepRows.some(r => r.stepName && isNonDepoStep(r.stepName));
+        const isExcluded = isNonDepoStep(stepDominantName(stepRows));
         if (isExcluded) return false;
-        return stepRows.some(r => (r.rfForwardPowerAct ?? 0) >= 50 || (r.rfForwardSetValue ?? 0) > 0 || (r.rfOn ?? '').trim().toLowerCase() === 'on');
+        return hasRealDischarge(stepRows);
       });
 
       if (validRfSteps.length > 0) {
