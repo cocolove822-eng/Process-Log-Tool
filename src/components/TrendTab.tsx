@@ -189,7 +189,7 @@ const MULTI_COLORS: Record<string, string> = {
   windowIn3: '#BE185D',
   liftSpacing: '#4F46E5',
 };
-/** 가스 외 항목 최대 개수 (Recipe 사용 가스는 개수와 상관없이 모두 자동 표시) */
+/** 가스 외 항목 최대 개수 (Recipe 사용 가스는 개수와 상관없이 처음에 모두 표시, 뺄 수 있음) */
 const MULTI_MAX = 6;
 /** Recipe 사용 가스 판정용 Set 값 (Set 열이 없는 로그는 Act로 판단) */
 const GAS_SET_GETTERS: Record<string, (r: RawLogRow) => number> = {
@@ -368,8 +368,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
   const [multiOn, setMultiOn] = useStoredState<boolean>('trend.multiOn', true);
   const [multiRunId, setMultiRunId] = useStoredState<string>('trend.multiRunId', '');
   const [multiMetrics, setMultiMetrics] = useStoredState<string[]>('trend.multiMetrics', MULTI_PRESETS[0].ids);
-  /** 사용자가 직접 바꾼 축 (없으면 자동) */
-  const [multiSideOverride, setMultiSideOverride] = useStoredState<Record<string, 'L' | 'R'>>('trend.multiSide', {});
+  /** 사용자가 직접 바꾼 축 (없으면 좌측) */
+  const [multiSideOverride, setMultiSideOverride] = useStoredState<Record<string, 'L' | 'R'>>('trend.multiSideManual', {});
+  /** 뺀 Gas (Recipe 사용 Gas는 처음에 모두 표시, 빼면 여기에 저장) */
+  const [multiGasHidden, setMultiGasHidden] = useStoredState<string[]>('trend.multiGasHidden', []);
   const [showStepTimeline, setShowStepTimeline] = useStoredState<boolean>('trend.showStepTimeline', true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
   const [valueSort, setValueSort] = useStoredState<ValueSort>('trend.valueSort', 'no');
@@ -469,8 +471,9 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
     if (!multiFile) return null;
     const res = results.find(r => r.fileId === multiFile.id);
     const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(multiFile, res) : 0;
-    // Recipe 사용 가스는 모두 자동 표시 + 가스 외 항목은 선택한 것
-    const gasIds = recipeUsedGasIds(multiFile);
+    // Recipe 사용 가스는 처음에 모두 표시(뺀 가스 제외) + 가스 외 항목은 선택한 것
+    const recipeGasIds = recipeUsedGasIds(multiFile);
+    const gasIds = recipeGasIds.filter(id => !multiGasHidden.includes(id));
     const ids = [...gasIds, ...multiMetrics.filter(id => !isGasMetric(id))];
     const raw = ids
       .map(id => STANDARD_METRICS.find(m => m.id === id))
@@ -483,10 +486,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
         });
         return { m, pts };
       });
-    // 좌·우 축 자동 배치: 모든 조합을 점수로 비교 (겹침 최소 · 해상도 최대), 직접 정한 항목은 고정
+    // 좌·우 축: 모두 좌측이 기본, 직접 '우'로 바꾼 항목만 우측 (자동 배치 없음 — 축 범위만 계산)
     const layout = autoAxisLayout(
       raw.map(x => ({ id: x.m.id, unit: x.m.unit, points: x.pts })),
-      Object.fromEntries(Object.entries(multiSideOverride).filter(([id]) => raw.some(x => x.m.id === id))),
+      Object.fromEntries(raw.map(x => [x.m.id, multiSideOverride[x.m.id] ?? 'L'])),
     );
     // 값이 변하지 않는 항목(예: 모두 0)은 있는 축에 붙임
     const fallbackSide: 'L' | 'R' = layout.axes.L ? 'L' : 'R';
@@ -510,15 +513,21 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
     }));
     const idx = files.findIndex(f => f.id === multiFile.id);
     const rcp = res?.rcpName || multiFile.meta.recipeName || multiFile.fileName;
-    return { series, steps, axes: layout.axes, gasIds, label: `#${idx + 1} ${rcp}` };
-  }, [multiFile, multiMetrics, multiSideOverride, results, timeAlignment, files]);
+    return { series, steps, axes: layout.axes, gasIds, hiddenGasIds: recipeGasIds.filter(id => multiGasHidden.includes(id)), label: `#${idx + 1} ${rcp}` };
+  }, [multiFile, multiMetrics, multiSideOverride, multiGasHidden, results, timeAlignment, files]);
   // 가스 외 선택 항목 (예전에 저장된 가스 id는 무시 — 가스는 Recipe 기준 자동)
   const multiExtra = multiMetrics.filter(id => !isGasMetric(id));
-  const toggleMultiMetric = (id: string) =>
+  const toggleMultiMetric = (id: string) => {
+    // Gas: 빼기 / 다시 넣기
+    if (isGasMetric(id)) {
+      setMultiGasHidden(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+      return;
+    }
     setMultiMetrics(prev => {
       const extra = prev.filter(x => !isGasMetric(x));
       return extra.includes(id) ? extra.filter(x => x !== id) : extra.length >= MULTI_MAX ? extra : [...extra, id];
     });
+  };
   const setMultiSide = (id: string, side: 'L' | 'R') => setMultiSideOverride(prev => ({ ...prev, [id]: side }));
 
   const { minGlobalX, maxGlobalX } = useMemo(() => {
@@ -631,11 +640,14 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
                     <button
                       key={pr.label}
                       type="button"
-                      onClick={() => setMultiMetrics(pr.ids)}
+                      onClick={() => {
+                        setMultiMetrics(pr.ids);
+                        setMultiGasHidden([]);
+                      }}
                       className={`h-[20px] px-1.5 rounded-full border text-[10px] font-semibold whitespace-nowrap cursor-pointer ${
                         on ? 'bg-[#F5F3FF] border-[#7C3AED] text-[#5B21B6]' : 'bg-white border-slate-300 text-[#475569] hover:border-[#7C3AED]'
                       }`}
-                      title={`${pr.ids.map(id => STANDARD_METRICS.find(m => m.id === id)?.name).join(', ')} + Recipe 사용 Gas(자동)`}
+                      title={`${pr.ids.map(id => STANDARD_METRICS.find(m => m.id === id)?.name).join(', ')} + Recipe 사용 Gas 전부`}
                     >
                       {pr.label}
                     </button>
@@ -646,7 +658,6 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
                 {[...(multiData?.gasIds ?? []), ...multiExtra].map(id => {
                   const m = STANDARD_METRICS.find(x => x.id === id);
                   if (!m) return null;
-                  const auto = isGasMetric(id);
                   const side = multiData?.series.find(x => x.id === id)?.side ?? 'L';
                   const manual = multiSideOverride[id] !== undefined;
                   return (
@@ -666,47 +677,54 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
                             className={`w-[18px] h-[16px] text-[9.5px] font-bold cursor-pointer ${
                               side === sd ? (sd === 'L' ? 'bg-[#475569] text-white' : 'bg-[#7C3AED] text-white') : 'bg-white text-[#94A3B8] hover:text-[#334155]'
                             }`}
-                            title={`${sd === 'L' ? '왼쪽' : '오른쪽'} 축${!manual && side === sd ? ' (자동)' : ''}`}
+                            title={`${sd === 'L' ? '왼쪽' : '오른쪽'} 축${!manual && side === sd ? ' (기본)' : ''}`}
                           >
                             {sd === 'L' ? '좌' : '우'}
                           </button>
                         ))}
                       </span>
-                      {auto ? (
-                        <span
-                          className="shrink-0 w-[30px] text-center text-[9px] font-bold text-[#7C3AED] bg-[#F5F3FF] rounded"
-                          title="Recipe에서 사용하는 Gas는 자동으로 모두 표시됩니다"
-                        >
-                          자동
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => toggleMultiMetric(id)}
-                          className="shrink-0 p-0.5 text-[#94A3B8] hover:text-[#DC2626] cursor-pointer"
-                          title="빼기"
-                          aria-label={`${m.name} 빼기`}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleMultiMetric(id)}
+                        className="shrink-0 p-0.5 text-[#94A3B8] hover:text-[#DC2626] cursor-pointer"
+                        title="빼기"
+                        aria-label={`${m.name} 빼기`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   );
                 })}
               </div>
-              {multiExtra.length < MULTI_MAX && (
+              {(multiExtra.length < MULTI_MAX || (multiData?.hiddenGasIds.length ?? 0) > 0) && (
                 <select
                   aria-label="통합 그래프 Parameter 추가"
                   value=""
                   onChange={e => e.target.value && toggleMultiMetric(e.target.value)}
                   className="w-full h-[22px] px-1 bg-white border border-dashed border-slate-400 rounded-md text-[10px] font-semibold text-[#7C3AED] cursor-pointer focus:outline-none"
                 >
-                  <option value="">+ Parameter 추가 ({multiExtra.length}/{MULTI_MAX}, Gas는 자동)</option>
-                  {STANDARD_METRICS.filter(m => !isGasMetric(m.id) && !multiExtra.includes(m.id)).map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} [{m.unit}]
-                    </option>
-                  ))}
+                  <option value="">+ Parameter 추가 ({multiExtra.length}/{MULTI_MAX})</option>
+                  {(multiData?.hiddenGasIds.length ?? 0) > 0 && (
+                    <optgroup label="뺀 Gas 다시 넣기">
+                      {multiData!.hiddenGasIds.map(id => {
+                        const m = STANDARD_METRICS.find(x => x.id === id);
+                        return m ? (
+                          <option key={id} value={id}>
+                            {m.name} [{m.unit}]
+                          </option>
+                        ) : null;
+                      })}
+                    </optgroup>
+                  )}
+                  {multiExtra.length < MULTI_MAX && (
+                    <optgroup label="Parameter">
+                      {STANDARD_METRICS.filter(m => !isGasMetric(m.id) && !multiExtra.includes(m.id)).map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.unit}]
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               )}
               {Object.keys(multiSideOverride).length > 0 && (
@@ -715,7 +733,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
                   onClick={() => setMultiSideOverride({})}
                   className="text-[10px] font-semibold text-[#64748B] hover:text-[#7C3AED] cursor-pointer"
                 >
-                  축 자동으로 되돌리기
+                  모두 좌측으로 되돌리기
                 </button>
               )}
             </>
