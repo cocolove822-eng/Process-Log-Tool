@@ -594,6 +594,22 @@ export function analyzeLogFile(
 
   // 1. Identify Depo Step & Multi-Step context
   const allSteps = Array.from(new Set(rows.map(r => r.step))).sort((a, b) => a - b);
+
+  // 실제 RF 방전 Step: 'RF 명령(Set > 0 또는 RF On)이 있고 Act ≥ 50W'인 행이 1초(10행) 이상 또는 Step의 30% 이상
+  //  - 앞 Step의 RF Set 값만 한두 줄 남은 Step(PUMP 첫 줄, LSP 등)은 방전 Step으로 보지 않음 (Depo 판정과 같은 기준)
+  //  - 로그에 RF Act 열이 없으면 명령만으로 판단
+  const fileHasRfAct = rows.some(r => (r.rfForwardPowerAct ?? 0) > 0);
+  const fileHasRfCmd = rows.some(r => (r.rfForwardSetValue ?? 0) > 0 || (r.rfForwardSetValueAct ?? 0) > 0 || /^(on|1)$/i.test((r.rfOn ?? '').trim()));
+  const rowRfCmd = (r: RawLogRow) =>
+    (r.rfForwardSetValue ?? 0) > 0 || (r.rfForwardSetValueAct ?? 0) > 0 || /^(on|1)$/i.test((r.rfOn ?? '').trim());
+  const stepHasRealDischarge = (s: number): boolean => {
+    const sr = rows.filter(r => r.step === s);
+    if (sr.length === 0) return false;
+    if (!fileHasRfAct) return sr.some(rowRfCmd);
+    const cnt = sr.filter(r => (r.rfForwardPowerAct ?? 0) >= 50 && (!fileHasRfCmd || rowRfCmd(r))).length;
+    return cnt >= 10 || (cnt > 0 && cnt >= sr.length * 0.3);
+  };
+
   let depoStep = targetDepoStep;
   if (depoStep === undefined) {
     const detected = detectAllDepoSteps(file, settings);
@@ -638,7 +654,8 @@ export function analyzeLogFile(
   const isPlNamedRow = (r: RawLogRow) =>
     /(?:pl|plasma|post|treat)/i.test(r.stepName || '');
 
-  const plRfSteps = stepsAfterDepo.filter(s => rows.filter(r => r.step === s).some(isRfActiveRow));
+  // PL RF Step: 실제로 RF가 방전된 Step만 (Set 잔류 한 줄로 PUMP·LSP가 PL로 잡히지 않게)
+  const plRfSteps = stepsAfterDepo.filter(s => stepHasRealDischarge(s) && rows.filter(r => r.step === s).some(isRfActiveRow));
   const plH2Steps = stepsAfterDepo.filter(s => rows.filter(r => r.step === s).some(isH2ActiveRow));
   const plArSteps = stepsAfterDepo.filter(s => rows.filter(r => r.step === s).some(isArActiveRow));
   const plNamedSteps = stepsAfterDepo.filter(s => rows.filter(r => r.step === s).some(isPlNamedRow));
@@ -1323,8 +1340,12 @@ export function analyzeLogFile(
   // Stable Step 자체의 시작 시점(0.0초)을 기준으로 산출 (PL Stable, Depo, PL과 동일하게 통일)
   const depoStableRows = rows.filter(r => r.step === stableStep);
 
-  // Depo 이전의 모든 선행 스텝 구간 (시간 순서대로 정렬)
-  const interSteps = allSteps.filter(s => s > prevDepoStep && s < depoStep).sort((a, b) => a - b);
+  // Depo 이전의 선행 스텝 구간 (시간 순서대로 정렬)
+  //  - Depo 전에 RF 방전 Step(H2_PT 같은 전처리)이 있으면 그 뒤의 Step만 (예: STAB1 → H2_PT → PUMP1 → STAB2 → Depo 이면 PUMP1·STAB2)
+  //    → 전처리 앞의 STAB1이 아니라 Depo 바로 앞 STAB2에서 가스·T/V 시작 시점을 잼
+  const lastRfBeforeDepo = allSteps.filter(s => s > prevDepoStep && s < depoStep && stepHasRealDischarge(s)).pop();
+  const interFrom = Math.max(prevDepoStep, lastRfBeforeDepo ?? prevDepoStep);
+  const interSteps = allSteps.filter(s => s > interFrom && s < depoStep).sort((a, b) => a - b);
   const isPreStabName = (name: string) => /(?:^|[_\s-])pre_?stab(?:[_\s\d-]|$)|pre_?stable/i.test(name) || name.toUpperCase().includes('PRESTAB');
   const isStabName = (name: string) => (!isPreStabName(name)) && (/(?:^|[_\s-])stab(?:[_\s\d-]|$)|stable/i.test(name) || name.toUpperCase().includes('STAB'));
 
@@ -1390,6 +1411,17 @@ export function analyzeLogFile(
       }
 
       if (switchRow) {
+        // 실제 유량 반응 시점: Set 전환 행부터 Act가 '목표의 1% 이상(최소 5)'으로 처음 올라온 행
+        //  - 장비마다 Set을 로그에 찍는 시점이 다름 (Kairos: Step 첫 행, Rex: 약 0.3초 뒤) → 실제 H/W 반응 기준으로 통일
+        //  - Act가 이미 흐르고 있었거나(이전 Step에서 이어짐) Act 열이 없으면 Set 전환 시점 그대로
+        const actThresh = Math.max(5, targetSet * 0.01);
+        const si = stepRows.indexOf(switchRow);
+        const prevRow = si > 0 ? stepRows[si - 1] : rows[rows.indexOf(switchRow) - 1];
+        const alreadyFlowing = (actGetter(switchRow) ?? 0) >= actThresh && (prevRow ? (actGetter(prevRow) ?? 0) >= actThresh : true);
+        if (!alreadyFlowing) {
+          const riseRow = stepRows.slice(si).find(r => (actGetter(r) ?? 0) >= actThresh);
+          if (riseRow) return Math.round((riseRow.stepAllTime ?? 0) * 10) / 10;
+        }
         return Math.round((switchRow.stepAllTime ?? 0) * 10) / 10;
       }
     }
@@ -1483,12 +1515,19 @@ export function analyzeLogFile(
   // 2) Throttle Valve Mode Start 시점 판정 (OPEN/POS -> PRESSURE 전환점)
   const findTvModeStartInStepRows = (stepRows: RawLogRow[]): number | null => {
     if (stepRows.length === 0) return null;
+    // 실제 T/V 상태 열('T/V Ctrl Mode')이 있으면 그 열만 사용
+    //  - Kairos는 명령 열('T/V Ctrl Mode Set')이 Step 첫 행부터 Pressure로 찍혀, 섞어 보면 항상 0.0초가 됨
+    //  - 실제 상태가 Open → Pressure로 바뀐 시점 = 실제 H/W 동작 시점 (가스의 실제 유량 기준과 같은 원칙)
+    const actualMode = (r: RawLogRow) => (r.tvCtrlMode ?? '').toString().trim().toUpperCase();
+    const useActualMode = stepRows.some(r => actualMode(r) !== '');
     const isRowPressure = (r: RawLogRow) => {
+      if (useActualMode) return actualMode(r).includes('PRESS');
       const modes = getAllTvCtrlModesFromRow(r);
       if (modes.length > 0) return modes.some(m => m.includes('PRESS'));
       return (r.tvPressureSet ?? 0) > 0;
     };
     const isRowOpenOrPos = (r: RawLogRow) => {
+      if (useActualMode) return actualMode(r) !== '' && !actualMode(r).includes('PRESS');
       const modes = getAllTvCtrlModesFromRow(r);
       if (modes.length > 0) {
         if (modes.some(m => m.includes('POS') || m.includes('OPEN'))) return true;
