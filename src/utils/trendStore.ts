@@ -24,6 +24,12 @@ export function useStoredState<T>(key: string, init: T | (() => T)): [T, Dispatc
   return [value, set];
 }
 
+/** 화면을 다시 그리지 않고 보관소에 직접 읽기·쓰기 (스크롤 위치처럼 자주 바뀌는 값) */
+export const peekStored = <T,>(key: string): T | undefined => store.get(key) as T | undefined;
+export const putStored = (key: string, value: unknown) => {
+  store.set(key, value);
+};
+
 /**
  * 값이 '마지막으로 본 값'과 달라졌는지 (탭을 떠나기 전 값 포함)
  * - 처음 볼 때는 false, 같은 값이면 false → 탭에 다시 들어올 때 '바뀌면 초기화' 동작이 잘못 돌지 않게

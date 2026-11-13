@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { changedSince, peekStored, putStored, useStoredState } from '../utils/trendStore';
 import {
   AlertTriangle,
   Layers,
@@ -105,15 +106,16 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   onSelectRunIdx,
   managerHost = null,
 }) => {
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedStepFilter, setSelectedStepFilter] = useState<string>('all');
+  // 탭을 다녀와도 그대로 유지되도록 화면 밖 보관소에 저장 (useStoredState)
+  const [searchTerm, setSearchTerm] = useStoredState<string>('raw:search', '');
+  const [selectedStepFilter, setSelectedStepFilter] = useStoredState<string>('raw:step', 'all');
   // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [selectedRowIndex, setSelectedRowIndex] = useStoredState<number | null>('raw:row', null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useStoredState<boolean>('raw:sidebar', false);
 
   // Virtual Scrolling State
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState<number>(0);
+  const [scrollTop, setScrollTop] = useStoredState<number>('raw:scrollTop', 0);
   const [viewportHeight, setViewportHeight] = useState<number>(600);
 
   // Link active file with selected Run in '공정 분석 매니저'
@@ -130,9 +132,12 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   }, [files, results, selectedRunIdx]);
 
   // When activeFile changes via '공정 분석 매니저', reset step filter to 'all'
+  //  - 탭을 다녀왔을 때(같은 파일)는 그대로 두고, 실제로 파일이 바뀌었을 때만 초기화
   useEffect(() => {
+    if (!changedSince('raw:file', activeFile?.id)) return;
     setSelectedStepFilter('all');
     setSelectedRowIndex(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFile?.id]);
 
   // Measure container viewport height
@@ -151,10 +156,14 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
   // 파일·검색어가 바뀌면 맨 위로 (Step 선택은 아래에서 해당 Step 첫 행으로 이동)
   useEffect(() => {
+    if (!changedSince('raw:fileSearch', [activeFile?.id, searchTerm])) return;
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
+      containerRef.current.scrollLeft = 0;
     }
     setScrollTop(0);
+    putStored('raw:scrollLeft', 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFile?.id, searchTerm]);
 
   // Helper to test if a column is present in the uploaded file header
@@ -356,6 +365,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    if (!changedSince('raw:stepScroll', [selectedStepFilter, activeFile?.id])) return;
     let top = 0;
     if (selectedStepNum !== null) {
       const first = filteredRows.findIndex(r => r.step === selectedStepNum);
@@ -443,10 +453,10 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFile, usedGases, activeHeaterZones, hasLiftVel, hasLiftAcc]);
 
-  const [findConds, setFindConds] = useState<FindCond[]>(() => [newCond('refl', '>=', '')]);
-  const [findJoin, setFindJoin] = useState<'and' | 'or'>('and');
-  const [findStepOnly, setFindStepOnly] = useState<boolean>(false);
-  const [curSeg, setCurSeg] = useState<number>(-1);
+  const [findConds, setFindConds] = useStoredState<FindCond[]>('raw:findConds', () => [newCond('refl', '>=', '')]);
+  const [findJoin, setFindJoin] = useStoredState<'and' | 'or'>('raw:findJoin', 'and');
+  const [findStepOnly, setFindStepOnly] = useStoredState<boolean>('raw:findStepOnly', false);
+  const [curSeg, setCurSeg] = useStoredState<number>('raw:curSeg', -1);
 
   // 선택 Step 안에서만 찾을 때의 위치 범위
   const findScope = useMemo<[number, number] | null>(() => {
@@ -463,9 +473,23 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     [filteredRows, findFields, findConds, findJoin, findScope]
   );
   // 조건·파일이 바뀌면 현재 구간 표시 초기화
+  //  - 탭을 다녀왔을 때는 결과가 같으므로 현재 구간 유지
   useEffect(() => {
+    if (!changedSince('raw:findKey', [activeFile?.id, searchTerm, selectedStepFilter, findConds, findJoin, findStepOnly])) return;
     setCurSeg(-1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findResult]);
+
+  // 탭에 다시 들어오면 떠나기 전 스크롤 위치(세로·가로) 복원
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const top = peekStored<number>('raw:scrollTop') ?? 0;
+    const left = peekStored<number>('raw:scrollLeft') ?? 0;
+    if (top > 0) el.scrollTop = top;
+    if (left > 0) el.scrollLeft = left;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 강조할 칸 키 (조건에 쓰인 항목) */
   const hlKeys = useMemo(() => {
@@ -547,6 +571,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
+    putStored('raw:scrollLeft', e.currentTarget.scrollLeft);
   };
 
   if (!activeFile) {
