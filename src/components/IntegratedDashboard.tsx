@@ -210,6 +210,18 @@ interface IntegratedDashboardProps {
 /** 표 번호 칸: 눌러서 타임라인 보기 (마우스를 올리면 번호가 파랗게) */
 const NO_CELL_LINK_CLASS = 'cursor-pointer hover:[&>span]:text-[#2563EB] hover:[&>span]:underline hover:[&>span]:underline-offset-2';
 
+/** Heater 이름 비교 키: 띄어쓰기를 빼고 소문자로 ('Inner 1' → 'inner1') */
+const heaterKey = (name: string) => (name || '').replace(/\s+/g, '').toLowerCase();
+/** Heater 값 찾기: 묶인 표기(aliases) 중 그 Run에 있는 이름의 값 */
+function heaterVal<T>(map: Record<string, T> | undefined | null, zone: { name: string; aliases?: string[] }): T | undefined {
+  if (!map) return undefined;
+  for (const a of zone.aliases ?? [zone.name]) {
+    const v = map[a];
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+}
+
 export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
   results,
   settings,
@@ -739,7 +751,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 
   // Dynamic discovery of all unique heater zones across loaded files (strictly excluding TV1, TV2, RPSC)
   const allHeaterZones = useMemo(() => {
-    const zoneMap = new Map<string, { id: string; name: string }>();
+    // 띄어쓰기·대소문자만 다른 이름은 같은 Heater로 묶음 (예: 'Inner1' = 'Inner 1')
+    //  - 표시 이름은 처음 나온 이름, aliases에 모든 표기를 모아 Run별 값은 그 Run의 표기로 찾음
+    const zoneMap = new Map<string, { id: string; name: string; aliases: string[] }>();
     const isExcluded = (name: string) => {
       const l = name.toLowerCase().trim();
       return /\b(tv\d*|t\/v\d*|throttle|rpsc)\b/i.test(l) || l.startsWith('tv') || l.includes('rpsc') || l.includes('throttle');
@@ -753,18 +767,20 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     targetResults.forEach(r => {
       if (r.dynamicHeaterDefs && r.dynamicHeaterDefs.length > 0) {
         r.dynamicHeaterDefs.forEach(def => {
-          if (!isExcluded(def.name) && !zoneMap.has(def.name)) {
-            zoneMap.set(def.name, { id: def.id, name: def.name });
-          }
+          if (isExcluded(def.name)) return;
+          const key = heaterKey(def.name);
+          const z = zoneMap.get(key);
+          if (!z) zoneMap.set(key, { id: def.id, name: def.name, aliases: [def.name] });
+          else if (!z.aliases.includes(def.name)) z.aliases.push(def.name);
         });
       }
     });
     if (zoneMap.size === 0) {
       return [
-        { id: 'gate_in_1', name: 'Gate 1' },
-        { id: 'window_in_3', name: 'Win In 3' },
-        { id: 'window_out_4', name: 'Win Out 4' },
-        { id: 'side_in_5', name: 'Side 5' },
+        { id: 'gate_in_1', name: 'Gate 1', aliases: ['Gate 1'] },
+        { id: 'window_in_3', name: 'Win In 3', aliases: ['Win In 3'] },
+        { id: 'window_out_4', name: 'Win Out 4', aliases: ['Win Out 4'] },
+        { id: 'side_in_5', name: 'Side 5', aliases: ['Side 5'] },
       ];
     }
     return Array.from(zoneMap.values());
@@ -806,9 +822,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
   const setRows = results.map(r => {
     const p = r.processData;
     const heaterVals = displayedHeaterZones.map(zone => {
-      let val: number | null | undefined = p.dynamicHeaters?.[zone.name];
+      let val: number | null | undefined = heaterVal(p.dynamicHeaters, zone);
       if (val === undefined || val === null || val === 0) {
-        const monAct = r.monitoringData?.dynamicHeaterActs?.[zone.name];
+        const monAct = heaterVal(r.monitoringData?.dynamicHeaterActs, zone);
         if (monAct !== null && monAct !== undefined && monAct > 0) {
           val = monAct;
         } else if (zone.id === 'gate_in_1') {
@@ -1017,7 +1033,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       fmtInt(d.pyroH2.min), fmtPct(d.pyroH2.minDevPct), fmtInt(d.pyroH2.max), fmtPct(d.pyroH2.maxDevPct),
       ...monDisplayedHeaterZones.flatMap(zone => {
         const stat: DeviationStat =
-          d.dynamicHeaterDevs?.[zone.name] ??
+          heaterVal(d.dynamicHeaterDevs, zone) ??
           (zone.id === 'gate_in_1'
             ? d.gateIn1
             : zone.id === 'window_in_3'
@@ -1475,9 +1491,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         {/* Heaters (방안 A: 동적 히터 반응형 확장 렌더링) */}
                         {displayedHeaterZones.map((zone, zIdx) => {
                           const isLast = zIdx === displayedHeaterZones.length - 1;
-                          let val: number | null | undefined = p.dynamicHeaters?.[zone.name];
+                          let val: number | null | undefined = heaterVal(p.dynamicHeaters, zone);
                           if (val === undefined || val === null || val === 0) {
-                            const monAct = r.monitoringData?.dynamicHeaterActs?.[zone.name];
+                            const monAct = heaterVal(r.monitoringData?.dynamicHeaterActs, zone);
                             if (monAct !== null && monAct !== undefined && monAct > 0) {
                               val = monAct;
                             } else if (zone.id === 'gate_in_1') {
@@ -2529,7 +2545,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           const isLastHeater = zIdx === monDisplayedHeaterZones.length - 1;
                           const isTableEnd = isLastHeater && (activeDevTab === 'heater' || activeDevTab === 'all');
                           const stat: DeviationStat =
-                            d.dynamicHeaterDevs?.[zone.name] ??
+                            heaterVal(d.dynamicHeaterDevs, zone) ??
                             (zone.id === 'gate_in_1'
                               ? d.gateIn1
                               : zone.id === 'window_in_3'
