@@ -28,6 +28,8 @@ export interface MultiStep {
 interface Props {
   runLabel: string;
   series: MultiSeries[];
+  /** 자동 배치에서 정한 좌·우 축 범위 (없으면 데이터로 계산) */
+  axes?: { L: { lo: number; hi: number; step: number } | null; R: { lo: number; hi: number; step: number } | null };
   steps: MultiStep[];
   showSteps: boolean;
   stepColors: { bg: string; border: string; text: string }[];
@@ -85,7 +87,7 @@ const axisRange = (list: MultiSeries[]): { lo: number; hi: number; step: number 
   return { lo: Math.floor(lo / step) * step, hi: Math.ceil((hi * 1.04) / step) * step, step };
 };
 
-export const MultiParamChart: React.FC<Props> = ({ runLabel, series, steps, showSteps, stepColors, timeLabel }) => {
+export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps, showSteps, stepColors, timeLabel }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(900);
@@ -128,8 +130,8 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, steps, show
 
   const left = series.filter(s => s.side === 'L');
   const right = series.filter(s => s.side === 'R');
-  const axL = useMemo(() => axisRange(left), [series]); // eslint-disable-line react-hooks/exhaustive-deps
-  const axR = useMemo(() => axisRange(right), [series]); // eslint-disable-line react-hooks/exhaustive-deps
+  const axL = useMemo(() => (left.length ? axes?.L ?? axisRange(left) : null), [series, axes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const axR = useMemo(() => (right.length ? axes?.R ?? axisRange(right) : null), [series, axes]); // eslint-disable-line react-hooks/exhaustive-deps
   const plotW = Math.max(50, width - PAD_L - PAD_R);
   const plotH = H - PAD_T - PAD_B;
   const xOf = (t: number) => PAD_L + ((t - x0) / Math.max(1e-9, x1 - x0)) * plotW;

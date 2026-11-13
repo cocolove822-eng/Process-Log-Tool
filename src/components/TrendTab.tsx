@@ -4,6 +4,7 @@ import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 import { ManagerPortal, ManagerHeader } from './ManagerShell';
 import { changedSince, useStoredState } from '../utils/trendStore';
 import { MultiParamChart, MultiSeries, MultiStep } from './MultiParamChart';
+import { autoAxisLayout } from '../utils/multiAxis';
 
 export interface AlignedStepSegment {
   step: number;
@@ -190,28 +191,6 @@ const MULTI_PRESETS: { label: string; ids: string[] }[] = [
   { label: 'RF·Matcher', ids: ['rfForwardAct', 'rfReflect', 'matcherLoad', 'matcherTune', 'matcherDCBias'] },
   { label: '압력·T/V', ids: ['tvPressure', 'tvPosition', 'liftSpacing'] },
 ];
-
-/**
- * 좌·우 축 자동 나누기: 항목별 최대값을 크기순으로 놓고, 바로 앞 값보다 2배 이상 크게 뛰는 곳 중
- * 가장 크게 뛰는 곳 위쪽(큰 값)을 오른쪽 축으로. 뛰는 곳이 없으면 모두 왼쪽.
- */
-export function autoAxisSides(maxById: Record<string, number>): Record<string, 'L' | 'R'> {
-  const ids = Object.keys(maxById);
-  const out: Record<string, 'L' | 'R'> = {};
-  ids.forEach(id => (out[id] = 'L'));
-  const sorted = ids.filter(id => maxById[id] > 0).sort((a, b) => maxById[a] - maxById[b]);
-  let cut = -1;
-  let best = 2;
-  for (let i = 1; i < sorted.length; i++) {
-    const ratio = maxById[sorted[i]] / maxById[sorted[i - 1]];
-    if (ratio >= best) {
-      best = ratio;
-      cut = i;
-    }
-  }
-  if (cut > 0) sorted.slice(cut).forEach(id => (out[id] = 'R'));
-  return out;
-}
 
 export interface ExcelAxisFormat {
   // X-Axis (Time)
@@ -465,17 +444,27 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
           const v = m.getter(r);
           if (typeof v === 'number' && Number.isFinite(v)) pts.push([Math.round((r.elapsedSec - off) * 1000) / 1000, v]);
         });
-        return { m, pts, max: pts.reduce((a, [, v]) => Math.max(a, Math.abs(v)), 0) };
+        return { m, pts };
       });
-    const auto = autoAxisSides(Object.fromEntries(raw.map(x => [x.m.id, x.max])));
-    const series: MultiSeries[] = raw.map(x => ({
-      id: x.m.id,
-      name: x.m.name.replace(/\(Act\)$/, ''),
-      unit: x.m.unit,
-      color: MULTI_COLORS[x.m.id] || '#334155',
-      side: multiSideOverride[x.m.id] ?? auto[x.m.id] ?? 'L',
-      points: x.pts,
-    }));
+    // 좌·우 축 자동 배치: 모든 조합을 점수로 비교 (겹침 최소 · 해상도 최대), 직접 정한 항목은 고정
+    const layout = autoAxisLayout(
+      raw.map(x => ({ id: x.m.id, unit: x.m.unit, points: x.pts })),
+      Object.fromEntries(Object.entries(multiSideOverride).filter(([id]) => raw.some(x => x.m.id === id))),
+    );
+    // 값이 변하지 않는 항목(예: 모두 0)은 있는 축에 붙임
+    const fallbackSide: 'L' | 'R' = layout.axes.L ? 'L' : 'R';
+    const series: MultiSeries[] = raw.map(x => {
+      let side = layout.sides[x.m.id] ?? 'L';
+      if (!layout.axes[side]) side = fallbackSide;
+      return {
+        id: x.m.id,
+        name: x.m.name.replace(/\(Act\)$/, ''),
+        unit: x.m.unit,
+        color: MULTI_COLORS[x.m.id] || '#334155',
+        side,
+        points: x.pts,
+      };
+    });
     const steps: MultiStep[] = (multiFile.stepsSummary || []).map(st => ({
       step: st.step,
       stepName: st.stepName,
@@ -484,17 +473,11 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
     }));
     const idx = files.findIndex(f => f.id === multiFile.id);
     const rcp = res?.rcpName || multiFile.meta.recipeName || multiFile.fileName;
-    return { series, steps, auto, label: `#${idx + 1} ${rcp}` };
+    return { series, steps, axes: layout.axes, label: `#${idx + 1} ${rcp}` };
   }, [multiFile, multiMetrics, multiSideOverride, results, timeAlignment, files]);
   const toggleMultiMetric = (id: string) =>
     setMultiMetrics(prev => (prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= MULTI_MAX ? prev : [...prev, id]));
-  const setMultiSide = (id: string, side: 'L' | 'R') =>
-    setMultiSideOverride(prev => {
-      const next = { ...prev };
-      if (multiData?.auto[id] === side) delete next[id]; // 자동과 같으면 자동으로 되돌림
-      else next[id] = side;
-      return next;
-    });
+  const setMultiSide = (id: string, side: 'L' | 'R') => setMultiSideOverride(prev => ({ ...prev, [id]: side }));
 
   const { minGlobalX, maxGlobalX } = useMemo(() => {
     let minX = Infinity;
@@ -568,237 +551,10 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
         }
       >
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 space-y-3 scrollbar-thin">
-        {/* Section 1: 그래프 배치 (한 행에 1·2·3개) */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[10.5px] font-bold text-[#334155] whitespace-nowrap">1. 그래프 배치</span>
-            {/* 전체 초기화 버튼 (모든 그래프 줌/이동) */}
-            <button
-            onClick={() => {
-              setGlobalXFormat(null);
-              setResetAllKey(k => k + 1);
-            }}
-            className="flex items-center gap-1 px-1.5 py-0.5 text-[#0F172A] hover:bg-slate-200 bg-white border border-slate-300 rounded-lg transition-all cursor-pointer text-[10px] font-semibold"
-            title="모든 그래프 줌/이동 전체 초기화"
-          >
-            <RefreshCw className="w-3 h-3 text-[#475569]" />
-            <span>전체 초기화</span>
-          </button>
-          </div>
-          <div className="grid grid-cols-3 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300" role="radiogroup" aria-label="그래프 배치">
-            {([1, 2, 3] as const).map(n => (
-              <button
-                key={n}
-                type="button"
-                role="radio"
-                aria-checked={chartCols === n}
-                onClick={() => setChartCols(n)}
-                title={n === 1 ? '한 행에 그래프 1개 (가장 크게)' : `한 행에 그래프 ${n}개`}
-                className={`flex items-center justify-center gap-1 px-1 py-1 text-[10.5px] font-semibold rounded-lg transition-all cursor-pointer ${
-                  chartCols === n ? 'bg-white text-[#2563EB] font-bold shadow-2xs' : 'text-[#475569] hover:text-[#0F172A]'
-                }`}
-              >
-                <span className="flex gap-[2px]" aria-hidden="true">
-                  {Array.from({ length: n }).map((_, i) => (
-                    <span key={i} className={`h-2.5 rounded-[2px] ${chartCols === n ? 'bg-[#2563EB]' : 'bg-[#94A3B8]'}`} style={{ width: n === 1 ? 12 : n === 2 ? 6 : 4 }} />
-                  ))}
-                </span>
-                {n}열
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Section 2: 시간축 기준 설정 */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
-          <span className="text-[10.5px] font-bold text-[#334155] block">2. 시간축 기준 설정</span>
-          <div className="grid grid-cols-1 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300">
-            <button
-              type="button"
-              onClick={() => setTimeAlignment('elapsed')}
-              className={`px-2 py-1 text-[10.5px] font-semibold rounded-lg text-left transition-all cursor-pointer ${
-                timeAlignment === 'elapsed'
-                  ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
-                  : 'text-[#475569] hover:text-[#0F172A]'
-              }`}
-            >
-              경과 시간 (0.0s = 파일 시작)
-            </button>
-            <button
-              type="button"
-              onClick={() => setTimeAlignment('rfOn')}
-              className={`px-2 py-1 text-[10.5px] font-semibold rounded-lg text-left transition-all cursor-pointer ${
-                timeAlignment === 'rfOn'
-                  ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
-                  : 'text-[#475569] hover:text-[#0F172A]'
-              }`}
-            >
-              RF On 정렬 (0.0s = Depo)
-            </button>
-          </div>
-        </div>
-
-        {/* Section 3: 타임라인 표시 */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
+        {/* Section 1: 통합 그래프 (Run 1개의 여러 Parameter를 한 그래프에, 좌·우 2축) */}
+        <div className="space-y-1.5" data-multi-manager>
           <div className="flex items-center justify-between text-[10.5px]">
-            <label htmlFor="step-timeline-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
-              3. 타임라인 표시
-            </label>
-            <span className="flex items-center gap-1.5">
-              {showStepTimeline && alignedSteps.length > 0 && (
-                <span
-                  className="text-[9.5px] font-bold text-[#2563EB] tabular-nums"
-                  title="기준 Run의 Step 수"
-                >
-                  {alignedSteps.length} Step
-                </span>
-              )}
-              <input
-                id="step-timeline-toggle"
-                type="checkbox"
-                checked={showStepTimeline}
-                onChange={e => setShowStepTimeline(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-slate-400 text-[#2563EB] focus:ring-0 cursor-pointer"
-              />
-            </span>
-          </div>
-
-          {showStepTimeline && files.length > 1 && (
-            <select
-              aria-label="Step 기준 Run"
-              title="Step 기준 Run: 이 Run의 Step 구간으로 위쪽 Step 띠와 구분선을 그립니다"
-              value={refFile?.id || stepRefFileId}
-              onChange={e => {
-                const nextId = e.target.value;
-                setStepRefFileId(nextId);
-              }}
-              className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
-            >
-              {files.map((f, idx) => {
-                const isVis = visibleFileIds[f.id] !== false;
-                const rcpName = results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName;
-                return (
-                  <option key={f.id} value={f.id}>
-                    기준 #{idx + 1} {rcpName} {!isVis ? '(숨김)' : ''}
-                  </option>
-                );
-              })}
-            </select>
-          )}
-        </div>
-
-        {/* Section 4: Recipe 선택 */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
-          <div className="flex items-center justify-between text-[10.5px]">
-            <span className="font-bold text-[#334155]">
-              4. Recipe 선택 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
-            </span>
-            {selectedRecipeIds.length > 0 && (
-              <button
-                type="button"
-                onClick={clearRecipeSelection}
-                className="text-[9.5px] text-[#2563EB] font-semibold hover:underline cursor-pointer"
-                title="선택을 모두 해제하고 전체 Recipe를 표시합니다"
-              >
-                전체 보기
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-1 max-h-[170px] overflow-y-auto scrollbar-thin pr-0.5">
-            {files.map((file, idx) => {
-              const color = runColor(file.id, idx, selectedRecipeIds);
-              const isSelected = selectedRecipeIds.includes(file.id);
-              const isVisible = visibleFileIds[file.id] !== false;
-              const rcpName =
-                results.find(r => r.fileId === file.id)?.rcpName ||
-                file.meta.recipeName ||
-                file.fileName;
-              const isStepRef = refFile?.id === file.id;
-
-              return (
-                <button
-                  type="button"
-                  key={file.id}
-                  onClick={() => toggleRecipeSelect(file.id)}
-                  aria-pressed={isSelected}
-                  className={`w-full flex items-center justify-between gap-1 px-2 py-1 text-[10.5px] rounded-lg border transition-all cursor-pointer text-left ${
-                    isSelected
-                      ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1E40AF] shadow-2xs font-bold'
-                      : isVisible
-                      ? 'bg-white border-slate-300 text-[#334155] font-semibold hover:border-[#2563EB]'
-                      : 'bg-slate-200/60 border-slate-300 text-[#94A3B8] hover:border-[#2563EB]'
-                  }`}
-                  title={`${rcpName} (클릭: 선택/해제)`}
-                >
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: isVisible ? color : '#94A3B8' }}
-                    />
-                    <span className="truncate">
-                      #{idx + 1} {rcpName}
-                    </span>
-                    {isStepRef && (
-                      <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-1 py-0.2 rounded shrink-0">
-                        기준
-                      </span>
-                    )}
-                  </span>
-                  {isSelected && <Check className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Section 5: 구간 통계 (구간 선택 모드 · 현재 구간) */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
-          <div className="flex items-center justify-between text-[10.5px]">
-            <label htmlFor="range-select-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
-              5. 구간 통계
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer select-none" title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그)">
-              <span className={`text-[10px] font-semibold ${rangeSelectMode ? 'text-[#B45309]' : 'text-[#64748B]'}`}>구간 선택</span>
-              <span className="relative inline-flex">
-                <input
-                  id="range-select-toggle"
-                  type="checkbox"
-                  role="switch"
-                  checked={rangeSelectMode}
-                  onChange={e => setRangeSelectMode(e.target.checked)}
-                  className="peer sr-only"
-                />
-                <span className="w-7 h-4 rounded-full bg-slate-300 peer-checked:bg-[#F59E0B] transition-colors" />
-                <span className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-2xs transition-transform peer-checked:translate-x-3" />
-              </span>
-            </label>
-          </div>
-          {statRange ? (
-            <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] text-[10.5px]" data-range-summary>
-              <span className="min-w-0">
-                <span className="font-bold text-[#0F172A] tabular-nums">
-                  {statRange[0].toFixed(1)} ~ {statRange[1].toFixed(1)} s
-                </span>
-                <span className="ml-1 text-[#B45309] tabular-nums">({(statRange[1] - statRange[0]).toFixed(1)} s)</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setStatRange(null)}
-                className="shrink-0 flex items-center gap-0.5 px-1 py-[1px] rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
-                title="구간 해제 (모든 그래프)"
-              >
-                <X className="w-3 h-3" />
-                해제
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {/* Section 6: 통합 그래프 (Run 1개의 여러 Parameter를 한 그래프에, 좌·우 2축) */}
-        <div className="space-y-1.5 pt-1 border-t border-slate-300" data-multi-manager>
-          <div className="flex items-center justify-between text-[10.5px]">
-            <span className="font-bold text-[#334155]">6. 통합 그래프</span>
+            <span className="font-bold text-[#334155]">1. 통합 그래프</span>
             <button
               type="button"
               role="switch"
@@ -914,6 +670,233 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
           )}
         </div>
 
+        {/* Section 2: 그래프 배치 (한 행에 1·2·3개) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[10.5px] font-bold text-[#334155] whitespace-nowrap">2. 그래프 배치</span>
+            {/* 전체 초기화 버튼 (모든 그래프 줌/이동) */}
+            <button
+            onClick={() => {
+              setGlobalXFormat(null);
+              setResetAllKey(k => k + 1);
+            }}
+            className="flex items-center gap-1 px-1.5 py-0.5 text-[#0F172A] hover:bg-slate-200 bg-white border border-slate-300 rounded-lg transition-all cursor-pointer text-[10px] font-semibold"
+            title="모든 그래프 줌/이동 전체 초기화"
+          >
+            <RefreshCw className="w-3 h-3 text-[#475569]" />
+            <span>전체 초기화</span>
+          </button>
+          </div>
+          <div className="grid grid-cols-3 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300" role="radiogroup" aria-label="그래프 배치">
+            {([1, 2, 3] as const).map(n => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={chartCols === n}
+                onClick={() => setChartCols(n)}
+                title={n === 1 ? '한 행에 그래프 1개 (가장 크게)' : `한 행에 그래프 ${n}개`}
+                className={`flex items-center justify-center gap-1 px-1 py-1 text-[10.5px] font-semibold rounded-lg transition-all cursor-pointer ${
+                  chartCols === n ? 'bg-white text-[#2563EB] font-bold shadow-2xs' : 'text-[#475569] hover:text-[#0F172A]'
+                }`}
+              >
+                <span className="flex gap-[2px]" aria-hidden="true">
+                  {Array.from({ length: n }).map((_, i) => (
+                    <span key={i} className={`h-2.5 rounded-[2px] ${chartCols === n ? 'bg-[#2563EB]' : 'bg-[#94A3B8]'}`} style={{ width: n === 1 ? 12 : n === 2 ? 6 : 4 }} />
+                  ))}
+                </span>
+                {n}열
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Section 2: 시간축 기준 설정 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <span className="text-[10.5px] font-bold text-[#334155] block">3. 시간축 기준 설정</span>
+          <div className="grid grid-cols-1 gap-1 bg-[#E2E8F0] p-0.5 rounded-xl border border-slate-300">
+            <button
+              type="button"
+              onClick={() => setTimeAlignment('elapsed')}
+              className={`px-2 py-1 text-[10.5px] font-semibold rounded-lg text-left transition-all cursor-pointer ${
+                timeAlignment === 'elapsed'
+                  ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
+                  : 'text-[#475569] hover:text-[#0F172A]'
+              }`}
+            >
+              경과 시간 (0.0s = 파일 시작)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTimeAlignment('rfOn')}
+              className={`px-2 py-1 text-[10.5px] font-semibold rounded-lg text-left transition-all cursor-pointer ${
+                timeAlignment === 'rfOn'
+                  ? 'bg-white text-[#2563EB] font-bold shadow-2xs'
+                  : 'text-[#475569] hover:text-[#0F172A]'
+              }`}
+            >
+              RF On 정렬 (0.0s = Depo)
+            </button>
+          </div>
+        </div>
+
+        {/* Section 3: 타임라인 표시 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <label htmlFor="step-timeline-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              4. 타임라인 표시
+            </label>
+            <span className="flex items-center gap-1.5">
+              {showStepTimeline && alignedSteps.length > 0 && (
+                <span
+                  className="text-[9.5px] font-bold text-[#2563EB] tabular-nums"
+                  title="기준 Run의 Step 수"
+                >
+                  {alignedSteps.length} Step
+                </span>
+              )}
+              <input
+                id="step-timeline-toggle"
+                type="checkbox"
+                checked={showStepTimeline}
+                onChange={e => setShowStepTimeline(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-slate-400 text-[#2563EB] focus:ring-0 cursor-pointer"
+              />
+            </span>
+          </div>
+
+          {showStepTimeline && files.length > 1 && (
+            <select
+              aria-label="Step 기준 Run"
+              title="Step 기준 Run: 이 Run의 Step 구간으로 위쪽 Step 띠와 구분선을 그립니다"
+              value={refFile?.id || stepRefFileId}
+              onChange={e => {
+                const nextId = e.target.value;
+                setStepRefFileId(nextId);
+              }}
+              className="w-full bg-white border border-slate-300 text-[#0F172A] text-[10px] rounded-lg px-1.5 py-1 font-medium focus:outline-none focus:border-[#2563EB]"
+            >
+              {files.map((f, idx) => {
+                const isVis = visibleFileIds[f.id] !== false;
+                const rcpName = results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName;
+                return (
+                  <option key={f.id} value={f.id}>
+                    기준 #{idx + 1} {rcpName} {!isVis ? '(숨김)' : ''}
+                  </option>
+                );
+              })}
+            </select>
+          )}
+        </div>
+
+        {/* Section 4: Recipe 선택 */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <span className="font-bold text-[#334155]">
+              5. Recipe 선택 ({selectedRecipeIds.length > 0 ? `선택 ${selectedRecipeIds.length}` : '전체'}/{files.length})
+            </span>
+            {selectedRecipeIds.length > 0 && (
+              <button
+                type="button"
+                onClick={clearRecipeSelection}
+                className="text-[9.5px] text-[#2563EB] font-semibold hover:underline cursor-pointer"
+                title="선택을 모두 해제하고 전체 Recipe를 표시합니다"
+              >
+                전체 보기
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-1 max-h-[170px] overflow-y-auto scrollbar-thin pr-0.5">
+            {files.map((file, idx) => {
+              const color = runColor(file.id, idx, selectedRecipeIds);
+              const isSelected = selectedRecipeIds.includes(file.id);
+              const isVisible = visibleFileIds[file.id] !== false;
+              const rcpName =
+                results.find(r => r.fileId === file.id)?.rcpName ||
+                file.meta.recipeName ||
+                file.fileName;
+              const isStepRef = refFile?.id === file.id;
+
+              return (
+                <button
+                  type="button"
+                  key={file.id}
+                  onClick={() => toggleRecipeSelect(file.id)}
+                  aria-pressed={isSelected}
+                  className={`w-full flex items-center justify-between gap-1 px-2 py-1 text-[10.5px] rounded-lg border transition-all cursor-pointer text-left ${
+                    isSelected
+                      ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1E40AF] shadow-2xs font-bold'
+                      : isVisible
+                      ? 'bg-white border-slate-300 text-[#334155] font-semibold hover:border-[#2563EB]'
+                      : 'bg-slate-200/60 border-slate-300 text-[#94A3B8] hover:border-[#2563EB]'
+                  }`}
+                  title={`${rcpName} (클릭: 선택/해제)`}
+                >
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: isVisible ? color : '#94A3B8' }}
+                    />
+                    <span className="truncate">
+                      #{idx + 1} {rcpName}
+                    </span>
+                    {isStepRef && (
+                      <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-1 py-0.2 rounded shrink-0">
+                        기준
+                      </span>
+                    )}
+                  </span>
+                  {isSelected && <Check className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Section 5: 구간 통계 (구간 선택 모드 · 현재 구간) */}
+        <div className="space-y-1 pt-1 border-t border-slate-300">
+          <div className="flex items-center justify-between text-[10.5px]">
+            <label htmlFor="range-select-toggle" className="font-bold text-[#334155] cursor-pointer select-none">
+              6. 구간 통계
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none" title="켜면 그래프를 드래그해 구간을 고릅니다 (꺼져 있어도 Shift+드래그)">
+              <span className={`text-[10px] font-semibold ${rangeSelectMode ? 'text-[#B45309]' : 'text-[#64748B]'}`}>구간 선택</span>
+              <span className="relative inline-flex">
+                <input
+                  id="range-select-toggle"
+                  type="checkbox"
+                  role="switch"
+                  checked={rangeSelectMode}
+                  onChange={e => setRangeSelectMode(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <span className="w-7 h-4 rounded-full bg-slate-300 peer-checked:bg-[#F59E0B] transition-colors" />
+                <span className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-2xs transition-transform peer-checked:translate-x-3" />
+              </span>
+            </label>
+          </div>
+          {statRange ? (
+            <div className="flex items-center justify-between gap-1 px-2 py-1 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] text-[10.5px]" data-range-summary>
+              <span className="min-w-0">
+                <span className="font-bold text-[#0F172A] tabular-nums">
+                  {statRange[0].toFixed(1)} ~ {statRange[1].toFixed(1)} s
+                </span>
+                <span className="ml-1 text-[#B45309] tabular-nums">({(statRange[1] - statRange[0]).toFixed(1)} s)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatRange(null)}
+                className="shrink-0 flex items-center gap-0.5 px-1 py-[1px] rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#475569] hover:text-[#DC2626] hover:border-[#FCA5A5] cursor-pointer"
+                title="구간 해제 (모든 그래프)"
+              >
+                <X className="w-3 h-3" />
+                해제
+              </button>
+            </div>
+          ) : null}
+        </div>
+
         {/* Section 7: Parameter 선택 */}
         <div className="space-y-1 pt-1 border-t border-slate-300">
           <div className="flex items-center justify-between text-[10.5px]">
@@ -1001,6 +984,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
           <MultiParamChart
             runLabel={multiData.label}
             series={multiData.series}
+            axes={multiData.axes}
             steps={multiData.steps}
             showSteps={showStepTimeline}
             stepColors={STEP_PALETTE}
