@@ -3,7 +3,57 @@ import { Check, ChevronDown, ChevronRight, Copy, ListChecks } from 'lucide-react
 import { AnalysisFileResult, ParsedLogFile } from '../types/pecvd';
 import { useTheme } from '../context/ThemeContext';
 import { copyTableToClipboard } from '../utils/exportUtils';
-import { checkSequence, CheckKind, SequenceReport, Verdict, worst } from '../utils/sequenceCheck';
+import { checkSequence, CheckKind, Evidence, SequenceReport, Verdict, worst } from '../utils/sequenceCheck';
+
+/** 판정 근거 원본 Log 행 */
+const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
+  const h = 'px-1.5 py-[3px] border border-slate-300 bg-[#EEF2F6] text-[10px] font-bold text-[#334155] whitespace-nowrap';
+  const c = 'px-1.5 py-[2px] border border-slate-200 text-[10px] tabular-nums whitespace-nowrap text-right';
+  return (
+    <div data-seq-evidence className="mt-1 mb-1 ml-[22px] overflow-x-auto rounded border border-slate-200">
+      <table className="border-collapse w-max min-w-full">
+        <thead>
+          <tr>
+            <th className={h}>행</th>
+            <th className={`${h} text-left`}>동작</th>
+            <th className={h}>Time</th>
+            <th className={h}>경계 기준</th>
+            <th className={h}>Step</th>
+            {ev.cols.map(col => (
+              <th key={col} className={h}>
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {ev.rows.map((r, i) =>
+            r.gap ? (
+              <tr key={i}>
+                <td colSpan={ev.cols.length + 5} className="px-1.5 py-0 border border-slate-200 text-center text-[10px] text-[#94A3B8] leading-[14px] bg-[#FAFBFC]">
+                  ⋯
+                </td>
+              </tr>
+            ) : (
+              <tr key={i} data-ev-key={r.tag ? '1' : undefined} className={r.tag ? 'bg-[#EFF6FF]' : 'bg-white'}>
+                <td className={`${c} text-[#94A3B8]`}>{r.rowNo}</td>
+                <td className={`${c} text-left`}>{r.tag && <span className="font-bold text-[#1D4ED8]">▶ {r.tag}</span>}</td>
+                <td className={`${c} text-[#64748B] text-left`}>{r.time}</td>
+                <td className={`${c} text-[#2563EB] font-semibold`}>{r.t === undefined ? '-' : `${r.t >= 0 ? '+' : '−'}${Math.abs(r.t).toFixed(1)}s`}</td>
+                <td className={`${c} text-center font-semibold`}>{r.step}</td>
+                {r.cells!.map((v, k) => (
+                  <td key={k} className={`${c} ${r.changed![k] ? 'bg-[#FEF08A] font-bold text-[#0F172A]' : 'text-[#334155]'}`}>
+                    {v}
+                  </td>
+                ))}
+              </tr>
+            ),
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 /** 판정 표시 (정상 / 확인 필요 / 미적용 / 해당 없음) */
 const V_STYLE: Record<Verdict, { icon: string; label: string; cls: string }> = {
@@ -49,6 +99,7 @@ export const SequenceCheckPanel: React.FC<{
   const { theme } = useTheme();
   const [open, setOpen] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [showLog, setShowLog] = useState(true);
 
   const reports = useMemo(
     () =>
@@ -97,6 +148,10 @@ export const SequenceCheckPanel: React.FC<{
           <span className="text-[11px] text-[#475569] font-medium whitespace-nowrap">(Log의 Step별 설정 기준 · 줄을 누르면 경계별 상세)</span>
         </div>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-[#334155] cursor-pointer select-none whitespace-nowrap">
+            <input type="checkbox" data-seq-showlog checked={showLog} onChange={e => setShowLog(e.target.checked)} className="accent-[#0D9488]" />
+            근거 원본 Log 표시
+          </label>
           <button
             type="button"
             onClick={() => setOpen(allOpen ? [] : reports.filter(x => x.report).map(x => x.file.id))}
@@ -219,13 +274,20 @@ export const SequenceCheckPanel: React.FC<{
                                   </div>
                                 )}
                                 <ul className="space-y-0.5 pt-0.5">
-                                  {b.items.map((it, k) => (
-                                    <li key={k} data-seq-item={it.verdict} className="flex items-start gap-1.5">
-                                      <VerdictBadge v={it.verdict} compact />
-                                      <span className="text-[10px] font-bold text-[#64748B] w-[72px] shrink-0 pt-[3px]">{KIND_LABEL[it.kind]}</span>
-                                      <span className="text-[#0F172A] pt-[2px]">{it.text}</span>
-                                    </li>
-                                  ))}
+                                  {b.items.map((it, k) => {
+                                    // 같은 근거를 쓰는 항목이 이어지면 표는 마지막 항목 아래에 한 번만
+                                    const showEv = showLog && it.evidence && b.items[k + 1]?.evidence !== it.evidence;
+                                    return (
+                                      <li key={k} data-seq-item={it.verdict}>
+                                        <div className="flex items-start gap-1.5">
+                                          <VerdictBadge v={it.verdict} compact />
+                                          <span className="text-[10px] font-bold text-[#64748B] w-[72px] shrink-0 pt-[3px]">{KIND_LABEL[it.kind]}</span>
+                                          <span className="text-[#0F172A] pt-[2px]">{it.text}</span>
+                                        </div>
+                                        {showEv && <EvidenceTable ev={it.evidence!} />}
+                                      </li>
+                                    );
+                                  })}
                                 </ul>
                               </div>
                             </div>
@@ -233,7 +295,7 @@ export const SequenceCheckPanel: React.FC<{
                         </div>
                         <p className="mt-1.5 text-[10.5px] text-[#94A3B8] flex items-center gap-1">
                           <ListChecks className="w-3 h-3" />
-                          시간 = 다음 Step 첫 행 기준 (− 는 경계 전) · 같은 행(0.15초 안)은 '동시' · SiH4 Off와 RF RSD Down은 0.35초 안이면 '함께'
+                          시간 = 다음 Step 첫 행 기준 (− 는 경계 전) · 같은 행(0.15초 안)은 '동시' · SiH4 Off와 RF RSD Down은 0.35초 안이면 '함께' · 근거 Log: 파란 행 = 동작이 일어난 행, 노란 칸 = 바로 앞 행에서 Set·상태 값이 바뀐 칸, ⋯ = 사이 행 생략
                         </p>
                       </td>
                     </tr>

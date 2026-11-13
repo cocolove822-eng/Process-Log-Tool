@@ -19,11 +19,34 @@ export const worst = (...vs: Verdict[]): Verdict => vs.reduce<Verdict>((a, v) =>
 
 export type CheckKind = 'sequence' | 'bb' | 'sg' | 'rsd';
 
+export interface EvidenceRow {
+  /** true = 사이 행 생략(⋯) */
+  gap?: boolean;
+  /** Log 행 번호 */
+  rowNo?: number;
+  time?: string;
+  /** 경계 기준 초 */
+  t?: number;
+  step?: number;
+  /** 이 행에서 일어난 동작 (예: 'RF Off') */
+  tag?: string;
+  cells?: string[];
+  /** 바로 앞 Log 행과 값이 달라진 칸 */
+  changed?: boolean[];
+}
+
+/** 판정 근거가 된 원본 Log 행 */
+export interface Evidence {
+  cols: string[];
+  rows: EvidenceRow[];
+}
+
 export interface CheckItem {
   kind: CheckKind;
   verdict: Verdict;
   /** 한 줄 설명 */
   text: string;
+  evidence?: Evidence;
 }
 
 export interface SeqEvent {
@@ -144,6 +167,65 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
     return [a, b] as const;
   };
 
+  // ---- 근거 원본 Log 행 ----
+  const fv = (v: number | undefined | null) => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return '-';
+    return String(Math.round(v * 100) / 100);
+  };
+  const flag = (v: boolean | null | undefined) => (v === null || v === undefined ? '-' : v ? 'On' : 'Off');
+  const COLS: Record<string, { label: string; get: (r: RawLogRow) => string }> = {
+    bb: { label: 'BB Mode', get: r => flag(r.bbMode) },
+    sg: { label: 'Specific Gas', get: r => flag(r.specificGasAdj) },
+    rfOn: { label: 'RF On', get: r => (r.rfOn ?? '').trim() || '-' },
+    rfSet: { label: 'RF Set', get: r => fv(r.rfForwardSetValue) },
+    rfAct: { label: 'RF Act', get: r => fv(r.rfForwardPowerAct) },
+    pSet: { label: 'Press Set', get: r => fv(r.tvPressureSet) },
+    pAct: { label: 'Press Act', get: r => fv(r.tvPressure) },
+    tvMode: { label: 'T/V Mode', get: r => (r.tvCtrlMode ?? r.tvCtrlModeSet ?? '').toString().trim() || '-' },
+  };
+  GASES.forEach(g => (COLS[`gas:${g.id}`] = { label: `${g.name} Set`, get: r => fv(g.set(r)) }));
+  const gasCols = (gs: GasDef[]) => gs.map(g => `gas:${g.id}`);
+  /** 창 안의 행: 짧으면 모두, 길면 양 끝 + 경계 앞뒤 */
+  const windowRows = (w0: number, w1: number, center: number) => {
+    const out: number[] = [];
+    for (let i = w0; i <= w1; i++) if (w1 - w0 <= 6 || i === w0 || i === w1 || Math.abs(i - center) <= 2) out.push(i);
+    return out;
+  };
+  const makeEv = (refIdx: number, keys: { idx: number; tag: string }[], colKeys: string[], extra: number[] = []): Evidence | undefined => {
+    const tags = new Map<number, string[]>();
+    keys.forEach(k => {
+      if (k.idx < 0 || k.idx >= rows.length) return;
+      tags.set(k.idx, [...(tags.get(k.idx) ?? []), k.tag]);
+    });
+    const set = new Set<number>(extra.filter(i => i >= 0 && i < rows.length));
+    tags.forEach((_, i) => {
+      set.add(i);
+      if (i > 0) set.add(i - 1);
+    });
+    if (set.size === 0) return undefined;
+    const idxs = [...set].sort((a, b) => a - b).slice(0, 18);
+    const ref = rows[refIdx] ?? rows[idxs[0]];
+    const ck = colKeys.filter((c, i, arr) => COLS[c] && arr.indexOf(c) === i && idxs.some(j => COLS[c].get(rows[j]) !== '-'));
+    const out: EvidenceRow[] = [];
+    idxs.forEach((i, n) => {
+      if (n > 0 && i - idxs[n - 1] > 1) out.push({ gap: true });
+      const r = rows[i];
+      const cells = ck.map(c => COLS[c].get(r));
+      const prev = i > 0 ? rows[i - 1] : null;
+      out.push({
+        rowNo: r.rowIndex,
+        time: (r.timeStr ?? '').trim().split(/\s+/).pop() || '-',
+        t: tSec(r, ref),
+        step: r.step,
+        tag: tags.get(i)?.join(' · '),
+        cells,
+        // 실측(Act)은 늘 조금씩 흔들리므로 Set·상태 칸만 '바뀜' 표시
+        changed: ck.map((c, k) => (prev && !/Act$/.test(c) ? COLS[c].get(prev) !== cells[k] : false)),
+      });
+    });
+    return { cols: ck.map(c => COLS[c].label), rows: out };
+  };
+
   /** Depo Step 끝부분 동작: RSD Down, SiH4 Off, RF Off (경계 행 기준 시간) */
   const endActions = (d: number, bIdx: number) => {
     const d0 = firstIdx(d);
@@ -182,9 +264,22 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
   };
 
   /** Specific Gas 판정 (Step 끝) */
-  const sgItems = (d: number, sg: boolean | null, a: ReturnType<typeof endActions>, out: CheckItem[]) => {
+  const sgItems = (d: number, sg: boolean | null, a: ReturnType<typeof endActions>, out: CheckItem[], bIdx: number) => {
     const hasSih = rowsOf(d).some(r => num(r.pyroSiH4Set) > 0);
     if (!hasSih) return;
+    const n0 = out.length;
+    const sgKeys = [
+      { idx: a.rsdIdx, tag: 'RSD Down' },
+      { idx: a.sihIdx, tag: 'SiH4 Off' },
+      { idx: a.rfOffIdx, tag: 'RF Off' },
+    ];
+    if (a.rsdIdx < 0 && a.sihIdx < 0) sgKeys.push({ idx: lastIdx(d), tag: 'Step 마지막 행' });
+    const sgEv = makeEv(bIdx, sgKeys, ['sg', 'gas:SiH4', 'rfSet', 'rfOn', 'rfAct']);
+    const rsdEv = makeEv(bIdx, [{ idx: a.rsdIdx, tag: 'RSD Down' }, { idx: a.rfOffIdx, tag: 'RF Off' }], ['rfSet', 'rfOn', 'rfAct']);
+    const attach = () =>
+      out.slice(n0).forEach(it => {
+        it.evidence = it.kind === 'rsd' ? rsdEv : sgEv;
+      });
     if (sg === true) {
       if (a.sihT === null || (a.rfOffT !== null && a.sihT > a.rfOffT + SAME_ROW_SEC)) {
         out.push({ kind: 'sg', verdict: 'fail', text: 'SiH4가 RF Off 전에 꺼지지 않았습니다 (Specific Gas 동작 없음)' });
@@ -225,6 +320,7 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
           : 'Log에 Specific Gas 설정 열이 없습니다 · SiH4 Off / RF RSD Down 동작이 보이지 않습니다',
       });
     }
+    attach();
   };
 
   const boundaries: BoundaryCheck[] = [];
@@ -262,6 +358,18 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       const bad = g > p + SAME_ROW_SEC ? `Gas On(${fmtT(g)})이 압력 제어 On(${fmtT(p)})보다 늦습니다` : `압력 제어 On(${fmtT(p)})이 RF On(${fmtT(rf)})보다 늦습니다`;
       items.push({ kind: 'sequence', verdict: 'fail', text: bad });
     }
+    items.forEach(
+      it =>
+        (it.evidence = makeEv(
+          d0,
+          [
+            { idx: gasOnIdx, tag: 'Gas On' },
+            { idx: pOnIdx, tag: '압력 제어 On' },
+            { idx: rfOnIdx, tag: 'RF On' },
+          ],
+          [...gasCols(gases), 'pSet', 'tvMode', 'rfOn', 'rfSet', 'rfAct'],
+        )),
+    );
     const st = setOf(d);
     boundaries.push({
       title: `공정 시작 → Step ${d} ${st?.name ?? ''}`,
@@ -295,64 +403,83 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       const [w0, w1] = span(bIdx, 0.5, 0.6);
       const rfContinuous = rows.slice(w0, w1 + 1).every(rfIsOn);
       const pressHeld = rows.slice(w0, w1 + 1).every(r => num(r.tvPressureSet) > 0);
-      sgItems(d, sg, a, items);
+      sgItems(d, sg, a, items, bIdx);
+      const win = windowRows(w0, w1, bIdx);
+      const bTag = { idx: bIdx, tag: 'Step 경계' };
       if (bb === true) {
+        const rfEv = makeEv(bIdx, [bTag, { idx: a.rfOffIdx, tag: 'RF Off' }], ['bb', 'rfOn', 'rfSet', 'rfAct'], win);
+        const pEv = makeEv(bIdx, [bTag], ['bb', 'pSet', 'pAct', 'tvMode'], win);
         items.push(
           rfContinuous
-            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 다음 Step으로 이어짐' }
-            : { kind: 'bb', verdict: 'fail', text: `BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다${a.rfOffT !== null ? ` (${fmtT(a.rfOffT)})` : ''}` },
+            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 다음 Step으로 이어짐', evidence: rfEv }
+            : { kind: 'bb', verdict: 'fail', text: `BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다${a.rfOffT !== null ? ` (${fmtT(a.rfOffT)})` : ''}`, evidence: rfEv },
         );
         items.push(
           pressHeld
-            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: 압력 제어 유지' }
-            : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 압력 제어가 풀렸습니다' },
+            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: 압력 제어 유지', evidence: pEv }
+            : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 압력 제어가 풀렸습니다', evidence: pEv },
         );
         // 다음 Step 시작 '동시 Set': RF Set · 압력 Set · 바뀌는 Gas Set의 첫 변경 시점
         const prev = rows[bIdx - 1];
         const changeT: number[] = [];
         const [, c1] = span(bIdx, 0, 1.5);
-        const firstChange = (get: (r: RawLogRow) => number) => {
+        const chKeys: { idx: number; tag: string }[] = [{ idx: bIdx - 1, tag: '이전 Step 마지막' }];
+        const chCols: string[] = ['rfSet', 'pSet'];
+        const firstChange = (get: (r: RawLogRow) => number, tag: string, col: string) => {
           const i = findFrom(bIdx, c1, r => Math.abs(num(get(r)) - num(get(prev))) > Math.max(1, Math.abs(num(get(prev))) * 0.01));
+          if (i >= 0) {
+            chKeys.push({ idx: i, tag });
+            if (!chCols.includes(col)) chCols.push(col);
+          }
           return i >= 0 ? tSec(rows[i], ref) : null;
         };
-        const tRf = firstChange(r => r.rfForwardSetValue);
-        const tP = firstChange(r => r.tvPressureSet);
-        [tRf, tP, ...GASES.map(g => firstChange(g.set))].forEach(t => t !== null && changeT.push(t));
+        const tRf = firstChange(r => r.rfForwardSetValue, 'RF Set', 'rfSet');
+        const tP = firstChange(r => r.tvPressureSet, '압력 Set', 'pSet');
+        [tRf, tP, ...GASES.map(g => firstChange(g.set, `${g.name} Set`, `gas:${g.id}`))].forEach(t => t !== null && changeT.push(t));
         if (tRf !== null) events.push({ label: 'RF Set 변경', t: tRf });
         if (tP !== null) events.push({ label: '압력 Set 변경', t: tP });
         if (changeT.length >= 2) {
           const sp = Math.max(...changeT) - Math.min(...changeT);
           const v: Verdict = sp <= SET_SPAN_OK ? 'ok' : sp <= SET_SPAN_WARN ? 'warn' : 'fail';
           events.push({ label: 'Gas Set 변경(마지막)', t: Math.max(...changeT) });
-          items.push({ kind: 'bb', verdict: v, text: v === 'ok' ? `다음 Step 시작에서 Gas·압력·Power가 동시에 Set (${sp.toFixed(1)}초 안)` : `다음 Step의 Set 변경이 ${sp.toFixed(1)}초에 걸쳐 나뉘어 있습니다` });
+          items.push({
+            kind: 'bb',
+            verdict: v,
+            text: v === 'ok' ? `다음 Step 시작에서 Gas·압력·Power가 동시에 Set (${sp.toFixed(1)}초 안)` : `다음 Step의 Set 변경이 ${sp.toFixed(1)}초에 걸쳐 나뉘어 있습니다`,
+            evidence: makeEv(bIdx, chKeys, chCols),
+          });
         }
       } else if (bb === false) {
         if (a.rfOffT !== null) events.push({ label: 'RF Off', t: a.rfOffT });
+        const offEv = makeEv(bIdx, [{ idx: a.rfOffIdx, tag: 'RF Off' }, bTag], ['bb', 'rfOn', 'rfSet', 'rfAct']);
+        const pEv = makeEv(bIdx, [bTag], ['pSet', 'pAct', 'tvMode'], win);
         items.push(
           !rfContinuous && a.rfOffT !== null && a.rfOffT <= SAME_ROW_SEC
-            ? { kind: 'sequence', verdict: 'ok', text: `BB Mode 꺼짐: 경계 전에 RF Off (${fmtT(a.rfOffT)})` }
-            : { kind: 'sequence', verdict: 'fail', text: 'BB Mode 꺼짐인데 RF가 경계를 넘어 켜져 있습니다' },
+            ? { kind: 'sequence', verdict: 'ok', text: `BB Mode 꺼짐: 경계 전에 RF Off (${fmtT(a.rfOffT)})`, evidence: offEv }
+            : { kind: 'sequence', verdict: 'fail', text: 'BB Mode 꺼짐인데 RF가 경계를 넘어 켜져 있습니다', evidence: offEv },
         );
         items.push(
           pressHeld
-            ? { kind: 'sequence', verdict: 'ok', text: '압력 제어가 다음 Step까지 유지' }
-            : { kind: 'sequence', verdict: 'warn', text: '경계에서 압력 제어가 풀렸습니다 (유지 기대)' },
+            ? { kind: 'sequence', verdict: 'ok', text: '압력 제어가 다음 Step까지 유지', evidence: pEv }
+            : { kind: 'sequence', verdict: 'warn', text: '경계에서 압력 제어가 풀렸습니다 (유지 기대)', evidence: pEv },
         );
         // Gas: 다음 Step에서도 쓰면 유지, 안 쓰면 Off
         const nextUsed = new Set(usedIn(nextStep).map(g => g.id));
         const [, e1] = span(bIdx, 0, 1);
         const wrong: string[] = [];
-        usedIn(d)
-          .filter(g => g.id !== 'SiH4' || sg === false)
-          .forEach(g => {
+        const gKeys: { idx: number; tag: string }[] = [bTag];
+        const gUsed = usedIn(d).filter(g => g.id !== 'SiH4' || sg === false);
+        gUsed.forEach(g => {
             const offIdx = findFrom(lastIdx(d) - 1, e1, (r, i) => num(g.set(r)) <= 0 && num(g.set(rows[i - 1])) > 0);
+            if (offIdx >= 0) gKeys.push({ idx: offIdx, tag: `${g.name} Off` });
             if (nextUsed.has(g.id) && offIdx >= 0) wrong.push(`${g.name}(다음 Step에서도 쓰는데 꺼짐)`);
             if (!nextUsed.has(g.id) && offIdx < 0) wrong.push(`${g.name}(다음 Step에서 안 쓰는데 계속 흐름)`);
           });
+        const gEv = makeEv(bIdx, gKeys, gasCols([...gUsed, ...usedIn(nextStep)]), [bIdx + 1]);
         items.push(
           wrong.length === 0
-            ? { kind: 'sequence', verdict: 'ok', text: '같은 Gas는 유지 · 안 쓰는 Gas는 Off' }
-            : { kind: 'sequence', verdict: 'warn', text: `Gas 처리 확인: ${wrong.join(', ')}` },
+            ? { kind: 'sequence', verdict: 'ok', text: '같은 Gas는 유지 · 안 쓰는 Gas는 Off', evidence: gEv }
+            : { kind: 'sequence', verdict: 'warn', text: `Gas 처리 확인: ${wrong.join(', ')}`, evidence: gEv },
         );
       } else {
         items.push({ kind: 'bb', verdict: 'warn', text: 'Log에 BB Mode 설정 열이 없어 판정할 수 없습니다' });
@@ -374,7 +501,7 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       });
     } else {
       // ----- 공정 끝: RF Off → 압력 제어 Off → Gas Off -----
-      sgItems(d, sg, a, items);
+      sgItems(d, sg, a, items, bIdx);
       const [, e1] = span(bIdx, 0, 3);
       const d1 = lastIdx(d);
       const pOffIdx = findFrom(d1 - 30, e1, (r, i) => i > 0 && isPressCtrl(rows[i - 1]) && !isPressCtrl(r));
@@ -382,6 +509,7 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       const gasOffIdx = findFrom(d1 - 30, e1, (r, i) => i > 0 && gasesD.some(g => num(g.set(rows[i - 1])) > 0 && num(g.set(r)) <= 0));
       const pOffT = pOffIdx >= 0 ? tSec(rows[pOffIdx], ref) : null;
       const gasOffT = gasOffIdx >= 0 ? tSec(rows[gasOffIdx], ref) : null;
+      const nEnd = items.length;
       if (a.rfOffT !== null) events.push({ label: 'RF Off', t: a.rfOffT });
       if (pOffT !== null) events.push({ label: '압력 제어 Off', t: pOffT });
       if (gasOffT !== null) events.push({ label: 'Gas Off', t: gasOffT });
@@ -398,6 +526,16 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
           text: `RF Off → 압력 제어 Off → Gas Off 순서 정상${Math.abs(gasOffT - pOffT) <= SAME_ROW_SEC ? ' (압력·Gas Off 같은 시점)' : ''}`,
         });
       }
+      const endEv = makeEv(
+        bIdx,
+        [
+          { idx: a.rfOffIdx, tag: 'RF Off' },
+          { idx: pOffIdx, tag: '압력 제어 Off' },
+          { idx: gasOffIdx, tag: 'Gas Off' },
+        ],
+        ['rfOn', 'rfAct', 'pSet', 'tvMode', ...gasCols(gasesD)],
+      );
+      items.slice(nEnd).forEach(it => (it.evidence = endEv));
       boundaries.push({
         title: `공정 끝: Step ${d} ${sDepo?.name ?? ''} → Step ${nextStep} ${sNext?.name ?? ''}`,
         setting: settingText(null, sg).replace('BB ? · ', ''),
@@ -420,9 +558,10 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       const prevOn = rowsOf(prevStep).some(rfIsOn);
       if (!prevOn) return;
       const ok = rows.slice(w0, w1 + 1).every(rfIsOn);
+      const ev = makeEv(bIdx, [{ idx: bIdx, tag: 'Step 경계' }], ['bb', 'rfOn', 'rfSet', 'rfAct'], windowRows(w0, w1, bIdx));
       const item: CheckItem = ok
-        ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 이어짐' }
-        : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다' };
+        ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 이어짐', evidence: ev }
+        : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다', evidence: ev };
       boundaries.push({
         title: `Step ${prevStep} ${setOf(prevStep)?.name ?? ''} → Step ${s} ${setOf(s)?.name ?? ''}`,
         setting: 'BB 켜짐',
