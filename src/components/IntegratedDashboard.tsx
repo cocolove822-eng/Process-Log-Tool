@@ -34,6 +34,7 @@ import { normalizeCriteria } from '../utils/analyzer';
 import { interpolateCTCL } from '../utils/ctclParser';
 import { SequenceGanttVisualizer } from './SequenceGanttVisualizer';
 import { SpcPanel } from './SpcPanel';
+import { CompareBadge, CompareBar, CompareCard, COMPARE_TINTS, resultKey } from './ComparePanel';
 import { useTheme } from '../context/ThemeContext';
 
 export interface VariableDefinition {
@@ -190,6 +191,13 @@ interface IntegratedDashboardProps {
   ctclMatrix?: CTCLMatrixData | null;
   selectedRunIdx?: number | null;
   onSelectRunIdx?: (idx: number | null) => void;
+  /** 비교 선택 (A·B·C 순서의 Run 키) */
+  compareKeys?: string[];
+  onToggleCompare?: (key: string) => void;
+  onClearCompare?: () => void;
+  compareOnly?: boolean;
+  onToggleCompareOnly?: (v: boolean) => void;
+  compareNotice?: string | null;
   onUpdateSettings?: (newSettings: AnalyzerSettings) => void;
   onUploadRawFiles?: (files: FileList | File[]) => void;
   onRemoveFile?: (fileId: string) => void;
@@ -209,6 +217,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
   ctclMatrix = null,
   selectedRunIdx = null,
   onSelectRunIdx,
+  compareKeys = [],
+  onToggleCompare,
+  onClearCompare,
+  compareOnly = false,
+  onToggleCompareOnly,
+  compareNotice = null,
   onUpdateSettings,
   onUploadRawFiles,
   onRemoveFile,
@@ -225,6 +239,27 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     onSelectRunIdx?.(idx);
     setGanttFocus(k => k + 1);
   };
+
+  // 비교 선택: Run별 A·B·C 위치 (-1 = 비교 아님)
+  const compareSlots = results.map(r => compareKeys.indexOf(resultKey(r)));
+  const slotOf = (idx: number) => compareSlots[idx] ?? -1;
+  const compareFilterOn = compareOnly && compareKeys.length > 0;
+  /** '선택만 보기'일 때 비교에 없는 행은 숨김 */
+  const hideRow = (idx: number) => compareFilterOn && slotOf(idx) < 0;
+  /** 표 '데이터 복사'도 화면과 같은 행만 */
+  const visRows = <T,>(rows: T[]): T[] => (compareFilterOn ? rows.filter((_, i) => slotOf(i) >= 0) : rows);
+  /** 행 클릭: Ctrl(⌘) + 클릭 = 비교 추가·빼기, 그냥 클릭 = 지금처럼 선택 */
+  const handleRowClick = (e: React.MouseEvent, idx: number, isSelected: boolean) => {
+    if ((e.ctrlKey || e.metaKey) && onToggleCompare && results[idx]) {
+      e.preventDefault();
+      onToggleCompare(resultKey(results[idx]));
+      return;
+    }
+    onSelectRunIdx?.(isSelected ? null : idx);
+  };
+  /** 비교 중인 행 배경 (선택 행은 기존 파란 강조 유지) */
+  const rowTint = (idx: number, isSelected: boolean): React.CSSProperties | undefined =>
+    !isSelected && slotOf(idx) >= 0 ? { backgroundColor: COMPARE_TINTS[slotOf(idx)] } : undefined;
   const [isDelaySettingsOpen, setIsDelaySettingsOpen] = useState<boolean>(false);
   const [activeDevTab, setActiveDevTab] = useState<'rfMatcher' | 'presLift' | 'gas' | 'heater' | 'all'>('rfMatcher');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1073,6 +1108,25 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       {/* 메인 작업 영역 (Excel 1:1 구조 1단 / 2단 / 3단 / 4단 100% Full Width) */}
       {/* ========================================================= */}
       <main className="w-full space-y-2">
+        {/* 비교 선택 막대 + [비교] 카드 (2개 이상 고르면) */}
+        <CompareBar
+          results={results}
+          compareKeys={compareKeys}
+          compareOnly={compareOnly}
+          onToggleCompareOnly={v => onToggleCompareOnly?.(v)}
+          onRemove={k => onToggleCompare?.(k)}
+          onClear={() => onClearCompare?.()}
+          notice={compareNotice}
+        />
+        <CompareCard
+          results={results}
+          compareKeys={compareKeys}
+          sections={[
+            { title: 'Recipe', headers: setHeaders, rows: setRows, skipCols: [0, 1] },
+            { title: 'Monitoring', headers: monHeaders, rows: monRows, skipCols: [0, 1] },
+          ]}
+        />
+
         {/* --------------------------------------------------------- */}
         {/* 공정 시퀀스 인터랙티브 간트 타임라인 (Gantt Visualizer) */}
         {/* 맨 위 배치 & 기본 접힘 상태 */}
@@ -1185,7 +1239,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
             </div>
 
             <button
-              onClick={() => handleCopy('set-table', setHeaders, setRows)}
+              onClick={() => handleCopy('set-table', setHeaders, visRows(setRows))}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
             >
               {copiedTable === 'set-table' ? (
@@ -1353,10 +1407,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     const p = r.processData;
                     const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
                     const isSelected = selectedRunIdx === idx;
+                    if (hideRow(idx)) return null;
                     return (
                       <tr
                         key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                        onClick={() => onSelectRunIdx?.(isSelected ? null : idx)}
+                        onClick={e => handleRowClick(e, idx, isSelected)}
+                        style={rowTint(idx, isSelected)}
                         className={`transition-colors cursor-pointer ${
                           isSelected
                             ? 'bg-[#DBEAFE]'
@@ -1365,7 +1421,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                         } ${theme.tableRowHover}`}
                       >
-                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
+                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); if ((e.ctrlKey || e.metaKey) && onToggleCompare) { onToggleCompare(resultKey(r)); return; } focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기 · Ctrl + 클릭 = 비교에 추가·빼기">
                           {isMulti ? (
                             <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                               {p.no}
@@ -1375,7 +1431,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           )}
                         </td>
                         <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_RCP_STYLE)} className={TABLE_TD_RCP_CLASS} title={p.rcpName}>
-                          <div className="flex items-center gap-1 justify-start text-left truncate px-0.5">
+                          <div className="flex items-center gap-1 justify-start text-left truncate px-0.5"><CompareBadge slot={slotOf(idx)} />
                             <span className="truncate">{p.rcpName}</span>
                             {isMulti && (
                               <span className={`text-[9px] px-1 py-0.2 rounded ${theme.subRowBadge} font-mono font-medium shrink-0`}>
@@ -1468,7 +1524,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleCopy('mon-table', monHeaders, monRows)}
+                onClick={() => handleCopy('mon-table', monHeaders, visRows(monRows))}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
               >
                 {copiedTable === 'mon-table' ? (
@@ -1568,10 +1624,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   const m = r.monitoringData;
                   const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
                   const isSelected = selectedRunIdx === idx;
+                    if (hideRow(idx)) return null;
                   return (
                     <tr
                       key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                      onClick={() => onSelectRunIdx?.(isSelected ? null : idx)}
+                      onClick={e => handleRowClick(e, idx, isSelected)}
+                        style={rowTint(idx, isSelected)}
                       className={`transition-colors cursor-pointer ${
                         isSelected
                           ? 'bg-[#DBEAFE]'
@@ -1580,7 +1638,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); if ((e.ctrlKey || e.metaKey) && onToggleCompare) { onToggleCompare(resultKey(r)); return; } focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기 · Ctrl + 클릭 = 비교에 추가·빼기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {m.no}
@@ -1590,7 +1648,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         )}
                       </td>
                       <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_RCP_STYLE)} className={TABLE_TD_RCP_CLASS} title={m.rcpName}>
-                        <div className="flex items-center gap-1 justify-start text-left truncate px-0.5">
+                        <div className="flex items-center gap-1 justify-start text-left truncate px-0.5"><CompareBadge slot={slotOf(idx)} />
                           <span className="truncate">{m.rcpName}</span>
                           {isMulti && (
                             <span className={`text-[9px] px-1 py-0.2 rounded ${theme.subRowBadge} font-mono font-medium shrink-0`}>
@@ -1679,7 +1737,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleCopy('hw-timing-table', hwTimingHeaders, hwTimingRows)}
+                onClick={() => handleCopy('hw-timing-table', hwTimingHeaders, visRows(hwTimingRows))}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
               >
                 {copiedTable === 'hw-timing-table' ? (
@@ -1823,6 +1881,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     const bbBadge = hwBoundaryBadge(s, e);
                     const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
                     const isSelected = selectedRunIdx === idx;
+                    if (hideRow(idx)) return null;
 
                     const renderCleanTd = (
                       val: number | null | undefined,
@@ -1877,7 +1936,8 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     return (
                       <tr
                         key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                        onClick={() => onSelectRunIdx?.(isSelected ? null : idx)}
+                        onClick={e => handleRowClick(e, idx, isSelected)}
+                        style={rowTint(idx, isSelected)}
                         className={`transition-colors cursor-pointer ${
                           isSelected
                             ? 'bg-[#DBEAFE]'
@@ -1886,7 +1946,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                         } ${theme.tableRowHover}`}
                       >
-                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
+                        <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); if ((e.ctrlKey || e.metaKey) && onToggleCompare) { onToggleCompare(resultKey(r)); return; } focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기 · Ctrl + 클릭 = 비교에 추가·빼기">
                           {isMulti ? (
                             <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                               {s.no}
@@ -1896,7 +1956,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           )}
                         </td>
                         <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_RCP_STYLE)} className={TABLE_TD_RCP_CLASS} title={s.rcpName}>
-                          <div className="flex items-center gap-1 justify-start text-left truncate px-0.5">
+                          <div className="flex items-center gap-1 justify-start text-left truncate px-0.5"><CompareBadge slot={slotOf(idx)} />
                             <span className="truncate">{s.rcpName}</span>
                             {isMulti && (
                               <span className={`text-[9px] px-1 py-0.2 rounded ${theme.subRowBadge} font-mono font-medium shrink-0`}>
@@ -2033,7 +2093,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
               </div>
 
               <button
-                onClick={() => handleCopy('dev-table', ecHeaders, ecRows)}
+                onClick={() => handleCopy('dev-table', ecHeaders, visRows(ecRows))}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
               >
                 {copiedTable === 'dev-table' ? (
@@ -2336,12 +2396,14 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   const d = r.deviation;
                   const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
                   const isSelected = selectedRunIdx === idx;
+                    if (hideRow(idx)) return null;
                   const TD_DEV_BOLD = 'py-1 px-0.5 border text-center align-middle font-bold text-slate-900 font-sans tabular-nums text-[11px]';
                   const TD_DEV_NORMAL = 'py-1 px-0.5 border text-center align-middle font-sans tabular-nums text-[11px]';
                   return (
                     <tr
                       key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                      onClick={() => onSelectRunIdx?.(isSelected ? null : idx)}
+                      onClick={e => handleRowClick(e, idx, isSelected)}
+                        style={rowTint(idx, isSelected)}
                       className={`transition-colors cursor-pointer ${
                         isSelected
                           ? 'bg-[#DBEAFE]'
@@ -2350,7 +2412,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); if ((e.ctrlKey || e.metaKey) && onToggleCompare) { onToggleCompare(resultKey(r)); return; } focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기 · Ctrl + 클릭 = 비교에 추가·빼기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {d.no}
@@ -2360,7 +2422,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         )}
                       </td>
                       <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_RCP_STYLE)} className={TABLE_TD_RCP_CLASS} title={d.rcpName}>
-                        <div className="flex items-center gap-1 justify-start text-left truncate px-0.5">
+                        <div className="flex items-center gap-1 justify-start text-left truncate px-0.5"><CompareBadge slot={slotOf(idx)} />
                           <span className="truncate">{d.rcpName}</span>
                           {isMulti && (
                             <span className={`text-[9px] px-1 py-0.2 rounded ${theme.subRowBadge} font-mono font-medium shrink-0`}>
@@ -2516,7 +2578,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleCopy('delay-table', delayHeaders, delayRows)}
+                onClick={() => handleCopy('delay-table', delayHeaders, visRows(delayRows))}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
               >
                 {copiedTable === 'delay-table' ? (
@@ -2602,10 +2664,12 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                   const d = r.delays;
                   const isMulti = r.totalDepoStepsInFile && r.totalDepoStepsInFile > 1;
                   const isSelected = selectedRunIdx === idx;
+                    if (hideRow(idx)) return null;
                   return (
                     <tr
                       key={r.resultId || `${r.fileId}_${r.depoStep}_${idx}`}
-                      onClick={() => onSelectRunIdx?.(isSelected ? null : idx)}
+                      onClick={e => handleRowClick(e, idx, isSelected)}
+                        style={rowTint(idx, isSelected)}
                       className={`transition-colors cursor-pointer ${
                         isSelected
                           ? 'bg-[#DBEAFE]'
@@ -2614,7 +2678,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
                       } ${theme.tableRowHover}`}
                     >
-                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기">
+                      <td style={getSelectedTdStyle(isSelected, true, false, TABLE_COL_NO_STYLE)} className={`${TABLE_TD_NO_CLASS} ${NO_CELL_LINK_CLASS}`} data-no-cell onClick={e => { e.stopPropagation(); if ((e.ctrlKey || e.metaKey) && onToggleCompare) { onToggleCompare(resultKey(r)); return; } focusTimeline(idx); }} title="눌러서 이 Recipe의 공정 Sequence 타임라인 보기 · Ctrl + 클릭 = 비교에 추가·빼기">
                         {isMulti ? (
                           <span className={`inline-block px-1.5 py-0.5 rounded ${theme.subRowBadge} font-mono font-bold text-[10px]`}>
                             {d.no}
@@ -2624,7 +2688,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         )}
                       </td>
                       <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_RCP_STYLE)} className={TABLE_TD_RCP_CLASS} title={d.rcpName}>
-                        <div className="flex items-center gap-1 justify-start text-left truncate px-0.5">
+                        <div className="flex items-center gap-1 justify-start text-left truncate px-0.5"><CompareBadge slot={slotOf(idx)} />
                           <span className="truncate">{d.rcpName}</span>
                           {isMulti && (
                             <span className={`text-[9px] px-1 py-0.2 rounded ${theme.subRowBadge} font-mono font-medium shrink-0`}>

@@ -20,6 +20,7 @@ import { SidebarSettingsPanel } from './SidebarSettingsPanel';
 import { SidebarGuidePanel } from './SidebarGuidePanel';
 import { shortRecipeName } from './TrendTab';
 import { dropToIndex, RUN_DRAG_TYPE, RunSortMode } from '../utils/runOrder';
+import { COMPARE_COLORS, COMPARE_LETTERS, resultKey } from './ComparePanel';
 
 interface LeftRunSidebarProps {
   files: ParsedLogFile[];
@@ -39,6 +40,10 @@ interface LeftRunSidebarProps {
   onMoveFile?: (fileId: string, toIndex: number) => void;
   /** Run 정렬 (Recipe별 · 날짜순 · 올린 순서) */
   onSortFiles?: (mode: RunSortMode) => void;
+  /** 비교 선택 키 (A·B·C 순서) */
+  compareKeys?: string[];
+  /** 비교 선택 체크칸 (그 Log 단위) */
+  onToggleCompareFile?: (fileId: string) => void;
   settings: AnalyzerSettings;
   onUpdateSettings: (newSettings: AnalyzerSettings) => void;
   isSettingsOpen?: boolean;
@@ -61,6 +66,8 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
   onSelectCtclSheet,
   onMoveFile,
   onSortFiles,
+  compareKeys = [],
+  onToggleCompareFile,
   settings,
   onUpdateSettings,
   isSettingsOpen = false,
@@ -551,6 +558,35 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                             <GripVertical className="w-3 h-3" />
                           </span>
                         )}
+                        {/* 비교 선택 체크칸 (A·B·C) */}
+                        {onToggleCompareFile && (() => {
+                          const keys = fileResults.map(resultKey);
+                          const slot = compareKeys.findIndex(k => keys.includes(k));
+                          const multi = fileResults.length > 1;
+                          return (
+                            <button
+                              type="button"
+                              data-compare-toggle={file.id}
+                              aria-pressed={slot >= 0}
+                              onClick={e => {
+                                e.stopPropagation();
+                                onToggleCompareFile(file.id);
+                              }}
+                              className={`shrink-0 w-[14px] h-[14px] rounded-[3px] border flex items-center justify-center text-[9px] font-bold leading-none cursor-pointer transition-colors ${
+                                slot >= 0 ? 'text-white' : 'bg-white border-slate-400 hover:border-[#7C3AED]'
+                              }`}
+                              style={slot >= 0 ? { backgroundColor: COMPARE_COLORS[slot], borderColor: COMPARE_COLORS[slot] } : undefined}
+                              title={
+                                slot >= 0
+                                  ? `비교 ${COMPARE_LETTERS[slot]} · 눌러서 비교에서 빼기`
+                                  : `비교에 추가 (최대 3개)${multi ? ' · 이 Log의 첫 Depo가 추가됩니다. 다른 Depo는 표에서 Ctrl + 클릭' : ''}`
+                              }
+                              aria-label={slot >= 0 ? `비교 ${COMPARE_LETTERS[slot]} 빼기` : '비교에 추가'}
+                            >
+                              {slot >= 0 ? COMPARE_LETTERS[slot] : ''}
+                            </button>
+                          );
+                        })()}
                         <span
                           className={`w-[26px] shrink-0 text-center text-[9px] font-bold tabular-nums rounded py-[1px] ${
                             isSelected ? 'bg-[#2563EB] text-white' : 'text-[#2563EB] bg-[#2563EB]/10'

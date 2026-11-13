@@ -16,6 +16,7 @@ import { LeftRunSidebar } from './components/LeftRunSidebar';
 import { AnalyzerSettings, CTCLMatrixData, ParsedLogFile } from './types/pecvd';
 import { DEFAULT_SETTINGS, analyzeLogFileSteps } from './utils/analyzer';
 import { moveItem, RunSortMode, sortRuns } from './utils/runOrder';
+import { COMPARE_MAX, resultKey } from './components/ComparePanel';
 import { parseRawLogFile } from './utils/csvParser';
 import { parseCTCLWorkbook } from './utils/ctclParser';
 import { createSampleCTCLMatrix } from './utils/sampleData';
@@ -62,6 +63,45 @@ function AppContent() {
   const handleMoveFile = (fileId: string, toIndex: number) =>
     reorderFiles(prev => moveItem(prev, prev.findIndex(f => f.id === fileId), toIndex));
   const handleSortFiles = (mode: RunSortMode) => reorderFiles(prev => sortRuns(prev, mode, uploadSeqRef.current));
+
+  // 비교 선택 (최대 3개, A·B·C 순서) — 키는 '파일 + Depo 순번'이라 순서를 바꿔도 유지
+  const [compareKeys, setCompareKeys] = useState<string[]>([]);
+  const [compareOnly, setCompareOnly] = useState<boolean>(false);
+  const [compareNotice, setCompareNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashCompareNotice = (msg: string) => {
+    setCompareNotice(msg);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setCompareNotice(null), 2500);
+  };
+  const toggleCompareKey = (key: string) =>
+    setCompareKeys(prev => {
+      if (prev.includes(key)) return prev.filter(k => k !== key);
+      if (prev.length >= COMPARE_MAX) {
+        flashCompareNotice(`최대 ${COMPARE_MAX}개까지 비교할 수 있습니다 — 하나를 빼고 다시 골라 주세요`);
+        return prev;
+      }
+      return [...prev, key];
+    });
+  // 매니저 체크칸: 그 Log의 Depo가 하나라도 비교 중이면 모두 빼고, 아니면 첫 Depo를 추가
+  const toggleCompareFile = (fileId: string) => {
+    const keys = results.filter(r => r.fileId === fileId).map(resultKey);
+    if (keys.length === 0) return;
+    if (compareKeys.some(k => keys.includes(k))) setCompareKeys(prev => prev.filter(k => !keys.includes(k)));
+    else toggleCompareKey(keys[0]);
+  };
+  const clearCompare = () => {
+    setCompareKeys([]);
+    setCompareOnly(false);
+  };
+  // 파일 삭제·Depo 변경으로 없어진 Run은 비교에서 자동으로 뺌
+  useEffect(() => {
+    const valid = new Set(results.map(resultKey));
+    setCompareKeys(prev => (prev.every(k => valid.has(k)) ? prev : prev.filter(k => valid.has(k))));
+  }, [results]);
+  useEffect(() => {
+    if (compareKeys.length === 0 && compareOnly) setCompareOnly(false);
+  }, [compareKeys.length, compareOnly]);
 
   // Ensure selectedRunIdx remains within bounds when steps or files change
   useEffect(() => {
@@ -195,6 +235,8 @@ function AppContent() {
             onSelectCtclSheet={handleSelectCtclSheet}
             onMoveFile={handleMoveFile}
             onSortFiles={handleSortFiles}
+            compareKeys={compareKeys}
+            onToggleCompareFile={toggleCompareFile}
           />
           )}
 
@@ -239,6 +281,12 @@ function AppContent() {
                 onClearAllFiles={handleClearAllFiles}
                 onChangeManualDepoStep={handleChangeManualDepoStep}
                 onChangeManualPlSteps={handleChangeManualPlSteps}
+                compareKeys={compareKeys}
+                onToggleCompare={toggleCompareKey}
+                onClearCompare={clearCompare}
+                compareOnly={compareOnly}
+                onToggleCompareOnly={setCompareOnly}
+                compareNotice={compareNotice}
                 onNavigateToCtcl={() => {
                   setIsCtclOpen(true);
                   setActiveTab('raw');
