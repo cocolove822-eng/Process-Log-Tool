@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CopyImageButton } from './CopyImageButton';
-import { Check, Copy, Layers, RefreshCw, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Layers, RefreshCw, X } from 'lucide-react';
+import { useStoredState } from '../utils/trendStore';
 import { copyTableToClipboard } from '../utils/exportUtils';
 
 /**
@@ -97,6 +98,8 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
   const [range, setRange] = useState<[number, number] | null>(null);
   const [draft, setDraft] = useState<[number, number] | null>(null);
   const [copied, setCopied] = useState(false);
+  // 접기/펼치기 (기본: 접힘, 탭을 다녀와도 유지)
+  const [collapsed, setCollapsed] = useStoredState<boolean>('trend.multiCollapsed', true);
   const dragRef = useRef<{ mode: 'pan' | 'range'; x0: number; t0: number; view: [number, number] } | null>(null);
 
   // 전체 시간 범위
@@ -127,7 +130,7 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
     ro?.observe(el);
     return () => ro?.disconnect();
-  }, []);
+  }, [collapsed]);
 
   const left = series.filter(s => s.side === 'L');
   const right = series.filter(s => s.side === 'R');
@@ -363,12 +366,22 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
 
   return (
     <div data-multi-chart className="bg-white border border-slate-400 border-t-2 border-t-[#7C3AED] rounded-2xl shadow-xs overflow-hidden">
-      {/* 머리줄: 제목 · Run · 범례 */}
-      <div className="px-3 py-2 bg-[#F5F3FF] border-b border-slate-300 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="flex items-center gap-1.5 text-[13px] font-bold text-[#0F172A] whitespace-nowrap">
+      {/* 머리줄: 접기 · 제목 · Run · 범례 */}
+      <div className={`px-3 py-2 bg-[#F5F3FF] ${collapsed ? '' : 'border-b border-slate-300'} flex flex-wrap items-center gap-x-3 gap-y-1.5`}>
+        <button
+          type="button"
+          data-copy-ignore
+          data-multi-toggle
+          onClick={() => setCollapsed(c => !c)}
+          aria-expanded={!collapsed}
+          title={collapsed ? '통합 그래프 펼치기' : '통합 그래프 접기'}
+          className="flex items-center gap-1.5 text-[13px] font-bold text-[#0F172A] whitespace-nowrap cursor-pointer hover:text-[#6D28D9]"
+        >
+          {collapsed ? <ChevronRight className="w-4 h-4 text-[#7C3AED]" /> : <ChevronDown className="w-4 h-4 text-[#7C3AED]" />}
           <Layers className="w-4 h-4 text-[#7C3AED]" />
           통합 그래프
-        </span>
+          <span className="px-1.5 py-[1px] rounded border border-[#C4B5FD] bg-white text-[10px] font-semibold text-[#6D28D9]">{collapsed ? '펼치기' : '접기'}</span>
+        </button>
         <span className="px-2 py-0.5 rounded-md bg-white border border-[#C4B5FD] text-[11px] font-bold text-[#5B21B6] whitespace-nowrap">{runLabel}</span>
         <div data-multi-legend className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {series.map(s => (
@@ -381,8 +394,8 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
           ))}
         </div>
         <span className="ml-auto flex items-center gap-2 text-[10.5px] text-[#64748B] whitespace-nowrap">
-          <CopyImageButton compact fileName="통합_그래프.png" />
-          {view && (
+          {!collapsed && <CopyImageButton compact fileName="통합_그래프.png" />}
+          {!collapsed && view && (
             <button
               type="button"
               onClick={() => setView(null)}
@@ -392,9 +405,10 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
               초기화
             </button>
           )}
-          휠: 확대 · 드래그: 이동 · Shift+드래그: 구간
+          {!collapsed && '휠: 확대 · 드래그: 이동 · Shift+드래그: 구간'}
         </span>
       </div>
+      {!collapsed && (<>
       <div className="p-2 flex gap-2">
         <div className="flex-1 min-w-0">
           {/* Step 타임라인 띠 */}
@@ -500,6 +514,7 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
           </table>
         </div>
       )}
+      </>)}
     </div>
   );
 };
