@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, ChevronUp, X, ArrowDown01, ArrowDownWideNarrow, Ruler, Copy } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 import { ManagerPortal, ManagerHeader } from './ManagerShell';
+import { changedSince, useStoredState } from '../utils/trendStore';
 
 export interface AlignedStepSegment {
   step: number;
@@ -235,8 +236,9 @@ export function getRfOnOffsetSec(file: ParsedLogFile, res?: AnalysisFileResult):
 let persistedRecipeSelection: string[] = [];
 
 export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost = null }) => {
-  const [isManagerCollapsed, setIsManagerCollapsed] = useState<boolean>(false);
-  const [timeAlignment, setTimeAlignment] = useState<'elapsed' | 'rfOn'>('elapsed');
+  // 설정은 보관소(useStoredState)에 저장 → 다른 탭에 다녀와도 유지
+  const [isManagerCollapsed, setIsManagerCollapsed] = useStoredState<boolean>('trend.managerCollapsed', false);
+  const [timeAlignment, setTimeAlignment] = useStoredState<'elapsed' | 'rfOn'>('trend.timeAlignment', 'elapsed');
   // 그래프 배치: 한 행에 1·2·3개 (보는 사람 브라우저에 기억, 저장이 안 되는 환경이면 기본 2열)
   const [chartCols, setChartColsState] = useState<1 | 2 | 3>(() => {
     try {
@@ -255,7 +257,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
     }
   };
   // Default 4 metrics requested by user
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([
+  const [selectedMetrics, setSelectedMetrics] = useStoredState<string[]>('trend.selectedMetrics', [
     'rfForwardAct',
     'rfReflect',
     'tvPressure',
@@ -292,17 +294,17 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
   const toggleRecipeSelect = (id: string) =>
     setSelectedRecipeIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   const clearRecipeSelection = () => setSelectedRecipeIds([]);
-  const [resetAllKey, setResetAllKey] = useState<number>(0);
+  const [resetAllKey, setResetAllKey] = useStoredState<number>('trend.resetAllKey', 0);
   // 구간 통계: 한 그래프에서 고른 시간 구간을 모든 그래프에 함께 적용 [시작, 끝] (그래프 x축 기준 초)
-  const [statRange, setStatRange] = useState<[number, number] | null>(null);
+  const [statRange, setStatRange] = useStoredState<[number, number] | null>('trend.statRange', null);
   // 구간 선택 모드 (모든 그래프 공통): 켜면 드래그 = 구간 선택, 꺼져 있어도 Shift+드래그
-  const [rangeSelectMode, setRangeSelectMode] = useState<boolean>(false);
+  const [rangeSelectMode, setRangeSelectMode] = useStoredState<boolean>('trend.rangeSelectMode', false);
   // 겹쳐 보기: 그래프(파라미터)별 두 번째 파라미터 { 그래프 id: 겹칠 id }
-  const [overlayMap, setOverlayMap] = useState<Record<string, string>>({});
-  const [showStepTimeline, setShowStepTimeline] = useState<boolean>(true);
+  const [overlayMap, setOverlayMap] = useStoredState<Record<string, string>>('trend.overlayMap', {});
+  const [showStepTimeline, setShowStepTimeline] = useStoredState<boolean>('trend.showStepTimeline', true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
-  const [valueSort, setValueSort] = useState<ValueSort>('no');
-  const [stepRefFileId, setStepRefFileId] = useState<string>(files[0]?.id || '');
+  const [valueSort, setValueSort] = useStoredState<ValueSort>('trend.valueSort', 'no');
+  const [stepRefFileId, setStepRefFileId] = useStoredState<string>('trend.stepRefFileId', files[0]?.id || '');
 
   // Visible files list
   const visibleFiles = useMemo(() => {
@@ -317,7 +319,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
   }, [files, stepRefFileId]);
 
   // Global X axis sync when user requests "Apply X axis to all graphs"
-  const [globalXFormat, setGlobalXFormat] = useState<{
+  const [globalXFormat, setGlobalXFormat] = useStoredState<{
     xMin: number | null;
     xMax: number | null;
     xStep: number | null;
@@ -326,16 +328,20 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
     showVMinorGrid?: boolean;
     showTickMarks?: boolean;
     key: number;
-  } | null>(null);
+  } | null>('trend.globalXFormat', null);
 
   // When alignment mode changes, clear global manual X bounds to let auto bounds recompute
   useEffect(() => {
+    // 실제로 바뀌었을 때만 (탭에 다시 들어왔을 때는 그대로 유지)
+    if (!changedSince('trend.timeAlignment', timeAlignment)) return;
     setGlobalXFormat(null);
     setStatRange(null); // 시간 기준이 바뀌면 구간의 의미가 달라지므로 해제
   }, [timeAlignment]);
 
   // Reset card zoom & custom axis bounds when visible files change so charts automatically fit the newly visible recipe!
   useEffect(() => {
+    // 보이는 Recipe가 실제로 바뀌었을 때만 (탭에 다시 들어왔을 때는 확대·축 서식 유지)
+    if (!changedSince('trend.visibleFileIds', visibleFileIds)) return;
     setGlobalXFormat(null);
     setResetAllKey(k => k + 1);
   }, [visibleFileIds]);
@@ -1363,7 +1369,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Independent Zoom & Pan state for THIS card only
-  const [cardXRange, setCardXRange] = useState<[number, number] | null>(null);
+  const [cardXRange, setCardXRange] = useStoredState<[number, number] | null>(`trend.card.${metric.id}.xRange`, null);
 
   // Track when web fonts (Pretendard) are ready
   const [fontsLoaded, setFontsLoaded] = useState<boolean>(false);
@@ -1377,7 +1383,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
   const [isFormatOpen, setIsFormatOpen] = useState<boolean>(false);
   const [formatTab, setFormatTab] = useState<'x' | 'y'>('x');
 
-  const [axisConfig, setAxisConfig] = useState<ExcelAxisFormat>({
+  const [axisConfig, setAxisConfig] = useStoredState<ExcelAxisFormat>(`trend.card.${metric.id}.axis`, {
     xMin: null,
     xMax: null,
     xStep: 10.0, // Default 10.0s interval as requested
@@ -1470,6 +1476,8 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
   // Sync when globalXFormat propagates from another card
   useEffect(() => {
+    // 다른 그래프에서 '모든 그래프에 적용'을 새로 눌렀을 때만 (탭에 다시 들어왔을 때는 이 그래프의 확대 유지)
+    if (!changedSince(`trend.card.${metric.id}.globalX`, globalXFormat?.key ?? null)) return;
     if (globalXFormat) {
       setAxisConfig(prev => ({
         ...prev,
@@ -1487,6 +1495,8 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
   // When timeAlignment or resetKey changes, reset this card's zoom and custom X bounds
   useEffect(() => {
+    // 시간 기준·전체 초기화가 실제로 바뀌었을 때만 (탭에 다시 들어왔을 때는 유지)
+    if (!changedSince(`trend.card.${metric.id}.reset`, [timeAlignment, resetKey])) return;
     setCardXRange(null);
     setAxisConfig(prev => ({
       ...prev,
