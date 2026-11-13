@@ -3,6 +3,7 @@ import { RefreshCw, SlidersHorizontal, Check, Globe, Layers, ChevronDown, Chevro
 import { AnalysisFileResult, ParsedLogFile, RawLogRow } from '../types/pecvd';
 import { ManagerPortal, ManagerHeader } from './ManagerShell';
 import { changedSince, useStoredState } from '../utils/trendStore';
+import { MultiParamChart, MultiSeries, MultiStep } from './MultiParamChart';
 
 export interface AlignedStepSegment {
   step: number;
@@ -162,6 +163,56 @@ const STANDARD_METRICS: MetricDefinition[] = [
   { id: 'liftSpacing', name: 'Lift Spacing', unit: 'mils', category: 'Lift', getter: r => r.liftSpacing },
 ];
 
+/** 통합 그래프: Parameter별 고정 색 (서로 잘 구분되게) */
+const MULTI_COLORS: Record<string, string> = {
+  rfForwardAct: '#DC2626',
+  rfReflect: '#DB2777',
+  tvPressure: '#1D4ED8',
+  tvPosition: '#0891B2',
+  matcherLoad: '#059669',
+  matcherTune: '#65A30D',
+  matcherVpp: '#7C3AED',
+  matcherIrms: '#9333EA',
+  matcherDCBias: '#0F766E',
+  pyroSiH4: '#16A34A',
+  pyroN2O: '#0EA5E9',
+  pyroNH3: '#EAB308',
+  pyroPN2: '#A16207',
+  pyroAr: '#64748B',
+  pyroH2: '#F97316',
+  gateIn1: '#B91C1C',
+  windowIn3: '#BE185D',
+  liftSpacing: '#4F46E5',
+};
+const MULTI_MAX = 8;
+const MULTI_PRESETS: { label: string; ids: string[] }[] = [
+  { label: 'Depo 기본', ids: ['pyroSiH4', 'pyroNH3', 'pyroN2O', 'tvPressure', 'rfForwardAct'] },
+  { label: 'RF·Matcher', ids: ['rfForwardAct', 'rfReflect', 'matcherLoad', 'matcherTune', 'matcherDCBias'] },
+  { label: '압력·T/V', ids: ['tvPressure', 'tvPosition', 'liftSpacing'] },
+];
+
+/**
+ * 좌·우 축 자동 나누기: 항목별 최대값을 크기순으로 놓고, 바로 앞 값보다 2배 이상 크게 뛰는 곳 중
+ * 가장 크게 뛰는 곳 위쪽(큰 값)을 오른쪽 축으로. 뛰는 곳이 없으면 모두 왼쪽.
+ */
+export function autoAxisSides(maxById: Record<string, number>): Record<string, 'L' | 'R'> {
+  const ids = Object.keys(maxById);
+  const out: Record<string, 'L' | 'R'> = {};
+  ids.forEach(id => (out[id] = 'L'));
+  const sorted = ids.filter(id => maxById[id] > 0).sort((a, b) => maxById[a] - maxById[b]);
+  let cut = -1;
+  let best = 2;
+  for (let i = 1; i < sorted.length; i++) {
+    const ratio = maxById[sorted[i]] / maxById[sorted[i - 1]];
+    if (ratio >= best) {
+      best = ratio;
+      cut = i;
+    }
+  }
+  if (cut > 0) sorted.slice(cut).forEach(id => (out[id] = 'R'));
+  return out;
+}
+
 export interface ExcelAxisFormat {
   // X-Axis (Time)
   xMin: number | null; // null = auto
@@ -300,7 +351,12 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
   // 구간 선택 모드 (모든 그래프 공통): 켜면 드래그 = 구간 선택, 꺼져 있어도 Shift+드래그
   const [rangeSelectMode, setRangeSelectMode] = useStoredState<boolean>('trend.rangeSelectMode', false);
   // 겹쳐 보기: 그래프(파라미터)별 두 번째 파라미터 { 그래프 id: 겹칠 id }
-  const [overlayMap, setOverlayMap] = useStoredState<Record<string, string>>('trend.overlayMap', {});
+  // 통합 그래프 (Run 1개의 여러 Parameter를 한 그래프에, 좌·우 2축)
+  const [multiOn, setMultiOn] = useStoredState<boolean>('trend.multiOn', true);
+  const [multiRunId, setMultiRunId] = useStoredState<string>('trend.multiRunId', '');
+  const [multiMetrics, setMultiMetrics] = useStoredState<string[]>('trend.multiMetrics', MULTI_PRESETS[0].ids);
+  /** 사용자가 직접 바꾼 축 (없으면 자동) */
+  const [multiSideOverride, setMultiSideOverride] = useStoredState<Record<string, 'L' | 'R'>>('trend.multiSide', {});
   const [showStepTimeline, setShowStepTimeline] = useStoredState<boolean>('trend.showStepTimeline', true);
   // 그래프 오른쪽 커서 값 표: 보기 방식(개별/묶어 보기)과 정렬은 모든 그래프 카드에 함께 적용
   const [valueSort, setValueSort] = useStoredState<ValueSort>('trend.valueSort', 'no');
@@ -390,6 +446,55 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
       alignedEnd: Math.round((s.endElapsedSec - tOnOffset) * 10) / 10,
     }));
   }, [refFile, results, timeAlignment]);
+
+  // ---------------- 통합 그래프 데이터 ----------------
+  const multiFile = useMemo(
+    () => files.find(f => f.id === multiRunId) || visibleFiles[0] || files[0],
+    [files, multiRunId, visibleFiles],
+  );
+  const multiData = useMemo(() => {
+    if (!multiFile) return null;
+    const res = results.find(r => r.fileId === multiFile.id);
+    const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(multiFile, res) : 0;
+    const raw = multiMetrics
+      .map(id => STANDARD_METRICS.find(m => m.id === id))
+      .filter((m): m is MetricDefinition => !!m)
+      .map(m => {
+        const pts: [number, number][] = [];
+        multiFile.rows.forEach(r => {
+          const v = m.getter(r);
+          if (typeof v === 'number' && Number.isFinite(v)) pts.push([Math.round((r.elapsedSec - off) * 1000) / 1000, v]);
+        });
+        return { m, pts, max: pts.reduce((a, [, v]) => Math.max(a, Math.abs(v)), 0) };
+      });
+    const auto = autoAxisSides(Object.fromEntries(raw.map(x => [x.m.id, x.max])));
+    const series: MultiSeries[] = raw.map(x => ({
+      id: x.m.id,
+      name: x.m.name.replace(/\(Act\)$/, ''),
+      unit: x.m.unit,
+      color: MULTI_COLORS[x.m.id] || '#334155',
+      side: multiSideOverride[x.m.id] ?? auto[x.m.id] ?? 'L',
+      points: x.pts,
+    }));
+    const steps: MultiStep[] = (multiFile.stepsSummary || []).map(st => ({
+      step: st.step,
+      stepName: st.stepName,
+      start: Math.round((st.startElapsedSec - off) * 10) / 10,
+      end: Math.round((st.endElapsedSec - off) * 10) / 10,
+    }));
+    const idx = files.findIndex(f => f.id === multiFile.id);
+    const rcp = res?.rcpName || multiFile.meta.recipeName || multiFile.fileName;
+    return { series, steps, auto, label: `#${idx + 1} ${rcp}` };
+  }, [multiFile, multiMetrics, multiSideOverride, results, timeAlignment, files]);
+  const toggleMultiMetric = (id: string) =>
+    setMultiMetrics(prev => (prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= MULTI_MAX ? prev : [...prev, id]));
+  const setMultiSide = (id: string, side: 'L' | 'R') =>
+    setMultiSideOverride(prev => {
+      const next = { ...prev };
+      if (multiData?.auto[id] === side) delete next[id]; // 자동과 같으면 자동으로 되돌림
+      else next[id] = side;
+      return next;
+    });
 
   const { minGlobalX, maxGlobalX } = useMemo(() => {
     let minX = Infinity;
@@ -690,62 +795,122 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
           ) : null}
         </div>
 
-        {/* Section 6: 동시 비교 (그래프별 두 번째 파라미터, 오른쪽 축 점선) */}
-        <div className="space-y-1 pt-1 border-t border-slate-300">
+        {/* Section 6: 통합 그래프 (Run 1개의 여러 Parameter를 한 그래프에, 좌·우 2축) */}
+        <div className="space-y-1.5 pt-1 border-t border-slate-300" data-multi-manager>
           <div className="flex items-center justify-between text-[10.5px]">
-            <span className="font-bold text-[#334155]">6. 동시 비교</span>
-            {Object.values(overlayMap).some(Boolean) && (
-              <button
-                type="button"
-                onClick={() => setOverlayMap({})}
-                className="text-[10px] font-semibold text-[#64748B] hover:text-[#DC2626] cursor-pointer"
-                title="모든 그래프의 동시 비교 끄기"
-              >
-                모두 끄기
-              </button>
-            )}
+            <span className="font-bold text-[#334155]">6. 통합 그래프</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={multiOn}
+              aria-label="통합 그래프 켜기"
+              onClick={() => setMultiOn(v => !v)}
+              className={`relative w-[30px] h-[16px] rounded-full transition-colors cursor-pointer ${multiOn ? 'bg-[#7C3AED]' : 'bg-slate-300'}`}
+              title={multiOn ? '통합 그래프 끄기' : '통합 그래프 켜기'}
+            >
+              <span className={`absolute top-[2px] w-[12px] h-[12px] rounded-full bg-white shadow transition-all ${multiOn ? 'left-[16px]' : 'left-[2px]'}`} />
+            </button>
           </div>
-          {selectedMetrics.length === 0 ? (
-            <p className="px-0.5 text-[10px] text-[#94A3B8]">표시 중인 그래프가 없습니다.</p>
-          ) : (
-            <div className="space-y-1" data-overlay-list>
-              {selectedMetrics.map(mid => {
-                const m = STANDARD_METRICS.find(x => x.id === mid);
-                if (!m) return null;
-                const cur = overlayMap[mid] && overlayMap[mid] !== mid ? overlayMap[mid] : '';
-                const cs = CATEGORY_STYLES[m.category];
-                return (
-                  <div key={mid} className="flex items-center gap-1">
-                    <span
-                      className="w-[100px] shrink-0 flex items-center gap-1 text-[10px] font-semibold text-[#0F172A] truncate"
-                      title={`${m.name} 그래프`}
+          {multiOn && (
+            <>
+              <select
+                aria-label="통합 그래프 Run"
+                value={multiFile?.id ?? ''}
+                onChange={e => setMultiRunId(e.target.value)}
+                className="w-full h-[24px] px-1 bg-white border border-slate-300 rounded-md text-[10.5px] font-semibold text-[#0F172A] cursor-pointer focus:outline-none focus:border-[#7C3AED]"
+                title="통합 그래프로 볼 Run (한 번에 1개)"
+              >
+                {files.map((f, i) => (
+                  <option key={f.id} value={f.id}>
+                    #{i + 1} {results.find(r => r.fileId === f.id)?.rcpName || f.meta.recipeName || f.fileName}
+                  </option>
+                ))}
+              </select>
+              <div className="flex flex-wrap gap-1">
+                {MULTI_PRESETS.map(pr => {
+                  const on = pr.ids.length === multiMetrics.length && pr.ids.every(id => multiMetrics.includes(id));
+                  return (
+                    <button
+                      key={pr.label}
+                      type="button"
+                      onClick={() => setMultiMetrics(pr.ids)}
+                      className={`h-[20px] px-1.5 rounded-full border text-[10px] font-semibold whitespace-nowrap cursor-pointer ${
+                        on ? 'bg-[#F5F3FF] border-[#7C3AED] text-[#5B21B6]' : 'bg-white border-slate-300 text-[#475569] hover:border-[#7C3AED]'
+                      }`}
+                      title={pr.ids.map(id => STANDARD_METRICS.find(m => m.id === id)?.name).join(', ')}
                     >
-                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cs.dotColor }} />
-                      <span className="truncate">{m.name.replace(/\(Act\)$/, '')}</span>
-                    </span>
-                    <span className="relative flex-1 min-w-0">
-                      <select
-                        aria-label={`${m.name} 동시 비교`}
-                        value={cur}
-                        onChange={e => setOverlayMap(prev => ({ ...prev, [mid]: e.target.value }))}
-                        className={`w-full appearance-none h-[22px] pl-1 pr-4 rounded-md border text-[10px] font-semibold cursor-pointer focus:outline-none ${
-                          cur ? 'bg-[#F5F3FF] border-[#A78BFA] text-[#6D28D9]' : 'bg-white border-slate-300 text-[#64748B]'
-                        }`}
-                        title={cur ? `점선(오른쪽 축): ${STANDARD_METRICS.find(x => x.id === cur)?.name}` : '겹칠 항목 고르기'}
-                      >
-                        <option value="">없음</option>
-                        {STANDARD_METRICS.filter(x => x.id !== mid).map(x => (
-                          <option key={x.id} value={x.id}>
-                            + {x.name} [{x.unit}]
-                          </option>
+                      {pr.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="space-y-0.5" data-multi-list>
+                {multiMetrics.map(id => {
+                  const m = STANDARD_METRICS.find(x => x.id === id);
+                  if (!m) return null;
+                  const side = multiData?.series.find(x => x.id === id)?.side ?? 'L';
+                  const manual = multiSideOverride[id] !== undefined;
+                  return (
+                    <div key={id} data-multi-item={id} className="flex items-center gap-1 h-[22px] px-1 bg-white border border-slate-300 rounded-md">
+                      <span className="w-2.5 h-[3px] rounded shrink-0" style={{ backgroundColor: MULTI_COLORS[id] || '#334155' }} />
+                      <span className="flex-1 min-w-0 truncate text-[10px] font-semibold text-[#0F172A]" title={`${m.name} [${m.unit}]`}>
+                        {m.name.replace(/\(Act\)$/, '')}
+                      </span>
+                      <span className="flex shrink-0 rounded border border-slate-300 overflow-hidden" role="radiogroup" aria-label={`${m.name} 축`}>
+                        {(['L', 'R'] as const).map(sd => (
+                          <button
+                            key={sd}
+                            type="button"
+                            role="radio"
+                            aria-checked={side === sd}
+                            onClick={() => setMultiSide(id, sd)}
+                            className={`w-[18px] h-[16px] text-[9.5px] font-bold cursor-pointer ${
+                              side === sd ? (sd === 'L' ? 'bg-[#475569] text-white' : 'bg-[#7C3AED] text-white') : 'bg-white text-[#94A3B8] hover:text-[#334155]'
+                            }`}
+                            title={`${sd === 'L' ? '왼쪽' : '오른쪽'} 축${!manual && side === sd ? ' (자동)' : ''}`}
+                          >
+                            {sd === 'L' ? '좌' : '우'}
+                          </button>
                         ))}
-                      </select>
-                      <ChevronDown className={`w-3 h-3 absolute right-1 top-[5px] pointer-events-none ${cur ? 'text-[#7C3AED]' : 'text-[#94A3B8]'}`} />
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleMultiMetric(id)}
+                        className="shrink-0 p-0.5 text-[#94A3B8] hover:text-[#DC2626] cursor-pointer"
+                        title="빼기"
+                        aria-label={`${m.name} 빼기`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              {multiMetrics.length < MULTI_MAX && (
+                <select
+                  aria-label="통합 그래프 Parameter 추가"
+                  value=""
+                  onChange={e => e.target.value && toggleMultiMetric(e.target.value)}
+                  className="w-full h-[22px] px-1 bg-white border border-dashed border-slate-400 rounded-md text-[10px] font-semibold text-[#7C3AED] cursor-pointer focus:outline-none"
+                >
+                  <option value="">+ Parameter 추가 ({multiMetrics.length}/{MULTI_MAX})</option>
+                  {STANDARD_METRICS.filter(m => !multiMetrics.includes(m.id)).map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} [{m.unit}]
+                    </option>
+                  ))}
+                </select>
+              )}
+              {Object.keys(multiSideOverride).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMultiSideOverride({})}
+                  className="text-[10px] font-semibold text-[#64748B] hover:text-[#7C3AED] cursor-pointer"
+                >
+                  축 자동으로 되돌리기
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -830,7 +995,18 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
       </ManagerPortal>
 
       {/* 2. Right Chart Area (그래프 배치: 한 행에 1·2·3개) */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 space-y-3.5">
+        {/* 통합 그래프 (개별 그래프 위, 화면 폭 전체) */}
+        {multiOn && multiData && multiData.series.length > 0 && (
+          <MultiParamChart
+            runLabel={multiData.label}
+            series={multiData.series}
+            steps={multiData.steps}
+            showSteps={showStepTimeline}
+            stepColors={STEP_PALETTE}
+            timeLabel="Time (sec)"
+          />
+        )}
         {selectedMetrics.length === 0 ? (
           <div className="p-12 text-center text-[#64748B] bg-white border border-[#CBD5E1] rounded-2xl shadow-xs">
             선택된 파라미터가 없습니다. 좌측 제어 설정에서 그래프를 확인할 파라미터를 선택하세요.
@@ -870,7 +1046,7 @@ export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost 
                   statRange={statRange}
                   onSetStatRange={setStatRange}
                   selectMode={rangeSelectMode}
-                  overlayId={overlayMap[metric.id] ?? ''}
+                  overlayId=""
                 />
               );
             })}
