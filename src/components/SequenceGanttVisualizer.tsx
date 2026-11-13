@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { CopyImageButton } from './CopyImageButton';
 import {
   Clock,
   Zap,
@@ -1342,6 +1343,7 @@ export const SequenceGanttVisualizer: React.FC<SequenceGanttVisualizerProps> = (
 
         {/* View Controls & Feature Toggles */}
         <div className="flex items-center gap-1.5 flex-wrap">
+          <CopyImageButton compact target={() => rootRef.current} fileName="Sequence_타임라인.png" />
           {/* Zoom In/Out & Reset Buttons */}
           <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-300 text-[11px] shadow-2xs">
             <button

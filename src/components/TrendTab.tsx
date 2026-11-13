@@ -5,6 +5,8 @@ import { ManagerPortal, ManagerHeader } from './ManagerShell';
 import { changedSince, useStoredState } from '../utils/trendStore';
 import { MultiParamChart, MultiSeries, MultiStep } from './MultiParamChart';
 import { autoAxisLayout } from '../utils/multiAxis';
+import { copyTextAndTables } from '../utils/richCopy';
+import { CopyImageButton } from './CopyImageButton';
 
 export interface AlignedStepSegment {
   step: number;
@@ -2844,8 +2846,9 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
           )}
         </div>
 
-        {/* Action Buttons: 줌 리셋 + 축 서식 (구간 선택·겹쳐 보기는 그래프 분석 매니저) */}
+        {/* Action Buttons: 그래프 복사 + 줌 리셋 + 축 서식 (구간 선택·겹쳐 보기는 그래프 분석 매니저) */}
         <div className="flex items-center gap-1 shrink-0">
+          <CopyImageButton compact target={() => containerRef.current} fileName={`${metric.name}.png`} />
           {isCustomOrZoomed && (
             <button
               onClick={handleResetCard}
@@ -3337,12 +3340,10 @@ const RangeStatsTable: React.FC<{
         )
       )
     );
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'));
+    // 값 + 화면 표 서식(엑셀에서 색·테두리 그대로) 함께 복사
+    if (await copyTextAndTables(lines.join('\n'))) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* 클립보드 사용 불가 환경 */
     }
   };
   const th = 'px-1 py-[3px] border border-slate-400 bg-[#DDE3EA] text-[#334155] font-bold whitespace-nowrap text-center align-middle';

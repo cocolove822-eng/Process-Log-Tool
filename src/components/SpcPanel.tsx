@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CopyImageButton } from './CopyImageButton';
 import { Activity, Check, Copy, Info } from 'lucide-react';
 import { AnalysisFileResult, ParsedLogFile } from '../types/pecvd';
 import { useTheme } from '../context/ThemeContext';
@@ -359,6 +360,8 @@ export const SpcPanel: React.FC<SpcPanelProps> = ({ results, files, selectedRunI
             (Run 시간 순 · 관리선 = 평균 ± 3σ, σ = 이동범위 평균 ÷ 1.128)
           </span>
         </div>
+        <div className="flex items-center gap-2">
+        <CopyImageButton fileName="SPC_관리도.png" />
         <button
           onClick={handleCopy}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
@@ -375,6 +378,7 @@ export const SpcPanel: React.FC<SpcPanelProps> = ({ results, files, selectedRunI
             </>
           )}
         </button>
+        </div>
       </div>
 
       <div className="p-3 space-y-2.5">

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CopyImageButton } from './CopyImageButton';
 import { Check, Copy, Layers, RefreshCw, X } from 'lucide-react';
 import { copyTableToClipboard } from '../utils/exportUtils';
 
@@ -380,6 +381,7 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
           ))}
         </div>
         <span className="ml-auto flex items-center gap-2 text-[10.5px] text-[#64748B] whitespace-nowrap">
+          <CopyImageButton compact fileName="통합_그래프.png" />
           {view && (
             <button
               type="button"

@@ -1,3 +1,4 @@
+import { copyTextAndTables } from './richCopy';
 import * as XLSX from 'xlsx';
 import { AnalysisFileResult, AnalyzerSettings } from '../types/pecvd';
 import { fmtHwStatus, hwStatusOf } from './hwStatus';
@@ -5,19 +6,17 @@ import { fmtHwStatus, hwStatusOf } from './hwStatus';
 /**
  * Copy 2D array / table data to clipboard in TSV format
  */
-export async function copyTableToClipboard(headers: string[], rows: (string | number | null | undefined)[][]): Promise<boolean> {
-  try {
-    const lines = [
-      headers.join('\t'),
-      ...rows.map(row => row.map(cell => (cell === null || cell === undefined ? '-' : cell)).join('\t')),
-    ];
-    const text = lines.join('\n');
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch (err) {
-    console.error('Failed to copy to clipboard', err);
-    return false;
-  }
+export async function copyTableToClipboard(
+  headers: string[],
+  rows: (string | number | null | undefined)[][],
+  scope?: Element | null,
+): Promise<boolean> {
+  const lines = [
+    headers.join('\t'),
+    ...rows.map(row => row.map(cell => (cell === null || cell === undefined ? '-' : cell)).join('\t')),
+  ];
+  // 값(글자) + 화면 표 서식(엑셀에서 색·테두리·병합 그대로) 함께 복사
+  return copyTextAndTables(lines.join('\n'), scope);
 }
 
 /**

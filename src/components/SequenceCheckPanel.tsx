@@ -270,7 +270,7 @@ export const SequenceCheckPanel: React.FC<{
                     <td className={`${td} text-center`}>{report ? <VerdictBadge v={total} /> : '-'}</td>
                   </tr>
                   {isOpen && report && (
-                    <tr data-seq-detail={no}>
+                    <tr data-seq-detail={no} data-copy-skip>
                       <td colSpan={9} className="p-2.5 bg-[#EEF2F6] border border-slate-400">
                         <div className="space-y-2.5">
                           {KINDS.map((kind, ki) => {
