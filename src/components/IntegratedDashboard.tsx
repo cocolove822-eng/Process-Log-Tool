@@ -34,6 +34,7 @@ import { normalizeCriteria } from '../utils/analyzer';
 import { interpolateCTCL } from '../utils/ctclParser';
 import { SequenceGanttVisualizer } from './SequenceGanttVisualizer';
 import { SpcPanel } from './SpcPanel';
+import { SequenceCheckPanel } from './SequenceCheckPanel';
 import { CompareBadge, CompareBar, CompareCard, COMPARE_TINTS, resultKey } from './ComparePanel';
 import { useTheme } from '../context/ThemeContext';
 
@@ -2028,6 +2029,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
               </table>
             </div>
         </section>
+
+        {/* ③-2 [Sequence 판정] BB Mode · Specific Gas 적용 여부 (H/W Control 바로 아래) */}
+        <SequenceCheckPanel results={results} files={files} selectedRunIdx={selectedRunIdx} onSelectRunIdx={onSelectRunIdx} />
 
         {/* --------------------------------------------------------- */}
         {/* --------------------------------------------------------- */}
