@@ -938,6 +938,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     `Start PL: ${getAlias('rf_power', 'Power')}`,
     // End (12 cols)
     `End Depo.: ${getAlias('rf_power', 'Power')}`,
+    'End Depo.: RF Off→Step 전환',
     `End Depo.: ${getAlias('tv_mode', 'T/V')}`,
     `End Depo.: ${getAlias('sih4', 'SiH4')}`,
     `End Depo.: ${getAlias('ar', 'Ar')}`,
@@ -946,6 +947,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
     `End Depo.: ${getAlias('pn2', 'PN2')}`,
     `End Depo.: ${getAlias('h2', 'H2')}`,
     `End PL: ${getAlias('rf_power', 'Power')}`,
+    'End PL: RF Off→Step 전환',
     `End PL: ${getAlias('tv_mode', 'T/V')}`,
     `End PL: ${getAlias('ar', 'Ar')}`,
     `End PL: ${getAlias('h2', 'H2')}`,
@@ -980,6 +982,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       hwTxt(s, 'plStable_tvCtrlMode', s.plStable_tvCtrlMode),
       hwTxt(s, 'pl_rfForwardAct', s.pl_rfForwardAct),
       hwTxt(e, 'depo_rfForwardAct', e.depo_rfForwardAct),
+      fmtSec(e.depo_rfOffToStep, true),
       hwTxt(e, 'depo_tvCtrlMode', e.depo_tvCtrlMode),
       hwTxt(e, 'depo_pyroSiH4', e.depo_pyroSiH4),
       hwTxt(e, 'depo_pyroAr', e.depo_pyroAr),
@@ -988,6 +991,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       hwTxt(e, 'depo_pyroPN2', e.depo_pyroPN2),
       hwTxt(e, 'depo_pyroH2', e.depo_pyroH2),
       hwTxt(e, 'pl_rfForwardAct', e.pl_rfForwardAct),
+      fmtSec(e.pl_rfOffToStep, true),
       hwTxt(e, 'pl_tvCtrlMode', e.pl_tvCtrlMode),
       hwTxt(e, 'pl_pyroAr', e.pl_pyroAr),
       hwTxt(e, 'pl_pyroH2', e.pl_pyroH2),
@@ -1784,9 +1788,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                 <colgroup>
                   <col style={TABLE_COL_NO_STYLE} />
                   <col style={TABLE_COL_RCP_STYLE} />
-                  {/* 나머지 24개 열 전부 균등 분할 */}
-                  {Array.from({ length: 24 }).map((_, idx) => (
-                    <col key={idx} style={{ width: `${100 / 24}%`, minWidth: '44px' }} />
+                  {/* 나머지 26개 열 전부 균등 분할 */}
+                  {Array.from({ length: 26 }).map((_, idx) => (
+                    <col key={idx} style={{ width: `${100 / 26}%`, minWidth: '44px' }} />
                   ))}
                 </colgroup>
                 <thead className="sticky top-0 z-30 border-b border-slate-400 text-[11px] font-bold font-sans">
@@ -1799,10 +1803,10 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       <div className="text-[11px] font-bold font-sans tracking-tight text-[#1E3A8A]">H/W Control Start 시점 <span className="text-[10px] text-[#475569] font-normal">(sec)</span></div>
                       <div className="text-[10px] text-[#475569] font-medium font-sans tracking-tight">(0.0sec = Step 시작)</div>
                     </th>
-                    <th colSpan={12} className={TINT_HEAT_TH1}>
+                    <th colSpan={14} className={TINT_HEAT_TH1}>
                       <div className="text-[11px] font-bold font-sans tracking-tight text-[#9F1239]">H/W Control End 시점 <span className="text-[10px] text-[#475569] font-normal">(sec)</span></div>
                       <div className="text-[10px] text-[#475569] font-medium font-sans tracking-tight">
-                        (0.0sec = RF Power Off{results.some(r => isBbEndRow(r.hwEndRF)) ? ' · BB 행은 Step 전환 시점' : ''})
+                        (0.0sec = RF Power Off(RF On 신호){results.some(r => isBbEndRow(r.hwEndRF)) ? ' · BB 행은 Step 전환 시점' : ''} · Step 전환 = RF Off 후 다음 Step까지)
                       </div>
                     </th>
                   </tr>
@@ -1820,9 +1824,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     {/* Start: PL Power (1 col) */}
                     <th colSpan={1} className={TINT_RF_TH1}>PL Step</th>
                     {/* End: Depo. (8 cols) */}
-                    <th colSpan={8} className={TINT_HEAT_TH1}>Depo. Step</th>
-                    {/* End: PL (4 cols) */}
-                    <th colSpan={4} className={TINT_HEAT_TH1}>PL Step</th>
+                    <th colSpan={9} className={TINT_HEAT_TH1}>Depo. Step</th>
+                    {/* End: PL (5 cols) */}
+                    <th colSpan={5} className={TINT_HEAT_TH1}>PL Step</th>
                   </tr>
 
                   {/* Tier 2 Header - Subtle Parameter Sub-headers */}
@@ -1845,6 +1849,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     <th className={`${TINT_RF_TH2} font-bold text-[#1E3A8A]`}>{getAlias('rf_power', 'Power')}</th>
                     {/* End Depo. */}
                     <th className={`${TINT_HEAT_TH2} font-bold text-[#9F1239]`}>{getAlias('rf_power', 'Power')}</th>
+                    <th className={`${TINT_HEAT_TH2} leading-tight`} data-hw-offstep title="RF Off(0.0초) 후 다음 Step으로 넘어가기까지 걸린 시간">Step<br />전환</th>
                     <th className={TINT_HEAT_TH2}>{getAlias('tv_mode', 'T/V')}</th>
                     <th className={TINT_HEAT_TH2}>{getAlias('sih4', 'SiH4')}</th>
                     <th className={TINT_HEAT_TH2}>{getAlias('ar', 'Ar')}</th>
@@ -1854,6 +1859,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     <th className={TINT_HEAT_TH2}>{getAlias('h2', 'H2')}</th>
                     {/* End PL */}
                     <th className={`${TINT_HEAT_TH2} font-bold text-[#9F1239]`}>{getAlias('rf_power', 'Power')}</th>
+                    <th className={`${TINT_HEAT_TH2} leading-tight`} data-hw-offstep title="RF Off(0.0초) 후 다음 Step으로 넘어가기까지 걸린 시간">Step<br />전환</th>
                     <th className={TINT_HEAT_TH2}>{getAlias('tv_mode', 'T/V')}</th>
                     <th className={TINT_HEAT_TH2}>{getAlias('ar', 'Ar')}</th>
                     <th className={TINT_HEAT_TH2}>{getAlias('h2', 'H2')}</th>
@@ -1886,7 +1892,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                     <th className={TINT_UNIT_TH}>(sec)</th>
                     <th className={TINT_UNIT_TH}>(sec)</th>
                     <th className={TINT_UNIT_TH}>(sec)</th>
+                    <th className={TINT_UNIT_TH}>(sec)</th>
                     {/* End PL Units */}
+                    <th className={TINT_UNIT_TH}>(sec)</th>
                     <th className={TINT_UNIT_TH}>(sec)</th>
                     <th className={TINT_UNIT_TH}>(sec)</th>
                     <th className={TINT_UNIT_TH}>(sec)</th>
@@ -2010,6 +2018,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         {renderCleanTd(s.pl_rfForwardAct)}
                         {/* End Depo. Step (8 cols) */}
                         {renderCleanTd(e.depo_rfForwardAct, false, false, false, hwStatusOf(e, 'depo_rfForwardAct'), e.actReach?.depo_rfForwardAct)}
+                        {renderCleanTd(e.depo_rfOffToStep)}
                         {renderCleanTd(e.depo_tvCtrlMode, false, false, e.depo_tvCtrlMode !== null && e.depo_tvCtrlMode > 3.0, hwStatusOf(e, 'depo_tvCtrlMode'), e.actReach?.depo_tvCtrlMode)}
                         {renderCleanTd(e.depo_pyroSiH4, false, e.depo_pyroSiH4 !== null && e.depo_pyroSiH4 > 0.1, false, hwStatusOf(e, 'depo_pyroSiH4'))}
                         {renderCleanTd(e.depo_pyroAr, false, false, false, hwStatusOf(e, 'depo_pyroAr'))}
@@ -2019,6 +2028,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         {renderCleanTd(e.depo_pyroH2, false, false, false, hwStatusOf(e, 'depo_pyroH2'))}
                         {/* End PL Step (4 cols) */}
                         {renderCleanTd(e.pl_rfForwardAct)}
+                        {renderCleanTd(e.pl_rfOffToStep)}
                         {renderCleanTd(e.pl_tvCtrlMode, false, false, e.pl_tvCtrlMode !== null && e.pl_tvCtrlMode > 5.0)}
                         {renderCleanTd(e.pl_pyroAr)}
                         {renderCleanTd(e.pl_pyroH2, true)}

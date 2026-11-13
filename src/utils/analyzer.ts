@@ -575,6 +575,10 @@ export function analyzeLogFile(
   allDepoSteps?: number[]
 ): AnalysisFileResult {
   const rows = file.rows;
+  // 실측 T/V 상태 열('T/V Ctrl Mode', 글자값)이 있으면 T/V 판정은 그 열만 사용
+  //  - Kairos는 명령 열('T/V Ctrl Mode Set')이 끝까지 Pressure로 남아, 섞어 보면 T/V 해제를 못 찾음
+  const tvActualMode = (r: RawLogRow) => (r.tvCtrlMode ?? '').toString().trim().toUpperCase();
+  const useActualTvMode = rows.some(r => /[A-Z]/.test(tvActualMode(r)));
   const fileNo = index + 1;
   const isMultiStep = totalDepoSteps > 1;
   const displayNo = isMultiStep ? `${fileNo}-${subIndex}` : `${fileNo}`;
@@ -1767,6 +1771,7 @@ export function analyzeLogFile(
       }
     }
     const tvPress = (r: RawLogRow) => {
+      if (useActualTvMode) return tvActualMode(r).includes('PRESS');
       const modeSet = (r.tvCtrlModeSet || '').trim().toUpperCase();
       const modeAct = (r.tvCtrlMode || '').trim().toUpperCase();
       if (modeSet.includes('PRESS') || modeAct.includes('PRESS')) return true;
@@ -1802,12 +1807,30 @@ export function analyzeLogFile(
   // 2순위: RF On 플래그가 Off가 되는 행
   // 3순위: SetValue > 0 이 유지된 마지막 행의 바로 다음 행
   // 4순위: 스텝 마지막 행
+  const rfFlagOn = (r: RawLogRow) => /^(on|1|true)$/i.test(String(r.rfOn ?? '').trim());
+  const rfFlagOff = (r: RawLogRow) => /^(off|0|false)$/i.test(String(r.rfOn ?? '').trim());
+  const hasRfFlag = rows.some(rfFlagOn) && rows.some(rfFlagOff);
   const getStepRfOffInfo = (baseStep: number | null): { rowIdx: number; stepAllTime: number } | null => {
     if (baseStep === null) return null;
     const baseRows = rows.filter(r => r.step === baseStep);
     if (baseRows.length === 0) return null;
 
-    // 1순위: RF SetValue가 > 0 에서 <= 0 으로 바뀌는 행
+    // 1순위: RF On 신호가 On → Off로 바뀌는 행 (Log에 RF On 신호가 있을 때)
+    //  - 모든 Log를 같은 기준으로 맞춤 (Kairos는 RF Off 후에도 RF Set이 남아 있어 Set 기준을 쓸 수 없음)
+    //  - Step 마지막 행 다음(다음 Step 첫 행)에서 Off가 되면 현재 Step 기준 시간(마지막 행 + 0.1초)으로 환산
+    if (hasRfFlag) {
+      const fIdx = rows.findIndex(r => r.step === baseStep);
+      let lIdx = -1;
+      for (let i = rows.length - 1; i >= 0; i--) if (rows[i].step === baseStep) { lIdx = i; break; }
+      for (let i = fIdx + 1; i <= Math.min(lIdx + 1, rows.length - 1); i++) {
+        if (rfFlagOff(rows[i]) && rfFlagOn(rows[i - 1]) && rows[i - 1].step === baseStep) {
+          const t = rows[i].step === baseStep ? rows[i].stepAllTime : Math.round(((rows[i - 1].stepAllTime ?? 0) + 0.1) * 10) / 10;
+          return { rowIdx: i, stepAllTime: t };
+        }
+      }
+    }
+
+    // 2순위: RF SetValue가 > 0 에서 <= 0 으로 바뀌는 행 (RF On 신호가 없는 Log)
     const rfSetDropIdx = rows.findIndex(
       (r, idx) =>
         r.step === baseStep &&
@@ -1820,7 +1843,7 @@ export function analyzeLogFile(
       return { rowIdx: rfSetDropIdx, stepAllTime: rows[rfSetDropIdx].stepAllTime };
     }
 
-    // 2순위: RF On 플래그가 Off가 되는 행
+    // 3순위: RF On 플래그가 Off가 되는 행 (Step 안)
     const rfOffFlagIdx = rows.findIndex(
       (r, idx) =>
         r.step === baseStep &&
@@ -1835,7 +1858,7 @@ export function analyzeLogFile(
       return { rowIdx: rfOffFlagIdx, stepAllTime: rows[rfOffFlagIdx].stepAllTime };
     }
 
-    // 3순위: SetValue > 0 이 유지된 마지막 행의 바로 다음 행
+    // 4순위: SetValue > 0 이 유지된 마지막 행의 바로 다음 행
     const lastActiveBaseRow = baseRows.slice().reverse().find(r => (r.rfForwardSetValue ?? 0) > 0 || (r.rfForwardSetValueAct ?? 0) > 0);
     if (lastActiveBaseRow) {
       const activeIdx = rows.findIndex(r => r === lastActiveBaseRow);
@@ -1849,7 +1872,7 @@ export function analyzeLogFile(
       return { rowIdx: activeIdx, stepAllTime: lastActiveBaseRow.stepAllTime };
     }
 
-    // 4순위: 스텝 마지막 행
+    // 5순위: 스텝 마지막 행
     const lastRow = baseRows[baseRows.length - 1];
     const lastIdx = rows.findIndex(r => r === lastRow);
     return { rowIdx: lastIdx, stepAllTime: lastRow.stepAllTime };
@@ -1875,6 +1898,7 @@ export function analyzeLogFile(
     }
 
     const isRowTvPressure = (r: RawLogRow) => {
+      if (useActualTvMode) return tvActualMode(r).includes('PRESS');
       const modeSet = (r.tvCtrlModeSet || '').trim().toUpperCase();
       const modeAct = (r.tvCtrlMode || '').trim().toUpperCase();
       if (modeSet.includes('PRESS') || modeAct.includes('PRESS')) return true;
@@ -1891,6 +1915,7 @@ export function analyzeLogFile(
     const isRowTvOff = (r: RawLogRow) => {
       // PRESSURE 제어 상태면 절대 OFF가 아님 (상호 배타적 보장)
       if (isRowTvPressure(r)) return false;
+      if (useActualTvMode) return tvActualMode(r) !== '';
 
       const modeSet = (r.tvCtrlModeSet || '').trim().toUpperCase();
       const modeAct = (r.tvCtrlMode || '').trim().toUpperCase();
@@ -2074,6 +2099,7 @@ export function analyzeLogFile(
     return j >= i ? v : -v;
   };
   const isTvPressureRow = (r: RawLogRow) => {
+    if (useActualTvMode) return tvActualMode(r).includes('PRESS');
     const modeSet = (r.tvCtrlModeSet || '').trim().toUpperCase();
     const modeAct = (r.tvCtrlMode || '').trim().toUpperCase();
     if (modeSet.includes('PRESS') || modeAct.includes('PRESS')) return true;
@@ -2206,6 +2232,15 @@ export function analyzeLogFile(
   const gasPlAr = isLastDepo ? calcGasEndOffsetBySet(plEndStep, r => Math.max(r.pyroArSet ?? 0, r.oxyArSet ?? 0), r => Math.max(r.pyroAr ?? 0, r.oxyAr ?? 0), plRfOffInfo) : { offset: null, cumulativeTime: null };
   const gasPlH2 = isLastDepo ? calcGasEndOffsetBySet(plEndStep, r => r.pyroH2Set, r => r.pyroH2, plRfOffInfo) : { offset: null, cumulativeTime: null };
 
+  /** RF Off 행 → 다음 Step 첫 행까지 (행 간격 × 0.1초, 다른 End 칸과 같은 방식) */
+  const rfOffToStep = (info: { rowIdx: number; stepAllTime: number } | null, baseStep: number | null): number | null => {
+    if (!info || info.rowIdx < 0 || baseStep === null) return null;
+    let k = info.rowIdx;
+    while (k < rows.length && rows[k].step === baseStep) k++;
+    if (k >= rows.length) return null;
+    return Math.round((k - info.rowIdx) * 0.1 * 10) / 10;
+  };
+
   const hwEndRF: HWControlEndRFRow = {
     fileId: file.id,
     fileName: file.fileName,
@@ -2223,6 +2258,8 @@ export function analyzeLogFile(
     pl_tvCtrlMode: tvPlTiming.offset,
     pl_pyroAr: gasPlAr.offset,
     pl_pyroH2: gasPlH2.offset,
+    depo_rfOffToStep: isBbEnd ? null : rfOffToStep(depoRfOffInfo, depoStep),
+    pl_rfOffToStep: isLastDepo ? rfOffToStep(plRfOffInfo, plEndStep) : null,
     endRef: isBbEnd ? 'stepChange' : 'rfOff',
     bbEnd: bbEndInfo && bbEndInfo.continuation
       ? { otherStep: bbEndInfo.otherStep, otherIsDepo: bbEndInfo.otherIsDepo, bbFlag: bbEndInfo.bbFlag, rfContinuous: bbEndInfo.rfContinuous, specificGas: bbEndInfo.specificGas }

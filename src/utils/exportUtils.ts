@@ -147,15 +147,15 @@ export function exportResultsToExcel(results: AnalysisFileResult[], settings: An
   // 4. HW Control End (RF Off 기준)
   const endRFHeaders = [
     'No.', 'RCP Name',
-    'Depo: RF Power(A)', 'Depo: T/V', 'Depo: SiH4', 'Depo: Ar', 'Depo: N2O', 'Depo: NH3', 'Depo: PN2', 'Depo: H2',
-    'PL: RF Power(A)', 'PL: T/V', 'PL: Ar', 'PL: H2', 'End 기준 (0.0sec)'
+    'Depo: RF Power(A)', 'Depo: RF Off→Step 전환', 'Depo: T/V', 'Depo: SiH4', 'Depo: Ar', 'Depo: N2O', 'Depo: NH3', 'Depo: PN2', 'Depo: H2',
+    'PL: RF Power(A)', 'PL: RF Off→Step 전환', 'PL: T/V', 'PL: Ar', 'PL: H2', 'End 기준 (0.0sec)'
   ];
   const endRFRows = results.map(r => {
     const e = r.hwEndRF;
     return [
       e.no, e.rcpName,
-      hx(e, 'depo_rfForwardAct', e.depo_rfForwardAct), hx(e, 'depo_tvCtrlMode', e.depo_tvCtrlMode), hx(e, 'depo_pyroSiH4', e.depo_pyroSiH4), hx(e, 'depo_pyroAr', e.depo_pyroAr), hx(e, 'depo_pyroN2O', e.depo_pyroN2O), hx(e, 'depo_pyroNH3', e.depo_pyroNH3), hx(e, 'depo_pyroPN2', e.depo_pyroPN2), hx(e, 'depo_pyroH2', e.depo_pyroH2),
-      e.pl_rfForwardAct ?? '-', e.pl_tvCtrlMode ?? '-', e.pl_pyroAr ?? '-', e.pl_pyroH2 ?? '-',
+      hx(e, 'depo_rfForwardAct', e.depo_rfForwardAct), e.depo_rfOffToStep ?? '-', hx(e, 'depo_tvCtrlMode', e.depo_tvCtrlMode), hx(e, 'depo_pyroSiH4', e.depo_pyroSiH4), hx(e, 'depo_pyroAr', e.depo_pyroAr), hx(e, 'depo_pyroN2O', e.depo_pyroN2O), hx(e, 'depo_pyroNH3', e.depo_pyroNH3), hx(e, 'depo_pyroPN2', e.depo_pyroPN2), hx(e, 'depo_pyroH2', e.depo_pyroH2),
+      e.pl_rfForwardAct ?? '-', e.pl_rfOffToStep ?? '-', e.pl_tvCtrlMode ?? '-', e.pl_pyroAr ?? '-', e.pl_pyroH2 ?? '-',
       e.endRef === 'stepChange' ? 'Step 전환(BB)' : 'RF Off'
     ];
   });

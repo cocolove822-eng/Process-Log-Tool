@@ -351,6 +351,9 @@ export interface HWControlEndRFRow {
   pl_tvCtrlMode: number | null;
   pl_pyroAr: number | null;
   pl_pyroH2: number | null;
+  /** RF Off(0.0초) → 다음 Step 전환까지 시간 (BB 전환이면 null) */
+  depo_rfOffToStep?: number | null;
+  pl_rfOffToStep?: number | null;
   /**
    * End 기준점: 'rfOff' = 0.0초가 RF Power Off (기본),
    * 'stepChange' = BB 전환으로 RF가 꺼지지 않아 0.0초가 다음 Step 전환 시점
