@@ -66,7 +66,6 @@ function AppContent() {
 
   // 비교 선택 (최대 3개, A·B·C 순서) — 키는 '파일 + Depo 순번'이라 순서를 바꿔도 유지
   const [compareKeys, setCompareKeys] = useState<string[]>([]);
-  const [compareOnly, setCompareOnly] = useState<boolean>(false);
   const [compareNotice, setCompareNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashCompareNotice = (msg: string) => {
@@ -92,16 +91,12 @@ function AppContent() {
   };
   const clearCompare = () => {
     setCompareKeys([]);
-    setCompareOnly(false);
   };
   // 파일 삭제·Depo 변경으로 없어진 Run은 비교에서 자동으로 뺌
   useEffect(() => {
     const valid = new Set(results.map(resultKey));
     setCompareKeys(prev => (prev.every(k => valid.has(k)) ? prev : prev.filter(k => valid.has(k))));
   }, [results]);
-  useEffect(() => {
-    if (compareKeys.length === 0 && compareOnly) setCompareOnly(false);
-  }, [compareKeys.length, compareOnly]);
 
   // Ensure selectedRunIdx remains within bounds when steps or files change
   useEffect(() => {
@@ -284,8 +279,6 @@ function AppContent() {
                 compareKeys={compareKeys}
                 onToggleCompare={toggleCompareKey}
                 onClearCompare={clearCompare}
-                compareOnly={compareOnly}
-                onToggleCompareOnly={setCompareOnly}
                 compareNotice={compareNotice}
                 onNavigateToCtcl={() => {
                   setIsCtclOpen(true);

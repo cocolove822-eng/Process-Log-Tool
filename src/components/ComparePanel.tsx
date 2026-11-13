@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Copy, GitCompareArrows, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Eye, GitCompareArrows, X } from 'lucide-react';
+import { useStoredState } from '../utils/trendStore';
 import { AnalysisFileResult } from '../types/pecvd';
 import { useTheme } from '../context/ThemeContext';
 import { copyTableToClipboard } from '../utils/exportUtils';
@@ -37,17 +38,15 @@ export const CompareBadge: React.FC<{ slot: number }> = ({ slot }) =>
   );
 
 /* ------------------------------------------------------------------ */
-/* 비교 막대 (선택한 Run · 선택만 보기 · 비교 해제)                          */
+/* 비교 막대 (선택한 Run · 비교 해제)                                       */
 /* ------------------------------------------------------------------ */
 export const CompareBar: React.FC<{
   results: AnalysisFileResult[];
   compareKeys: string[];
-  compareOnly: boolean;
-  onToggleCompareOnly: (v: boolean) => void;
   onRemove: (key: string) => void;
   onClear: () => void;
   notice?: string | null;
-}> = ({ results, compareKeys, compareOnly, onToggleCompareOnly, onRemove, onClear, notice }) => {
+}> = ({ results, compareKeys, onRemove, onClear, notice }) => {
   if (compareKeys.length === 0) return null;
   return (
     <div
@@ -90,16 +89,6 @@ export const CompareBar: React.FC<{
           );
         })}
       </div>
-      <label className="flex items-center gap-1.5 font-semibold text-[#334155] cursor-pointer whitespace-nowrap select-none">
-        <input
-          type="checkbox"
-          aria-label="선택만 보기"
-          checked={compareOnly}
-          onChange={e => onToggleCompareOnly(e.target.checked)}
-          className="w-3.5 h-3.5 accent-[#7C3AED] cursor-pointer"
-        />
-        선택만 보기 <span className="text-[#94A3B8] font-normal">(모든 표에 고른 행만)</span>
-      </label>
       <button
         type="button"
         onClick={onClear}
@@ -171,6 +160,9 @@ export const CompareCard: React.FC<{
 }> = ({ results, compareKeys, sections }) => {
   const { theme } = useTheme();
   const [diffOnly, setDiffOnly] = useState(false);
+  /** 숨긴(접은) 표: '구분|순번' (탭을 다녀와도 유지) */
+  const [folded, setFolded] = useStoredState<string[]>('compare.folded', []);
+  const toggleFold = (key: string) => setFolded(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
   // 숨긴 구분 (Recipe · Monitoring · H/W Control · 신뢰성)
   const [hidden, setHidden] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -224,7 +216,9 @@ export const CompareCard: React.FC<{
       ...runs.map((r, s) => `${COMPARE_LETTERS[s]} #${r.displayNo} ${r.processData?.rcpName || r.rcpName}`),
       ...runs.slice(1).map((_, s) => `Δ (${COMPARE_LETTERS[s + 1]}−A)`),
     ];
-    const rows = shown.map(l => [groupTitle(l), l.item, ...l.values, ...l.deltas.map(d => d.text)]);
+    // 숨긴 표의 항목은 빼고 복사
+    const foldedLines = new Set(blocks.filter(bk => folded.includes(`${bk.section}|${bk.part}`)).flatMap(bk => bk.lines));
+    const rows = shown.filter(l => !foldedLines.has(l)).map(l => [groupTitle(l), l.item, ...l.values, ...l.deltas.map(d => d.text)]);
     if (await copyTableToClipboard(headers, rows)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -253,6 +247,7 @@ export const CompareCard: React.FC<{
       }),
   );
 
+  const foldedCount = blocks.filter(bk => folded.includes(`${bk.section}|${bk.part}`)).length;
   const th = 'px-2 py-1.5 border border-slate-400 text-[11px] font-bold text-[#0F172A] bg-[#D5DDE7] whitespace-nowrap';
   const td = 'px-2 py-1 border border-slate-400 text-[11px] tabular-nums whitespace-nowrap';
 
@@ -298,6 +293,18 @@ export const CompareCard: React.FC<{
             />
             차이 있는 항목만 <span className="text-[#94A3B8] font-normal">({diffCount}/{visibleLines.length})</span>
           </label>
+          {foldedCount > 0 && (
+            <button
+              type="button"
+              data-compare-unfold-all
+              onClick={() => setFolded([])}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-300 bg-white text-[11px] font-semibold text-[#334155] hover:border-[#7C3AED] hover:text-[#6D28D9] cursor-pointer whitespace-nowrap"
+              title="숨긴 표를 모두 다시 보이기"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              숨긴 표 모두 보이기 ({foldedCount})
+            </button>
+          )}
           <button
             onClick={handleCopy}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${theme.btnSecondary} rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer`}
@@ -337,8 +344,11 @@ export const CompareCard: React.FC<{
       ) : (
         /* 구분별 작은 표(최대 BLOCK_ROWS줄)를 신문처럼 왼쪽 위부터 여러 단으로 채움 → 가로 공간 활용 */
         <div data-compare-blocks className="p-3" style={{ columnWidth: `${runs.length >= 3 ? 620 : 440}px`, columnGap: '12px' }}>
-          {blocks.map(bk => (
-            <div key={`${bk.section}-${bk.part}`} data-compare-block={bk.section} className="inline-block w-full mb-3 break-inside-avoid">
+          {blocks.map(bk => {
+            const fkey = `${bk.section}|${bk.part}`;
+            const isFolded = folded.includes(fkey);
+            return (
+            <div key={`${bk.section}-${bk.part}`} data-compare-block={bk.section} data-folded={isFolded ? '1' : undefined} className="inline-block w-full mb-3 break-inside-avoid">
               {/* 열 너비 고정: 값 78px · Δ 84px, 항목 이름은 남는 폭 (길면 두 줄) → 옆 단으로 넘치지 않음 */}
               <table className="w-full border-collapse table-fixed">
                 <colgroup>
@@ -352,15 +362,26 @@ export const CompareCard: React.FC<{
                 </colgroup>
                 <thead>
                   <tr>
-                    <th colSpan={1 + runs.length * 2 - 1} className={`${th} text-left !bg-[#C9D3DF]`}>
+                    <th
+                      colSpan={1 + runs.length * 2 - 1}
+                      data-compare-fold
+                      onClick={() => toggleFold(fkey)}
+                      title={isFolded ? '눌러서 이 표 보이기' : '눌러서 이 표 숨기기'}
+                      className={`${th} text-left !bg-[#C9D3DF] cursor-pointer select-none hover:!bg-[#BCC8D6] ${isFolded ? 'opacity-80' : ''}`}
+                    >
                       <span className="flex items-center gap-1.5">
+                        {isFolded ? <ChevronRight className="w-3.5 h-3.5 text-[#475569]" /> : <ChevronDown className="w-3.5 h-3.5 text-[#475569]" />}
                         <span className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]" />
                         {bk.section}
                         {bk.total > 1 && <span className="text-[10.5px] font-semibold text-[#64748B]">({bk.part}/{bk.total})</span>}
-                        <span className="ml-auto text-[10.5px] font-semibold text-[#94A3B8]">{bk.lines.length}개 항목</span>
+                        <span className="ml-auto text-[10.5px] font-semibold text-[#64748B]">
+                          {bk.lines.length}개 항목{isFolded ? ' · 숨김' : ''}
+                        </span>
+                        <span className="px-1.5 rounded border border-slate-400 bg-white text-[10px] font-semibold text-[#334155]">{isFolded ? '보이기' : '숨기기'}</span>
                       </span>
                     </th>
                   </tr>
+                  {!isFolded && (
                   <tr>
                     <th className={`${th} text-left`}>항목</th>
                     {runs.map((r, s) => (
@@ -376,7 +397,9 @@ export const CompareCard: React.FC<{
                       </th>
                     ))}
                   </tr>
+                  )}
                 </thead>
+                {!isFolded && (
                 <tbody>
                   {bk.lines.map((l, i) => (
                     <tr key={i} data-compare-line={l.item} className={l.differs ? 'bg-[#FDECB0]' : i % 2 ? 'bg-[#EEF2F6]' : 'bg-white'}>
@@ -400,9 +423,11 @@ export const CompareCard: React.FC<{
                     </tr>
                   ))}
                 </tbody>
+                )}
               </table>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

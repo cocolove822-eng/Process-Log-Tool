@@ -197,7 +197,6 @@ interface IntegratedDashboardProps {
   onToggleCompare?: (key: string) => void;
   onClearCompare?: () => void;
   compareOnly?: boolean;
-  onToggleCompareOnly?: (v: boolean) => void;
   compareNotice?: string | null;
   onUpdateSettings?: (newSettings: AnalyzerSettings) => void;
   onUploadRawFiles?: (files: FileList | File[]) => void;
@@ -234,7 +233,6 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
   onToggleCompare,
   onClearCompare,
   compareOnly = false,
-  onToggleCompareOnly,
   compareNotice = null,
   onUpdateSettings,
   onUploadRawFiles,
@@ -1133,8 +1131,6 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
         <CompareBar
           results={results}
           compareKeys={compareKeys}
-          compareOnly={compareOnly}
-          onToggleCompareOnly={v => onToggleCompareOnly?.(v)}
           onRemove={k => onToggleCompare?.(k)}
           onClear={() => onClearCompare?.()}
           notice={compareNotice}
