@@ -182,7 +182,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     [activeFile]
   );
   const hasLiftAcc = useMemo(() =>
-    hasCol('Lift Acc/Dec') || hasCol('Lift Acc') || hasCol('Lift Acceleration') || hasCol('Lift AccDec'),
+    hasCol('Lift Acc/Dec') || hasCol('Lift ACC/DCC') || hasCol('Lift Acc') || hasCol('Lift Acceleration') || hasCol('Lift AccDec'),
     [activeFile]
   );
   // Dynamically resolve heater zones for the active file (matches IntegratedDashboard dynamic detection)

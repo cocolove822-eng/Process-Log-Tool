@@ -166,6 +166,9 @@ const STANDARD_METRICS: MetricDefinition[] = [
   { id: 'gateIn1', name: 'Gate In 1 (Temp)', unit: '℃', category: 'Heater', getter: r => r.gateIn1 },
   { id: 'windowIn3', name: 'Window In 3 (Temp)', unit: '℃', category: 'Heater', getter: r => r.windowIn3 },
   { id: 'liftSpacing', name: 'Lift Spacing', unit: 'mils', category: 'Lift', getter: r => r.liftSpacing },
+  // Log에 열이 없으면 NaN → 선을 그리지 않음 (0으로 깔리지 않게). Log에 단위 정보가 없어 단위는 '-'
+  { id: 'liftVelocity', name: 'Lift Velocity', unit: '-', category: 'Lift', getter: r => r.liftVelocity ?? NaN },
+  { id: 'liftAccDec', name: 'Lift Acc/Dec', unit: '-', category: 'Lift', getter: r => r.liftAccDec ?? NaN },
 ];
 
 /** 통합 그래프: Parameter별 고정 색 (서로 잘 구분되게) */
@@ -190,6 +193,8 @@ const MULTI_COLORS: Record<string, string> = {
   gateIn1: '#B91C1C',
   windowIn3: '#BE185D',
   liftSpacing: '#4F46E5',
+  liftVelocity: '#0891B2',
+  liftAccDec: '#65A30D',
 };
 /** 가스 외 항목 최대 개수 (Recipe 사용 가스는 개수와 상관없이 처음에 모두 표시, 뺄 수 있음) */
 const MULTI_MAX = 6;

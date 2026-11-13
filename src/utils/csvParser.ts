@@ -841,7 +841,7 @@ export function parseRawLogCsv(csvContent: string, fileName: string): ParsedLogF
       liftSpacingSet: getNumOr(r, ['Lift Spacing Set', 'Lift Spacing (Set)', 'Lift Spacing S', 'Lift Spacing Se', 'Spacing Set', 'Spacing S', 'LiftSpacingSet'], 0),
       liftSpacing: getNumOr(r, ['Lift Spacing', 'Lift Spacing(Act)', 'Lift Spacing Act', 'Spacing', 'LiftSpacing'], 0),
       liftVelocity: getNumOrNull(r, ['Lift Velocity', 'Lift Velcovity', 'Lift Vel', 'Lift Speed', 'LiftVelocity', 'LiftVelcovity']),
-      liftAccDec: getNumOrNull(r, ['Lift Acc/Dec', 'Lift Acc', 'Lift Acceleration', 'LiftAccDec', 'Lift Acc Dec']),
+      liftAccDec: getNumOrNull(r, ['Lift Acc/Dec', 'Lift ACC/DCC', 'Lift Acc/Dcc', 'Lift Acc', 'Lift Acceleration', 'LiftAccDec', 'Lift Acc Dec']),
 
       // Matcher (supports standard and vendor variations)
       matcherLoad: getNumOr(r, ['Matcher Load', 'Matcher_Load', 'MatcherLoad', 'Load Pos', 'Load', 'Load(%)'], 0),
