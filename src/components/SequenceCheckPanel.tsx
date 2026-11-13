@@ -7,15 +7,15 @@ import { checkSequence, CheckKind, Evidence, SequenceReport, Verdict, worst } fr
 
 /** 판정 근거 원본 Log 행 */
 const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
-  const h = 'px-1.5 py-[3px] border border-slate-300 bg-[#EEF2F6] text-[10px] font-bold text-[#334155] whitespace-nowrap';
-  const c = 'px-1.5 py-[2px] border border-slate-200 text-[10px] tabular-nums whitespace-nowrap text-right';
+  const h = 'px-1.5 py-[3px] border border-slate-400 bg-[#CBD5E1] text-[10px] font-bold text-[#0F172A] whitespace-nowrap text-center';
+  const c = 'px-1.5 py-[2px] border border-slate-300 text-[10px] tabular-nums whitespace-nowrap text-center';
   return (
-    <div data-seq-evidence className="mt-1 mb-1 ml-[22px] overflow-x-auto rounded border border-slate-200">
+    <div data-seq-evidence className="mt-1 mb-1 ml-[22px] overflow-x-auto rounded border border-slate-400">
       <table className="border-collapse w-max min-w-full">
         <thead>
           <tr>
             <th className={h}>행</th>
-            <th className={`${h} text-left`}>동작</th>
+            <th className={h}>동작</th>
             <th className={h}>Time</th>
             <th className={h}>경계 기준</th>
             <th className={h}>Step</th>
@@ -30,15 +30,15 @@ const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
           {ev.rows.map((r, i) =>
             r.gap ? (
               <tr key={i}>
-                <td colSpan={ev.cols.length + 5} className="px-1.5 py-0 border border-slate-200 text-center text-[10px] text-[#94A3B8] leading-[14px] bg-[#FAFBFC]">
+                <td colSpan={ev.cols.length + 5} className="px-1.5 py-0 border border-slate-300 text-center text-[10px] text-[#64748B] leading-[14px] bg-[#F1F5F9]">
                   ⋯
                 </td>
               </tr>
             ) : (
-              <tr key={i} data-ev-key={r.tag ? '1' : undefined} className={r.tag ? 'bg-[#EFF6FF]' : 'bg-white'}>
-                <td className={`${c} text-[#94A3B8]`}>{r.rowNo}</td>
-                <td className={`${c} text-left`}>{r.tag && <span className="font-bold text-[#1D4ED8]">▶ {r.tag}</span>}</td>
-                <td className={`${c} text-[#64748B] text-left`}>{r.time}</td>
+              <tr key={i} data-ev-key={r.tag ? '1' : undefined} className={r.tag ? 'bg-[#DBEAFE]' : 'bg-white'}>
+                <td className={`${c} text-[#64748B]`}>{r.rowNo}</td>
+                <td className={c}>{r.tag && <span className="font-bold text-[#1D4ED8]">▶ {r.tag}</span>}</td>
+                <td className={`${c} text-[#475569]`}>{r.time}</td>
                 <td className={`${c} text-[#2563EB] font-semibold`}>{r.t === undefined ? '-' : `${r.t >= 0 ? '+' : '−'}${Math.abs(r.t).toFixed(1)}s`}</td>
                 <td className={`${c} text-center font-semibold`}>{r.step}</td>
                 {r.cells!.map((v, k) => (
@@ -64,6 +64,37 @@ const V_STYLE: Record<Verdict, { icon: string; label: string; cls: string }> = {
 };
 const KIND_LABEL: Record<CheckKind, string> = { sequence: 'Sequence', bb: 'BB Mode', sg: 'Specific Gas', rsd: 'RSD' };
 const KINDS: CheckKind[] = ['sequence', 'bb', 'sg', 'rsd'];
+/** 구역별: 무엇을 판별하는지 */
+const KIND_INFO: Record<CheckKind, { desc: string; none: string; border: string; head: string; dot: string }> = {
+  sequence: {
+    desc: 'Gas · 압력 제어 · RF를 켜고 끄는 순서 (공정 시작 / BB 꺼진 Step 경계 / 공정 끝)',
+    none: '판정할 경계가 없습니다',
+    border: 'border-[#93C5FD]',
+    head: 'bg-[#DBEAFE]',
+    dot: 'bg-[#2563EB]',
+  },
+  bb: {
+    desc: 'BB Mode 켜진 Step 경계에서 RF가 꺼지지 않고 이어지는지 · 압력 제어 유지 · 다음 Step 동시 Set',
+    none: 'BB Mode가 켜진 Step 경계가 없어 해당 없음',
+    border: 'border-[#C4B5FD]',
+    head: 'bg-[#EDE9FE]',
+    dot: 'bg-[#7C3AED]',
+  },
+  sg: {
+    desc: 'Specific Gas 켜진 Step 끝에서 SiH4 Off와 RF RSD Down이 함께 일어나는지 (꺼짐이면 SiH4가 RF Off까지 유지되는지)',
+    none: 'SiH4를 쓰는 Depo Step 끝이 없어 해당 없음',
+    border: 'border-[#5EEAD4]',
+    head: 'bg-[#CCFBF1]',
+    dot: 'bg-[#0D9488]',
+  },
+  rsd: {
+    desc: 'RF를 RSD 값으로 낮춘 뒤 충분히 유지하고 RF Off 하는지',
+    none: 'Specific Gas가 켜진 Step 끝에서 RSD 동작을 확인한 곳이 없어 해당 없음',
+    border: 'border-[#FCD34D]',
+    head: 'bg-[#FEF3C7]',
+    dot: 'bg-[#D97706]',
+  },
+};
 
 export const VerdictBadge: React.FC<{ v: Verdict; compact?: boolean }> = ({ v, compact }) => (
   <span
@@ -240,58 +271,83 @@ export const SequenceCheckPanel: React.FC<{
                   </tr>
                   {isOpen && report && (
                     <tr data-seq-detail={no}>
-                      <td colSpan={9} className="p-2 bg-[#F8FAFC] border border-slate-300">
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
-                          {report.boundaries.map((b, i) => (
-                            <div key={i} data-seq-boundary className="bg-white border border-slate-300 rounded-lg overflow-hidden">
-                              <div className="px-2 py-1.5 bg-[#F1F5F9] border-b border-slate-200 flex flex-wrap items-center gap-2">
-                                <VerdictBadge v={b.verdict} />
-                                <span className="text-[11.5px] font-bold text-[#0F172A]">{b.title}</span>
-                                <span className="ml-auto text-[10.5px] font-semibold text-[#475569] bg-white border border-slate-200 rounded px-1.5">{b.setting}</span>
-                              </div>
-                              <div className="px-2 py-1.5 space-y-1.5 text-[11px]">
-                                <div className="flex flex-wrap items-center gap-1">
-                                  <span className="text-[10.5px] font-bold text-[#64748B] w-[40px] shrink-0">기대</span>
-                                  {b.expected.map((e, k) => (
-                                    <span key={k} className="flex items-center gap-1">
-                                      {k > 0 && <span className="text-[#CBD5E1]">→</span>}
-                                      <span className="px-1.5 rounded bg-slate-100 text-[#334155] font-semibold">{e}</span>
-                                    </span>
-                                  ))}
+                      <td colSpan={9} className="p-2.5 bg-[#EEF2F6] border border-slate-400">
+                        <div className="space-y-2.5">
+                          {KINDS.map((kind, ki) => {
+                            const groups = report.boundaries
+                              .map(b => ({ b, items: b.items.filter(it => it.kind === kind) }))
+                              .filter(g => g.items.length > 0);
+                            const info = KIND_INFO[kind];
+                            return (
+                              <div key={kind} data-seq-kind={kind} className={`rounded-lg border-2 ${info.border} bg-white overflow-hidden`}>
+                                <div className={`px-3 py-1.5 ${info.head} border-b ${info.border} flex flex-wrap items-center gap-2`}>
+                                  <span className={`w-5 h-5 rounded-full ${info.dot} text-white text-[11px] font-bold flex items-center justify-center`}>{ki + 1}</span>
+                                  <span className="text-[13px] font-bold text-[#0F172A]">{KIND_LABEL[kind]}</span>
+                                  <VerdictBadge v={report.summary[kind]} />
+                                  <span className="text-[11px] text-[#334155] font-medium">{info.desc}</span>
                                 </div>
-                                {b.events.length > 0 && (
-                                  <div className="flex flex-wrap items-center gap-1">
-                                    <span className="text-[10.5px] font-bold text-[#64748B] w-[40px] shrink-0">실제</span>
-                                    {b.events.map((e, k) => (
-                                      <span key={k} className="flex items-center gap-1">
-                                        {k > 0 && <span className="text-[#CBD5E1]">→</span>}
-                                        <span className="px-1.5 rounded bg-[#EFF6FF] text-[#1E3A8A] font-semibold whitespace-nowrap">
-                                          {e.label}
-                                          <span className="ml-1 tabular-nums text-[10px] text-[#2563EB]">{e.t === null ? '-' : `${e.t >= 0 ? '+' : '−'}${Math.abs(e.t).toFixed(1)}s`}</span>
-                                        </span>
-                                      </span>
+                                {groups.length === 0 ? (
+                                  <div className="px-3 py-2 text-[11px] text-[#64748B]">{info.none}</div>
+                                ) : (
+                                  <div className="p-2 grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
+                                    {groups.map(({ b, items }, i) => (
+                                      <div key={i} data-seq-boundary className="border border-slate-400 rounded-md overflow-hidden">
+                                        <div className="px-2 py-1.5 bg-[#E2E8F0] border-b border-slate-400 flex flex-wrap items-center gap-2">
+                                          <VerdictBadge v={worst(...items.map(it => it.verdict))} />
+                                          <span className="text-[11.5px] font-bold text-[#0F172A]">{b.title}</span>
+                                          <span className="ml-auto text-[10.5px] font-semibold text-[#334155] bg-white border border-slate-400 rounded px-1.5">{b.setting}</span>
+                                        </div>
+                                        <div className="px-2 py-1.5 space-y-1.5 text-[11px]">
+                                          {(kind === 'sequence' || kind === 'sg') && (
+                                            <>
+                                              <div className="flex flex-wrap items-center gap-1">
+                                                <span className="text-[10.5px] font-bold text-[#475569] w-[40px] shrink-0">기대</span>
+                                                {b.expected.map((e, k) => (
+                                                  <span key={k} className="flex items-center gap-1">
+                                                    {k > 0 && <span className="text-[#94A3B8]">→</span>}
+                                                    <span className="px-1.5 rounded bg-slate-100 border border-slate-300 text-[#334155] font-semibold">{e}</span>
+                                                  </span>
+                                                ))}
+                                              </div>
+                                              {b.events.length > 0 && (
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                  <span className="text-[10.5px] font-bold text-[#475569] w-[40px] shrink-0">실제</span>
+                                                  {b.events.map((e, k) => (
+                                                    <span key={k} className="flex items-center gap-1">
+                                                      {k > 0 && <span className="text-[#94A3B8]">→</span>}
+                                                      <span className="px-1.5 rounded bg-[#EFF6FF] border border-[#BFDBFE] text-[#1E3A8A] font-semibold whitespace-nowrap">
+                                                        {e.label}
+                                                        <span className="ml-1 tabular-nums text-[10px] text-[#2563EB]">{e.t === null ? '-' : `${e.t >= 0 ? '+' : '−'}${Math.abs(e.t).toFixed(1)}s`}</span>
+                                                      </span>
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </>
+                                          )}
+                                          <ul className="space-y-1 pt-0.5">
+                                            {items.map((it, k) => {
+                                              // 같은 근거를 쓰는 항목이 이어지면 표는 마지막 항목 아래에 한 번만
+                                              const showEv = showLog && it.evidence && items[k + 1]?.evidence !== it.evidence;
+                                              return (
+                                                <li key={k} data-seq-item={it.verdict}>
+                                                  <div className="flex items-start gap-1.5">
+                                                    <VerdictBadge v={it.verdict} compact />
+                                                    <span className="text-[#0F172A] font-semibold pt-[2px]">{it.text}</span>
+                                                  </div>
+                                                  {showEv && <EvidenceTable ev={it.evidence!} />}
+                                                </li>
+                                              );
+                                            })}
+                                          </ul>
+                                        </div>
+                                      </div>
                                     ))}
                                   </div>
                                 )}
-                                <ul className="space-y-0.5 pt-0.5">
-                                  {b.items.map((it, k) => {
-                                    // 같은 근거를 쓰는 항목이 이어지면 표는 마지막 항목 아래에 한 번만
-                                    const showEv = showLog && it.evidence && b.items[k + 1]?.evidence !== it.evidence;
-                                    return (
-                                      <li key={k} data-seq-item={it.verdict}>
-                                        <div className="flex items-start gap-1.5">
-                                          <VerdictBadge v={it.verdict} compact />
-                                          <span className="text-[10px] font-bold text-[#64748B] w-[72px] shrink-0 pt-[3px]">{KIND_LABEL[it.kind]}</span>
-                                          <span className="text-[#0F172A] pt-[2px]">{it.text}</span>
-                                        </div>
-                                        {showEv && <EvidenceTable ev={it.evidence!} />}
-                                      </li>
-                                    );
-                                  })}
-                                </ul>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         <p className="mt-1.5 text-[10.5px] text-[#94A3B8] flex items-center gap-1">
                           <ListChecks className="w-3 h-3" />
