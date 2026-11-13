@@ -11,6 +11,7 @@ import {
   BookOpen,
   Calendar,
   Upload,
+  GripVertical,
 } from 'lucide-react';
 import { AnalyzerSettings, CTCLMatrixData, ParsedLogFile, AnalysisFileResult } from '../types/pecvd';
 import { detectAllDepoSteps } from '../utils/analyzer';
@@ -18,6 +19,7 @@ import { useTheme } from '../context/ThemeContext';
 import { SidebarSettingsPanel } from './SidebarSettingsPanel';
 import { SidebarGuidePanel } from './SidebarGuidePanel';
 import { shortRecipeName } from './TrendTab';
+import { dropToIndex, RUN_DRAG_TYPE, RunSortMode } from '../utils/runOrder';
 
 interface LeftRunSidebarProps {
   files: ParsedLogFile[];
@@ -33,6 +35,10 @@ interface LeftRunSidebarProps {
   onClearAllFiles: () => void;
   onChangeManualDepoStep: (fileId: string, step: number | null) => void;
   onSelectCtclSheet?: (sheetName: string) => void;
+  /** Run 순서 바꾸기: 끌어서 옮기기 (fileId를 toIndex 자리로) */
+  onMoveFile?: (fileId: string, toIndex: number) => void;
+  /** Run 정렬 (Recipe별 · 날짜순 · 올린 순서) */
+  onSortFiles?: (mode: RunSortMode) => void;
   settings: AnalyzerSettings;
   onUpdateSettings: (newSettings: AnalyzerSettings) => void;
   isSettingsOpen?: boolean;
@@ -53,6 +59,8 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
   onClearAllFiles,
   onChangeManualDepoStep,
   onSelectCtclSheet,
+  onMoveFile,
+  onSortFiles,
   settings,
   onUpdateSettings,
   isSettingsOpen = false,
@@ -67,6 +75,14 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
   const [isDraggingCtcl, setIsDraggingCtcl] = useState<boolean>(false);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState<boolean>(false);
   const sidebarDragCounter = useRef<number>(0);
+  // Run 줄 끌어서 옮기기: 끌고 있는 Run · 놓을 위치(그 줄의 위/아래)
+  const [dragRunId, setDragRunId] = useState<string | null>(null);
+  const [dropMark, setDropMark] = useState<{ idx: number; after: boolean } | null>(null);
+  const isRunDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types || []).includes(RUN_DRAG_TYPE);
+  const endRunDrag = () => {
+    setDragRunId(null);
+    setDropMark(null);
+  };
 
   // Sidebar Internal Tab: 'runs' (Run 목록) | 'settings' (분석 설정) | 'guide' (사용설명서)
   const [sidebarTab, setSidebarTab] = useState<'runs' | 'settings' | 'guide'>('runs');
@@ -93,6 +109,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
   // Drag event handlers for sidebar
   const handleSidebarDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
+    if (isRunDrag(e)) return; // Run 순서 끌기는 파일 추가가 아님
     sidebarDragCounter.current += 1;
     if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
       setIsDraggingSidebar(true);
@@ -116,6 +133,10 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
 
   const handleSidebarDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    if (isRunDrag(e)) {
+      endRunDrag();
+      return;
+    }
     setIsDraggingSidebar(false);
     setIsDraggingRun(false);
     setIsDraggingCtcl(false);
@@ -352,7 +373,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                 onDragOver={e => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setIsDraggingRun(true);
+                  if (!isRunDrag(e)) setIsDraggingRun(true);
                 }}
                 onDragLeave={e => {
                   e.preventDefault();
@@ -393,7 +414,7 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
                 onDragOver={e => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setIsDraggingRun(true);
+                  if (!isRunDrag(e)) setIsDraggingRun(true);
                 }}
                 onDragLeave={e => {
                   e.preventDefault();
@@ -430,9 +451,26 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
             <div className="flex-1 overflow-y-auto p-1.5 space-y-1 scrollbar-thin">
               {!isCollapsed ? (
                 <>
-                  <div className="flex items-center justify-between px-1 pb-0.5 text-[9.5px] font-semibold text-[#64748B]">
-                    <span>등록된 Run ({files.length})</span>
-                    <span>Step · 날짜</span>
+                  <div className="flex items-center justify-between gap-1 px-1 pb-0.5 text-[9.5px] font-semibold text-[#64748B]">
+                    <span className="whitespace-nowrap">등록된 Run ({files.length})</span>
+                    {onSortFiles && files.length > 1 && (
+                      <select
+                        aria-label="Run 정렬"
+                        value=""
+                        onChange={e => {
+                          const v = e.target.value as RunSortMode;
+                          if (v) onSortFiles(v);
+                        }}
+                        className="h-[18px] px-0.5 bg-white border border-slate-300 rounded text-[9.5px] font-bold text-[#2563EB] cursor-pointer focus:outline-none focus:border-[#2563EB]"
+                        title="Run 순서 정렬 · 줄 왼쪽 ⋮⋮ 손잡이를 끌어서 직접 옮길 수도 있습니다"
+                      >
+                        <option value="">⇅ 정렬</option>
+                        <option value="recipe">Recipe별</option>
+                        <option value="date">날짜순</option>
+                        <option value="upload">올린 순서</option>
+                      </select>
+                    )}
+                    <span className="whitespace-nowrap">Step · 날짜</span>
                   </div>
 
                   <div className="bg-white rounded-lg border border-slate-400 overflow-hidden divide-y divide-slate-300">
@@ -458,13 +496,61 @@ export const LeftRunSidebar: React.FC<LeftRunSidebarProps> = ({
 
                     return (
                       <div
-                        key={`${file.id}_${idx}`}
+                        key={file.id}
+                        data-run-row={file.id}
                         onClick={() => onSelectRunIdx(isSelected ? null : (primaryResultIdx !== -1 ? primaryResultIdx : idx))}
-                        className={`flex items-center gap-1 pl-1 pr-0.5 h-[26px] cursor-pointer group transition-colors ${
+                        onDragOver={e => {
+                          if (!isRunDrag(e) || !onMoveFile) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.dataTransfer.dropEffect = 'move';
+                          const rc = e.currentTarget.getBoundingClientRect();
+                          const after = e.clientY > rc.top + rc.height / 2;
+                          if (!dropMark || dropMark.idx !== idx || dropMark.after !== after) setDropMark({ idx, after });
+                        }}
+                        onDrop={e => {
+                          if (!isRunDrag(e) || !onMoveFile) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const id = e.dataTransfer.getData(RUN_DRAG_TYPE) || dragRunId;
+                          const from = files.findIndex(f => f.id === id);
+                          const rc = e.currentTarget.getBoundingClientRect();
+                          const after = e.clientY > rc.top + rc.height / 2;
+                          if (id && from >= 0) onMoveFile(id, dropToIndex(from, idx, after));
+                          endRunDrag();
+                        }}
+                        className={`flex items-center gap-1 pl-0.5 pr-0.5 h-[26px] cursor-pointer group transition-colors ${
                           isSelected ? 'bg-[#DBEAFE]' : 'bg-white hover:bg-[#F1F5F9]'
-                        }`}
+                        } ${dragRunId === file.id ? 'opacity-40' : ''}`}
+                        style={
+                          dropMark && dropMark.idx === idx && dragRunId && dragRunId !== file.id
+                            ? { boxShadow: dropMark.after ? 'inset 0 -2px 0 #2563EB' : 'inset 0 2px 0 #2563EB' }
+                            : undefined
+                        }
                         title={`#${idx + 1} ${rcpDisplay}${file.meta.date ? ` · ${file.meta.date.slice(0, 10)}` : ''}`}
                       >
+                        {/* 끌어서 순서 바꾸기 손잡이 */}
+                        {onMoveFile && files.length > 1 && (
+                          <span
+                            draggable
+                            data-run-grip
+                            onClick={e => e.stopPropagation()}
+                            onDragStart={e => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData(RUN_DRAG_TYPE, file.id);
+                              e.dataTransfer.effectAllowed = 'move';
+                              const row = (e.currentTarget as HTMLElement).closest('[data-run-row]') as HTMLElement | null;
+                              if (row) e.dataTransfer.setDragImage(row, 12, 13);
+                              setDragRunId(file.id);
+                            }}
+                            onDragEnd={endRunDrag}
+                            className="shrink-0 w-3 flex items-center justify-center text-[#94A3B8] hover:text-[#2563EB] cursor-grab active:cursor-grabbing"
+                            title="끌어서 순서 바꾸기"
+                            aria-label={`#${idx + 1} 끌어서 순서 바꾸기`}
+                          >
+                            <GripVertical className="w-3 h-3" />
+                          </span>
+                        )}
                         <span
                           className={`w-[26px] shrink-0 text-center text-[9px] font-bold tabular-nums rounded py-[1px] ${
                             isSelected ? 'bg-[#2563EB] text-white' : 'text-[#2563EB] bg-[#2563EB]/10'

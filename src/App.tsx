@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TopNav } from './components/TopNav';
 import { FileUploadScreen } from './components/FileUploadScreen';
 import { IntegratedDashboard } from './components/IntegratedDashboard';
@@ -15,6 +15,7 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { LeftRunSidebar } from './components/LeftRunSidebar';
 import { AnalyzerSettings, CTCLMatrixData, ParsedLogFile } from './types/pecvd';
 import { DEFAULT_SETTINGS, analyzeLogFileSteps } from './utils/analyzer';
+import { moveItem, RunSortMode, sortRuns } from './utils/runOrder';
 import { parseRawLogFile } from './utils/csvParser';
 import { parseCTCLWorkbook } from './utils/ctclParser';
 import { createSampleCTCLMatrix } from './utils/sampleData';
@@ -40,6 +41,28 @@ function AppContent() {
     return files.flatMap((file, idx) => analyzeLogFileSteps(file, settings, ctclMatrix, idx));
   }, [files, settings, ctclMatrix]);
 
+  // Run 순서 바꾸기 (공정 분석 매니저에서 끌어서 옮기기 · 정렬)
+  // - 처음 올린 순서를 기억 (정렬 '올린 순서'로 되돌리기용)
+  const uploadSeqRef = useRef<Map<string, number>>(new Map());
+  const uploadCounterRef = useRef(0);
+  // - 순서가 바뀌어도 선택했던 Run(파일 + Depo 순번)을 그대로 선택
+  const pendingSelectRef = useRef<{ fileId: string; sub: number } | null>(null);
+  const reorderFiles = (mutate: (prev: ParsedLogFile[]) => ParsedLogFile[]) => {
+    const cur = selectedRunIdx !== null ? results[selectedRunIdx] : null;
+    pendingSelectRef.current = cur ? { fileId: cur.fileId, sub: cur.subIndex ?? 1 } : null;
+    setFiles(mutate);
+  };
+  useEffect(() => {
+    const k = pendingSelectRef.current;
+    if (!k) return;
+    pendingSelectRef.current = null;
+    const i = results.findIndex(r => r.fileId === k.fileId && (r.subIndex ?? 1) === k.sub);
+    setSelectedRunIdx(i >= 0 ? i : null);
+  }, [results]);
+  const handleMoveFile = (fileId: string, toIndex: number) =>
+    reorderFiles(prev => moveItem(prev, prev.findIndex(f => f.id === fileId), toIndex));
+  const handleSortFiles = (mode: RunSortMode) => reorderFiles(prev => sortRuns(prev, mode, uploadSeqRef.current));
+
   // Ensure selectedRunIdx remains within bounds when steps or files change
   useEffect(() => {
     if (selectedRunIdx !== null && selectedRunIdx >= results.length) {
@@ -61,6 +84,9 @@ function AppContent() {
       }
 
       // Progressively append new files to the list without any cap!
+      parsedList.forEach(f => {
+        if (!uploadSeqRef.current.has(f.id)) uploadSeqRef.current.set(f.id, uploadCounterRef.current++);
+      });
       setFiles(prev => [...prev, ...parsedList]);
     } catch (err: any) {
       setErrorMessage(`파일 처리 오류: ${err.message || err}`);
@@ -167,6 +193,8 @@ function AppContent() {
             onClearAllFiles={handleClearAllFiles}
             onChangeManualDepoStep={handleChangeManualDepoStep}
             onSelectCtclSheet={handleSelectCtclSheet}
+            onMoveFile={handleMoveFile}
+            onSortFiles={handleSortFiles}
           />
           )}
 
