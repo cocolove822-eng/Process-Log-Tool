@@ -14,6 +14,12 @@ export const COMPARE_MAX = 3;
 export const COMPARE_LETTERS = ['A', 'B', 'C'] as const;
 export const COMPARE_COLORS = ['#7C3AED', '#EA580C', '#0D9488'];
 export const COMPARE_TINTS = ['#F5F3FF', '#FFF7ED', '#F0FDFA'];
+/** 비교 카드 머리(A·B·C 칸) 색: 표 안에서 잘 보이게 한 단계 진하게 */
+const COMPARE_HEAD_TINTS = ['#E4DEFC', '#FFE3C2', '#C9F3EA'];
+
+/** 표 묶음 이름: H/W Control은 Start · End로 나눔 */
+const groupTitle = (l: { section: string; item: string }) =>
+  l.section === 'H/W Control' ? `${l.section} · ${/^End\b/.test(l.item) ? 'End' : 'Start'}` : l.section;
 
 /** Run(Depo) 고유 키: 순서를 바꿔도 같은 Run을 가리킴 */
 export const resultKey = (r: AnalysisFileResult) => `${r.fileId}#${r.subIndex ?? 1}`;
@@ -217,9 +223,8 @@ export const CompareCard: React.FC<{
       '항목',
       ...runs.map((r, s) => `${COMPARE_LETTERS[s]} #${r.displayNo} ${r.processData?.rcpName || r.rcpName}`),
       ...runs.slice(1).map((_, s) => `Δ (${COMPARE_LETTERS[s + 1]}−A)`),
-      ...runs.slice(1).map((_, s) => `Δ% (${COMPARE_LETTERS[s + 1]}−A)`),
     ];
-    const rows = shown.map(l => [l.section, l.item, ...l.values, ...l.deltas.map(d => d.text), ...l.deltas.map(d => d.pct)]);
+    const rows = shown.map(l => [groupTitle(l), l.item, ...l.values, ...l.deltas.map(d => d.text)]);
     if (await copyTableToClipboard(headers, rows)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -227,19 +232,29 @@ export const CompareCard: React.FC<{
   };
 
   // 구분별로 나누고, 긴 구분은 BLOCK_ROWS줄씩 끊어 작은 표로 (여러 단 배치용)
+  //  - H/W Control은 Start · End를 항상 따로 (차이 있는 항목만 볼 때도 섞이지 않게)
   const BLOCK_ROWS = 18;
   const blocks: { section: string; part: number; total: number; lines: CompareLine[] }[] = [];
-  sections.forEach(sec => {
-    const ls = shown.filter(l => l.section === sec.title);
-    if (ls.length === 0) return;
-    const total = Math.ceil(ls.length / BLOCK_ROWS);
-    // 마지막 조각이 너무 짧지 않게 고르게 나눔 (예: 25줄 → 13 + 12)
-    const per = Math.ceil(ls.length / total);
-    for (let k = 0; k < total; k++) blocks.push({ section: sec.title, part: k + 1, total, lines: ls.slice(k * per, (k + 1) * per) });
+  const groups: string[] = [];
+  shown.forEach(l => {
+    const g = groupTitle(l);
+    if (!groups.includes(g)) groups.push(g);
   });
+  sections.forEach(sec =>
+    groups
+      .filter(g => g === sec.title || g.startsWith(`${sec.title} · `))
+      .forEach(g => {
+        const ls = shown.filter(l => groupTitle(l) === g);
+        if (ls.length === 0) return;
+        const total = Math.ceil(ls.length / BLOCK_ROWS);
+        // 마지막 조각이 너무 짧지 않게 고르게 나눔 (예: 25줄 → 13 + 12)
+        const per = Math.ceil(ls.length / total);
+        for (let k = 0; k < total; k++) blocks.push({ section: g, part: k + 1, total, lines: ls.slice(k * per, (k + 1) * per) });
+      }),
+  );
 
-  const th = 'px-2 py-1.5 border border-slate-400 text-[11px] font-bold text-[#0F172A] bg-[#DDE3EA] whitespace-nowrap';
-  const td = 'px-2 py-1 border border-slate-300 text-[11px] tabular-nums whitespace-nowrap';
+  const th = 'px-2 py-1.5 border border-slate-400 text-[11px] font-bold text-[#0F172A] bg-[#D5DDE7] whitespace-nowrap';
+  const td = 'px-2 py-1 border border-slate-400 text-[11px] tabular-nums whitespace-nowrap';
 
   return (
     <section data-compare-card className={`${theme.cardBg} border ${theme.cardBorder} ${theme.cardRadius} overflow-hidden ${theme.cardShadow}`}>
@@ -324,7 +339,7 @@ export const CompareCard: React.FC<{
         <div data-compare-blocks className="p-3" style={{ columnWidth: `${runs.length >= 3 ? 620 : 440}px`, columnGap: '12px' }}>
           {blocks.map(bk => (
             <div key={`${bk.section}-${bk.part}`} data-compare-block={bk.section} className="inline-block w-full mb-3 break-inside-avoid">
-              {/* 열 너비 고정: 값 78px · Δ 122px, 항목 이름은 남는 폭 (길면 두 줄) → 옆 단으로 넘치지 않음 */}
+              {/* 열 너비 고정: 값 78px · Δ 84px, 항목 이름은 남는 폭 (길면 두 줄) → 옆 단으로 넘치지 않음 */}
               <table className="w-full border-collapse table-fixed">
                 <colgroup>
                   <col />
@@ -332,12 +347,12 @@ export const CompareCard: React.FC<{
                     <col key={s} style={{ width: 78 }} />
                   ))}
                   {runs.slice(1).map((_, s) => (
-                    <col key={`d${s}`} style={{ width: 122 }} />
+                    <col key={`d${s}`} style={{ width: 84 }} />
                   ))}
                 </colgroup>
                 <thead>
                   <tr>
-                    <th colSpan={1 + runs.length * 2 - 1} className={`${th} text-left !bg-[#E2E8F0]`}>
+                    <th colSpan={1 + runs.length * 2 - 1} className={`${th} text-left !bg-[#C9D3DF]`}>
                       <span className="flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]" />
                         {bk.section}
@@ -349,7 +364,7 @@ export const CompareCard: React.FC<{
                   <tr>
                     <th className={`${th} text-left`}>항목</th>
                     {runs.map((r, s) => (
-                      <th key={s} className={th} style={{ backgroundColor: COMPARE_TINTS[s], borderTop: `3px solid ${COMPARE_COLORS[s]}` }} title={r.processData?.rcpName || r.rcpName}>
+                      <th key={s} className={th} style={{ backgroundColor: COMPARE_HEAD_TINTS[s], borderTop: `3px solid ${COMPARE_COLORS[s]}` }} title={r.processData?.rcpName || r.rcpName}>
                         <span className="flex items-center justify-center gap-1">
                           <CompareBadge slot={s} />#{r.displayNo}
                         </span>
@@ -364,7 +379,7 @@ export const CompareCard: React.FC<{
                 </thead>
                 <tbody>
                   {bk.lines.map((l, i) => (
-                    <tr key={i} data-compare-line={l.item} className={l.differs ? 'bg-[#FFFBEB]' : i % 2 ? 'bg-[#F8FAFC]' : 'bg-white'}>
+                    <tr key={i} data-compare-line={l.item} className={l.differs ? 'bg-[#FDECB0]' : i % 2 ? 'bg-[#EEF2F6]' : 'bg-white'}>
                       <td className={`${td} !whitespace-normal break-words leading-tight text-left font-semibold text-[#0F172A]`} title={l.item}>
                         {l.item}
                       </td>
@@ -380,7 +395,6 @@ export const CompareCard: React.FC<{
                           className={`${td} text-center font-bold ${d.sign > 0 ? 'text-[#1D4ED8]' : d.sign < 0 ? 'text-[#BE123C]' : 'text-[#94A3B8]'}`}
                         >
                           {d.text}
-                          {d.pct && <span className="ml-1 text-[10px] font-semibold opacity-80">({d.pct})</span>}
                         </td>
                       ))}
                     </tr>
