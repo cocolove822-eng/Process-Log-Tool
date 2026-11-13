@@ -119,14 +119,16 @@ export interface CompareSection {
   rows: (string | number | null | undefined)[][];
   /** 비교에서 뺄 열 위치 (No., RCP Name 등) */
   skipCols?: number[];
+  /** 머리글에 단위가 없을 때 붙일 단위 (예: H/W Control 'sec') */
+  unit?: string;
 }
 
 /** 표 문자열 → 숫자 (쉼표·단위 꼬리 제거, 숫자가 아니면 null) */
 export const parseCellNumber = (v: string | number | null | undefined): number | null => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (v === null || v === undefined) return null;
-  // 숫자 뒤에는 공백·괄호 꼬리만 허용 (예: '28.3 (Full Open)') — 날짜 '2026-08-04' 같은 값은 글자로 취급
-  const m = String(v).replace(/,/g, '').trim().match(/^([+-]?\d+(?:\.\d+)?)(?:\s|\(|$)/);
+  // 숫자 뒤에는 공백·괄호·% 꼬리만 허용 (예: '28.3 (Full Open)', '+1.2%') — 날짜 '2026-08-04' 같은 값은 글자로 취급
+  const m = String(v).replace(/,/g, '').trim().match(/^([+-]?\d+(?:\.\d+)?)(?:\s|\(|%|$)/);
   return m ? Number(m[1]) : null;
 };
 
@@ -163,6 +165,8 @@ export const CompareCard: React.FC<{
 }> = ({ results, compareKeys, sections }) => {
   const { theme } = useTheme();
   const [diffOnly, setDiffOnly] = useState(false);
+  // 숨긴 구분 (Recipe · Monitoring · H/W Control · 신뢰성)
+  const [hidden, setHidden] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
   const picked = compareKeys
@@ -194,15 +198,17 @@ export const CompareCard: React.FC<{
           return { text, pct, sign };
         });
         const differs = values.some(v => v !== values[0]);
-        out.push({ section: sec.title, item: cleanHeader(h), values, deltas, differs });
+        const item = cleanHeader(h) + (sec.unit && !/\(/.test(h) ? ` (${sec.unit})` : '');
+        out.push({ section: sec.title, item, values, deltas, differs });
       });
     });
     return out;
   }, [sections, picked.join(',')]);
 
   if (picked.length < 2) return null;
-  const shown = diffOnly ? lines.filter(l => l.differs) : lines;
-  const diffCount = lines.filter(l => l.differs).length;
+  const visibleLines = lines.filter(l => !hidden.includes(l.section));
+  const shown = diffOnly ? visibleLines.filter(l => l.differs) : visibleLines;
+  const diffCount = visibleLines.filter(l => l.differs).length;
   const runs = picked.map(i => results[i]);
 
   const handleCopy = async () => {
@@ -231,10 +237,31 @@ export const CompareCard: React.FC<{
           <span className="w-2 h-2 rounded-full bg-[#7C3AED] shadow-xs" />
           <h3 className={`text-[13px] font-bold tracking-tight ${theme.cardTitleColor} whitespace-nowrap`}>[비교] 선택 Recipe 비교</h3>
           <span className="text-[11px] text-[#475569] font-medium whitespace-nowrap">
-            (Recipe Data · Monitoring Data — 기준 A와의 차이 Δ)
+            (Recipe · Monitoring · H/W Control 시점 · Parameter 신뢰성 — 기준 A와의 차이 Δ)
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* 구분 켜기·끄기 */}
+          <div className="flex items-center gap-1" role="group" aria-label="비교 구분">
+            {sections.map(sec => {
+              const on = !hidden.includes(sec.title);
+              return (
+                <button
+                  key={sec.title}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setHidden(prev => (on ? [...prev, sec.title] : prev.filter(t => t !== sec.title)))}
+                  className={`h-[22px] px-2 rounded-full border text-[10.5px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                    on ? 'bg-[#F5F3FF] border-[#7C3AED] text-[#5B21B6]' : 'bg-white border-slate-300 text-[#94A3B8] hover:text-[#475569]'
+                  }`}
+                  title={on ? `${sec.title} 숨기기` : `${sec.title} 보기`}
+                >
+                  {on ? '✓ ' : ''}
+                  {sec.title}
+                </button>
+              );
+            })}
+          </div>
           <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#334155] cursor-pointer whitespace-nowrap select-none">
             <input
               type="checkbox"
@@ -243,7 +270,7 @@ export const CompareCard: React.FC<{
               onChange={e => setDiffOnly(e.target.checked)}
               className="w-3.5 h-3.5 accent-[#7C3AED] cursor-pointer"
             />
-            차이 있는 항목만 <span className="text-[#94A3B8] font-normal">({diffCount}/{lines.length})</span>
+            차이 있는 항목만 <span className="text-[#94A3B8] font-normal">({diffCount}/{visibleLines.length})</span>
           </label>
           <button
             onClick={handleCopy}

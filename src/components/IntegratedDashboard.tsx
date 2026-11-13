@@ -1124,6 +1124,8 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
           sections={[
             { title: 'Recipe', headers: setHeaders, rows: setRows, skipCols: [0, 1] },
             { title: 'Monitoring', headers: monHeaders, rows: monRows, skipCols: [0, 1] },
+            { title: 'H/W Control', headers: hwTimingHeaders, rows: hwTimingRows, skipCols: [0, 1], unit: 'sec' },
+            { title: '신뢰성', headers: ecHeaders, rows: ecRows, skipCols: [0, 1] },
           ]}
         />
 
