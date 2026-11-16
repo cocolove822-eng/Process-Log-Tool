@@ -410,8 +410,8 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
     num('spSet', 'Spacing Set', 'Lift Spacing', 'mils', r => r.liftSpacingSet);
     num('spAct', 'Spacing Act', 'Lift Spacing', 'mils', r => r.liftSpacing);
     devPct('spDev', 'Spacing |편차|', 'Lift Spacing', r => r.liftSpacingSet, r => r.liftSpacing, 'spAct');
-    if (hasLiftVel) num('liftVel', 'Lift Velocity', 'Lift Spacing', '', r => r.liftVelocity);
-    if (hasLiftAcc) num('liftAcc', 'Lift Acc/Dec', 'Lift Spacing', '', r => r.liftAccDec);
+    if (hasLiftVel) num('liftVel', 'Lift Velocity', 'Lift Spacing', 'mils/sec', r => r.liftVelocity);
+    if (hasLiftAcc) num('liftAcc', 'Lift Acc/Dec', 'Lift Spacing', 'mils/sec²', r => r.liftAccDec);
     // T/V
     f.push({ key: 'tvMode', label: 'T/V Mode', group: 'T/V & Pressure', kind: 'text', hlKey: 'tvMode', options: ['PRESS', 'POS', 'OPEN'], get: r => shortTvMode(r.tvCtrlModeSet || r.tvCtrlMode || '') });
     num('pSet', 'Press Set', 'T/V & Pressure', 'mTorr', r => r.tvPressureSet);

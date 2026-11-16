@@ -168,9 +168,9 @@ const STANDARD_METRICS: MetricDefinition[] = [
   { id: 'gateIn1', name: 'Gate In 1 (Temp)', unit: '℃', category: 'Heater', getter: r => r.gateIn1 },
   { id: 'windowIn3', name: 'Window In 3 (Temp)', unit: '℃', category: 'Heater', getter: r => r.windowIn3 },
   { id: 'liftSpacing', name: 'Lift Spacing', unit: 'mils', category: 'Lift', getter: r => r.liftSpacing },
-  // Log에 열이 없으면 NaN → 선을 그리지 않음 (0으로 깔리지 않게). Log에 단위 정보가 없어 단위는 '-'
-  { id: 'liftVelocity', name: 'Lift Velocity', unit: '-', category: 'Lift', getter: r => r.liftVelocity ?? NaN },
-  { id: 'liftAccDec', name: 'Lift Acc/Dec', unit: '-', category: 'Lift', getter: r => r.liftAccDec ?? NaN },
+  // Log에 열이 없으면 NaN → 선을 그리지 않음 (0으로 깔리지 않게)
+  { id: 'liftVelocity', name: 'Lift Velocity', unit: 'mils/sec', category: 'Lift', getter: r => r.liftVelocity ?? NaN },
+  { id: 'liftAccDec', name: 'Lift Acc/Dec', unit: 'mils/sec²', category: 'Lift', getter: r => r.liftAccDec ?? NaN },
 ];
 
 /** 통합 그래프: Parameter별 고정 색 (서로 잘 구분되게) */
