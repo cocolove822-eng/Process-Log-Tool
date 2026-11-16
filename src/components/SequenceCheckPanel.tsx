@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronRight, Copy, ListChecks } from 'lucide-react
 import { AnalysisFileResult, ParsedLogFile } from '../types/pecvd';
 import { useTheme } from '../context/ThemeContext';
 import { copyTableToClipboard } from '../utils/exportUtils';
-import { checkSequence, CheckKind, Evidence, SequenceReport, Verdict, worst } from '../utils/sequenceCheck';
+import { checkSequence, CheckKind, Evidence, SequenceReport, StepSetting, Verdict, worst } from '../utils/sequenceCheck';
 
 /** 판정 근거 원본 Log 행 */
 const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
@@ -106,19 +106,31 @@ export const VerdictBadge: React.FC<{ v: Verdict; compact?: boolean }> = ({ v, c
   </span>
 );
 
-/** Step별 설정 요약: 'S6 SG · S10–12 BB' */
-const settingChips = (r: SequenceReport) => {
-  const groups: { label: string; steps: number[] }[] = [];
-  const push = (label: string, s: number) => {
-    const g = groups.find(x => x.label === label && x.steps[x.steps.length - 1] === s - 1);
-    if (g) g.steps.push(s);
-    else groups.push({ label, steps: [s] });
-  };
-  r.settings.forEach(s => {
-    if (s.bb) push('BB', s.step);
-    if (s.sg) push('SG', s.step);
+/** 켜진 Step 묶음: 연속된 Step은 하나로 → [{text: 'Step 10~12 (PL2~PL4)', tip}] */
+type OnGroup = { text: string; tip: string };
+const onSteps = (r: SequenceReport, key: 'sg' | 'bb'): OnGroup[] | null => {
+  if (key === 'sg' ? !r.hasSgCol : !r.hasBbCol) return null; // Log에 설정 열 없음
+  const groups: StepSetting[][] = [];
+  r.settings.forEach(st => {
+    if (!st[key]) return;
+    const last = groups[groups.length - 1];
+    if (last && last[last.length - 1].step === st.step - 1) last.push(st);
+    else groups.push([st]);
   });
-  return groups.map(g => `S${g.steps[0]}${g.steps.length > 1 ? `–${g.steps[g.steps.length - 1]}` : ''} ${g.label}`);
+  const label = key === 'sg' ? 'Specific Gas' : 'BB Mode';
+  return groups.map(g => {
+    const a = g[0];
+    const b = g[g.length - 1];
+    const nm = (x: StepSetting) => x.name || '-';
+    return {
+      text: g.length > 1 ? `Step ${a.step}~${b.step} (${nm(a)}~${nm(b)})` : `Step ${a.step} (${nm(a)})`,
+      tip: g.map(x => `Step ${x.step} ${nm(x)}: Log의 ${label} 설정 = 켜짐`).join('\n'),
+    };
+  });
+};
+const onStepsText = (r: SequenceReport, key: 'sg' | 'bb') => {
+  const g = onSteps(r, key);
+  return g === null ? 'Log에 열 없음' : g.length ? g.map(x => x.text).join(', ') : '없음';
 };
 
 export const SequenceCheckPanel: React.FC<{
@@ -152,11 +164,11 @@ export const SequenceCheckPanel: React.FC<{
   const allOpen = reports.every(x => !x.report || open.includes(x.file.id));
 
   const handleCopy = async () => {
-    const headers = ['No.', 'Recipe', '설정', 'Sequence', 'BB Mode', 'Specific Gas', 'RSD', '경계', '항목', '판정', '내용'];
+    const headers = ['No.', 'Recipe', 'Specific Gas 켜진 Step', 'BB Mode 켜진 Step', 'Sequence', 'BB Mode', 'Specific Gas', 'RSD', '경계', '항목', '판정', '내용'];
     const rows: (string | number)[][] = [];
     reports.forEach(({ no, rcp, report }) => {
       if (!report) return;
-      const head = [no, rcp, settingChips(report).join(', ') || '-', ...KINDS.map(k => V_STYLE[report.summary[k]].label)];
+      const head = [no, rcp, onStepsText(report, 'sg'), onStepsText(report, 'bb'), ...KINDS.map(k => V_STYLE[report.summary[k]].label)];
       report.boundaries.forEach(b =>
         b.items.forEach(it => rows.push([...head, b.title, KIND_LABEL[it.kind], V_STYLE[it.verdict].label, it.text])),
       );
@@ -215,7 +227,8 @@ export const SequenceCheckPanel: React.FC<{
               <th className={`${th} w-[34px]`} />
               <th className={`${th} w-[46px]`}>No.</th>
               <th className={`${th} text-left`}>Recipe</th>
-              <th className={`${th} text-left`}>Log 설정 (Step)</th>
+              <th className={`${th} text-left`} title="Log의 Step별 'Specific Gas' 설정 열에서 켜짐(Enable/True)인 Step">Specific Gas 켜진 Step</th>
+              <th className={`${th} text-left`} title="Log의 Step별 'RF BB.mode' 설정 열에서 켜짐(Enable/True)인 Step">BB Mode 켜진 Step</th>
               {KINDS.map(k => (
                 <th key={k} className={`${th} w-[110px]`}>
                   {KIND_LABEL[k]}
@@ -246,22 +259,31 @@ export const SequenceCheckPanel: React.FC<{
                     </td>
                     <td className={`${td} text-center font-bold tabular-nums`}>{no}</td>
                     <td className={`${td} font-bold text-[#0F172A] whitespace-nowrap`}>{rcp}</td>
-                    <td className={`${td}`}>
-                      {report ? (
-                        <span className="flex flex-wrap gap-1">
-                          {settingChips(report).map(c => (
-                            <span key={c} className={`px-1.5 rounded text-[10px] font-bold ${c.endsWith('BB') ? 'bg-[#EDE9FE] text-[#5B21B6]' : 'bg-[#CCFBF1] text-[#0F766E]'}`}>
-                              {c}
+                    {(['sg', 'bb'] as const).map(key => {
+                      const g = report ? onSteps(report, key) : undefined;
+                      const chip = key === 'sg' ? 'bg-[#CCFBF1] text-[#0F766E] border-[#5EEAD4]' : 'bg-[#EDE9FE] text-[#5B21B6] border-[#C4B5FD]';
+                      return (
+                        <td key={key} data-seq-on={key} className={`${td}`}>
+                          {!report ? (
+                            <span className="text-[10.5px] text-[#94A3B8]">Depo Step 없음</span>
+                          ) : g === null ? (
+                            <span className="px-1.5 rounded border border-[#FCD34D] text-[10.5px] font-bold bg-[#FEF3C7] text-[#92400E]" title="이 Log에는 이 설정 열이 없어 Step별 설정을 알 수 없습니다">
+                              ⚠ Log에 열 없음
                             </span>
-                          ))}
-                          {settingChips(report).length === 0 && <span className="text-[10.5px] text-[#94A3B8]">모두 꺼짐</span>}
-                          {!report.hasSgCol && <span className="px-1.5 rounded text-[10px] font-bold bg-[#FEF3C7] text-[#92400E]">SG 열 없음</span>}
-                          {!report.hasBbCol && <span className="px-1.5 rounded text-[10px] font-bold bg-[#FEF3C7] text-[#92400E]">BB 열 없음</span>}
-                        </span>
-                      ) : (
-                        <span className="text-[10.5px] text-[#94A3B8]">Depo Step 없음</span>
-                      )}
-                    </td>
+                          ) : g!.length === 0 ? (
+                            <span className="text-[10.5px] text-[#64748B]">없음</span>
+                          ) : (
+                            <span className="flex flex-wrap gap-1">
+                              {g!.map(x => (
+                                <span key={x.text} title={x.tip} className={`px-1.5 rounded border text-[10.5px] font-bold whitespace-nowrap ${chip}`}>
+                                  {x.text}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
                     {KINDS.map(k => (
                       <td key={k} className={`${td} text-center`}>
                         {report ? <VerdictBadge v={report.summary[k]} /> : '-'}
@@ -271,7 +293,7 @@ export const SequenceCheckPanel: React.FC<{
                   </tr>
                   {isOpen && report && (
                     <tr data-seq-detail={no} data-copy-skip>
-                      <td colSpan={9} className="p-2.5 bg-[#EEF2F6] border border-slate-400">
+                      <td colSpan={10} className="p-2.5 bg-[#EEF2F6] border border-slate-400">
                         <div className="space-y-2.5">
                           {KINDS.map((kind, ki) => {
                             const groups = report.boundaries
