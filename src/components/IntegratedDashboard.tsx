@@ -432,43 +432,24 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
       return baseStyle || {};
     }
 
-    const borderColor = '#2563EB'; // 삼성/토스 정밀 블루
-    const borderWidth = '2.5px';
-
-    const shadows: string[] = [
-      `inset 0 ${borderWidth} 0 0 ${borderColor}`,
-      `inset 0 -${borderWidth} 0 0 ${borderColor}`,
-    ];
-    if (isFirst) {
-      shadows.push(`inset ${borderWidth} 0 0 0 ${borderColor}`);
-    }
-    if (isLast) {
-      shadows.push(`inset -${borderWidth} 0 0 0 ${borderColor}`);
-    }
+    // 가벼운 선택 표시: 위·아래 1px 연한 파란 선 + 줄 맨 왼쪽 3px 파란 막대 + 연한 파란 배경
+    //  (칸 테두리는 원래 색 그대로, 굵은 테두리 없음)
+    const lineColor = '#3B82F6';
+    const shadows: string[] = [`inset 0 1px 0 0 ${lineColor}`, `inset 0 -1px 0 0 ${lineColor}`];
+    if (isFirst) shadows.push('inset 3px 0 0 0 #2563EB');
+    if (isLast) shadows.push(`inset -1px 0 0 0 ${lineColor}`);
 
     const merged: React.CSSProperties = {
       ...baseStyle,
-      position: 'relative',
-      zIndex: 5,
-      borderTop: `${borderWidth} solid ${borderColor}`,
-      borderBottom: `${borderWidth} solid ${borderColor}`,
       boxShadow: shadows.join(', '),
     };
 
-    if (isFirst) {
-      merged.borderLeft = `${borderWidth} solid ${borderColor}`;
-    }
-    if (isLast) {
-      merged.borderRight = `${borderWidth} solid ${borderColor}`;
-    }
-
     if (baseStyle?.backgroundColor) {
-      // 조건부 서식(Heat-map) 셀의 경우 기존 색상을 명확히 유지하면서 세련된 블루 틴트 오버레이 적용
+      // 조건부 서식(Heat-map) 셀: 기존 색을 살리면서 옅은 파랑 덧칠
       merged.backgroundColor = baseStyle.backgroundColor;
-      merged.backgroundImage = 'linear-gradient(rgba(37, 99, 235, 0.20), rgba(37, 99, 235, 0.20))';
+      merged.backgroundImage = 'linear-gradient(rgba(37, 99, 235, 0.10), rgba(37, 99, 235, 0.10))';
     } else {
-      // 일반 셀 및 비어있는 셀의 경우 깔끔한 연파랑 음영(#DBEAFE) 적용
-      merged.backgroundColor = '#DBEAFE';
+      merged.backgroundColor = '#E0ECFF';
     }
 
     return merged;
@@ -1434,7 +1415,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         style={rowTint(idx, isSelected)}
                         className={`transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-[#DBEAFE]'
+                            ? 'bg-[#E0ECFF]'
                             : isMulti
                               ? theme.subRowBg
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
@@ -1459,36 +1440,36 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             )}
                           </div>
                         </td>
-                        <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_STEP_STYLE)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : 'border-slate-400'} font-bold text-[11px] font-sans text-center align-middle tabular-nums`}>
+                        <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_STEP_STYLE)} className={`py-1 px-0.5 border ${'border-slate-400'} font-bold text-[11px] font-sans text-center align-middle tabular-nums`}>
                           {isMulti ? (
                             <span className="text-slate-900 font-bold">{p.step}</span>
                           ) : (
                             p.step
                           )}
                         </td>
-                        <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_DATE_STYLE)} className={`py-1 px-1.5 border ${isSelected ? 'border-[#2563EB]' : 'border-slate-400'} font-bold text-slate-900 text-[11px] font-sans text-center align-middle whitespace-nowrap`}>
+                        <td style={getSelectedTdStyle(isSelected, false, false, TABLE_COL_DATE_STYLE)} className={`py-1 px-1.5 border ${'border-slate-400'} font-bold text-slate-900 text-[11px] font-sans text-center align-middle whitespace-nowrap`}>
                           {formatYYYYMMDD(p.date)}
                         </td>
                         {/* Depo. Time */}
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.stepTimeSet !== null ? fmt(p.stepTimeSet, 1) : '-'}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.depTimeWithRampUp !== null && p.depTimeWithRampUp !== undefined ? fmt(p.depTimeWithRampUp, 1) : (p.depTimeSetReached !== null ? fmt(p.depTimeSetReached, 1) : '-')}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.stepTimeSet !== null ? fmt(p.stepTimeSet, 1) : '-'}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.depTimeWithRampUp !== null && p.depTimeWithRampUp !== undefined ? fmt(p.depTimeWithRampUp, 1) : (p.depTimeSetReached !== null ? fmt(p.depTimeSetReached, 1) : '-')}</td>
                         {/* Lift Home Spacing */}
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfOffsetHomeSpacing !== null ? fmtInt(p.rfOffsetHomeSpacing) : '-'}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfOffsetHomeSpacing !== null ? fmtInt(p.rfOffsetHomeSpacing) : '-'}</td>
                         {/* RF Power */}
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfForwardSetValue !== null ? fmtInt(p.rfForwardSetValue) : '-'}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfForwardSetValue !== null ? fmtInt(p.rfForwardSetValue) : '-'}</td>
                         {/* RF Ramping */}
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfRampUp !== null ? fmt(p.rfRampUp, 1) : (p.rfRampValueUp !== null ? fmt(p.rfRampValueUp, 1) : '-')}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfRampDown !== null ? fmt(p.rfRampDown, 1) : '-'}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfRampUp !== null ? fmt(p.rfRampUp, 1) : (p.rfRampValueUp !== null ? fmt(p.rfRampValueUp, 1) : '-')}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{p.rfRampDown !== null ? fmt(p.rfRampDown, 1) : '-'}</td>
                         {/* Pressure & Spacing */}
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.tvPressureSet)}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.liftSpacingSet)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.tvPressureSet)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.liftSpacingSet)}</td>
                         {/* Gas MFC 6종 */}
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroN2OSet)}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroNH3Set)}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroArSet)}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroPN2Set)}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroSiH4Set)}</td>
-                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroH2Set)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroN2OSet)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroNH3Set)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroArSet)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroPN2Set)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroSiH4Set)}</td>
+                        <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}>{fmtInt(p.pyroH2Set)}</td>
                         {/* Heaters (방안 A: 동적 히터 반응형 확장 렌더링) */}
                         {displayedHeaterZones.map((zone, zIdx) => {
                           const isLast = zIdx === displayedHeaterZones.length - 1;
@@ -1511,7 +1492,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             <td
                               key={zone.name}
                               style={getSelectedTdStyle(isSelected, false, isLast)}
-                              className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}
+                              className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-[11px] font-sans text-center align-middle tabular-nums`}
                               title={`${zone.name}: ${val !== null && val !== undefined && val > 0 ? `${fmt(val, 1)} ℃` : '미설정 / 데이터 없음'}`}
                             >
                               {val !== null && val !== undefined && val > 0 ? fmt(val, 1) : '-'}
@@ -1651,7 +1632,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         style={rowTint(idx, isSelected)}
                       className={`transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-[#DBEAFE]'
+                          ? 'bg-[#E0ECFF]'
                           : isMulti
                             ? theme.subRowBg
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
@@ -1677,11 +1658,11 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         </div>
                       </td>
                       {/* Max Ref */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>
                         {renderAlarmSpan(m.rfReflectPowerMax !== null ? fmt(m.rfReflectPowerMax, 1) : '-', m.rfReflectAlarmLevel)}
                       </td>
                       {/* T/V Position */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`} title={m.tvPositionIsFullOpen ? 'Full Open (100% 이상)' : undefined}>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`} title={m.tvPositionIsFullOpen ? 'Full Open (100% 이상)' : undefined}>
                         <div className="inline-flex items-center justify-center gap-0.5">
                           <span className="font-bold">{m.tvPositionAvg !== null ? fmt(m.tvPositionAvg, 1) : '-'}</span>
                           {m.tvPositionIsFullOpen && (
@@ -1690,26 +1671,26 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         </div>
                       </td>
                       {/* RSD Power & Time */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-center align-middle font-sans tabular-nums text-[11px]`}>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-center align-middle font-sans tabular-nums text-[11px]`}>
                         {(m.rsdPower !== null && m.rsdPower !== undefined)
                           ? fmtInt(m.rsdPower)
                           : (r.processData?.rsdPower !== null && r.processData?.rsdPower !== undefined ? fmtInt(r.processData.rsdPower) : '-')}
                       </td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} font-bold text-slate-900 text-center align-middle font-sans tabular-nums text-[11px]`}>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} font-bold text-slate-900 text-center align-middle font-sans tabular-nums text-[11px]`}>
                         {(m.rsdTime !== null && m.rsdTime !== undefined)
                           ? fmt(m.rsdTime, 1)
                           : (r.processData?.rsdTime !== null && r.processData?.rsdTime !== undefined ? fmt(r.processData.rsdTime, 1) : '-')}
                       </td>
                       {/* Matcher 7 */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherLoadAvg !== null ? fmt(m.matcherLoadAvg, 1) : '-'}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherTuneAvg !== null ? fmt(m.matcherTuneAvg, 1) : '-'}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherLoadAvg !== null ? fmt(m.matcherLoadAvg, 1) : '-'}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherTuneAvg !== null ? fmt(m.matcherTuneAvg, 1) : '-'}</td>
                       {(() => {
                         const { r: rVal, x: xVal } = getMatcherRX(m);
                         return (
                           <>
                             <td
                               style={getSelectedTdStyle(isSelected)}
-                              className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
+                              className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
                               title={rVal !== null ? `Matcher R (저항): ${fmt(rVal, 2)} Ω (클릭 시 원본 Log Data 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
                               onClick={onNavigateToCtcl ? (e) => { e.stopPropagation(); onSelectRunIdx?.(idx); onNavigateToCtcl(); } : undefined}
                             >
@@ -1719,7 +1700,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                             </td>
                             <td
                               style={getSelectedTdStyle(isSelected)}
-                              className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
+                              className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 ${onNavigateToCtcl ? 'cursor-pointer hover:bg-blue-100/70 group' : ''}`}
                               title={xVal !== null ? `Matcher X (리액턴스): ${fmt(xVal, 2)} Ω (클릭 시 원본 Log Data 탭의 CTCL 패널로 이동)` : 'CTCL Matrix 미연결'}
                               onClick={onNavigateToCtcl ? (e) => { e.stopPropagation(); onSelectRunIdx?.(idx); onNavigateToCtcl(); } : undefined}
                             >
@@ -1730,9 +1711,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           </>
                         );
                       })()}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherNoSignal ? '0' : (m.matcherVppAvg !== null ? fmtInt(m.matcherVppAvg) : '-')}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherNoSignal ? '0' : (m.matcherIrmsAvg !== null ? fmtInt(m.matcherIrmsAvg) : '-')}</td>
-                      <td style={getSelectedTdStyle(isSelected, false, true)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherNoSignal ? '0' : (m.matcherDCBiasAvg !== null ? fmt(m.matcherDCBiasAvg, 1) : '-')}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherNoSignal ? '0' : (m.matcherVppAvg !== null ? fmtInt(m.matcherVppAvg) : '-')}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherNoSignal ? '0' : (m.matcherIrmsAvg !== null ? fmtInt(m.matcherIrmsAvg) : '-')}</td>
+                      <td style={getSelectedTdStyle(isSelected, false, true)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900`}>{m.matcherNoSignal ? '0' : (m.matcherDCBiasAvg !== null ? fmt(m.matcherDCBiasAvg, 1) : '-')}</td>
                     </tr>
                   );
                 })}
@@ -1921,7 +1902,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       if (status) {
                         return (
                           <td
-                            className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] whitespace-nowrap`}
+                            className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] whitespace-nowrap`}
                             style={cellStyle}
                             title={
                               status === 'keep'
@@ -1944,7 +1925,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
 
                       return (
                         <td
-                          className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 whitespace-nowrap`}
+                          className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px] font-bold text-slate-900 whitespace-nowrap`}
                           style={cellStyle}
                         >
                           {isAlarm || isWarn ? (
@@ -1963,7 +1944,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         style={rowTint(idx, isSelected)}
                         className={`transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-[#DBEAFE]'
+                            ? 'bg-[#E0ECFF]'
                             : isMulti
                               ? theme.subRowBg
                               : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
@@ -2434,7 +2415,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         style={rowTint(idx, isSelected)}
                       className={`transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-[#DBEAFE]'
+                          ? 'bg-[#E0ECFF]'
                           : isMulti
                             ? theme.subRowBg
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
@@ -2464,25 +2445,25 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {(activeDevTab === 'rfMatcher' || activeDevTab === 'all') && (
                         <>
                           {/* RF Power: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.rfForward.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.rfForward, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.rfForward.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.rfForward, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.rfForward.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.rfForward, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.rfForward.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.rfForward, 'max')}</td>
 
                           {/* Matcher Vpp: Min, Max, Unif. */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherVpp.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherVpp.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherVpp.uniformityPct, 1), d.matcherVpp.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.matcherVpp.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.matcherVpp.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherVpp.uniformityPct, 1), d.matcherVpp.alarmLevel)}</td>
 
                           {/* Matcher Irms: Min, Max, Unif. */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherIrms.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherIrms.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherIrms.uniformityPct, 1), d.matcherIrms.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.matcherIrms.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.matcherIrms.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherIrms.uniformityPct, 1), d.matcherIrms.alarmLevel)}</td>
 
                           {/* Matcher DC Bias: Min, Max, Max−Min (rfMatcher 탭 시 마지막 컬럼) */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'rfMatcher')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherDCBias.range, 1), d.matcherDCBias.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.matcherDCBias.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'rfMatcher')} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.matcherDCBias.range, 1), d.matcherDCBias.alarmLevel)}</td>
                         </>
                       )}
 
@@ -2490,21 +2471,21 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {(activeDevTab === 'presLift' || activeDevTab === 'all') && (
                         <>
                           {/* T/V Press: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.tvPressure.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.tvPressure, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.tvPressure.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.tvPressure, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.tvPressure.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.tvPressure, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.tvPressure.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.tvPressure, 'max')}</td>
 
                           {/* T/V Pos: Min, Max, Max−Min */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(d.tvPosition.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(d.tvPosition.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.tvPosition.range, 1), d.tvPosition.alarmLevel)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmt(d.tvPosition.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmt(d.tvPosition.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderAlarmSpan(fmt(d.tvPosition.range, 1), d.tvPosition.alarmLevel)}</td>
 
                           {/* Lift Spacing: Min, Min 편차, Max, Max 편차 (presLift 탭 시 마지막 컬럼) */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.liftSpacing.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.liftSpacing, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.liftSpacing.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'presLift')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.liftSpacing, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.liftSpacing.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.liftSpacing, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.liftSpacing.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'presLift')} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.liftSpacing, 'max')}</td>
                         </>
                       )}
 
@@ -2512,40 +2493,40 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       {(activeDevTab === 'gas' || activeDevTab === 'all') && (
                         <>
                           {/* Ar: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroAr.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroAr, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroAr.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroAr, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroAr.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroAr, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroAr.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroAr, 'max')}</td>
 
                           {/* SiH4: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroSiH4.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroSiH4, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroSiH4.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroSiH4, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroSiH4.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroSiH4, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroSiH4.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroSiH4, 'max')}</td>
 
                           {/* N2O: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroN2O.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroN2O, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroN2O.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroN2O, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroN2O.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroN2O, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroN2O.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroN2O, 'max')}</td>
 
                           {/* NH3: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroNH3.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroNH3, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroNH3.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroNH3, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroNH3.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroNH3, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroNH3.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroNH3, 'max')}</td>
 
                           {/* PN2: Min, Min 편차, Max, Max 편차 */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroPN2.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroPN2, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroPN2.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroPN2, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroPN2.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroPN2, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroPN2.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroPN2, 'max')}</td>
 
                           {/* H2: Min, Min 편차, Max, Max 편차 (gas 탭 시 마지막 컬럼) */}
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroH2.min)}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroH2, 'min')}</td>
-                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmtInt(d.pyroH2.max)}</td>
-                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'gas')} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(d.pyroH2, 'max')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroH2.min)}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroH2, 'min')}</td>
+                          <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmtInt(d.pyroH2.max)}</td>
+                          <td style={getSelectedTdStyle(isSelected, false, activeDevTab === 'gas')} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(d.pyroH2, 'max')}</td>
                         </>
                       )}
 
@@ -2569,13 +2550,13 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                           return (
                             <React.Fragment key={zone.name}>
                               {/* Min */}
-                              <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(stat.min)}</td>
+                              <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmt(stat.min)}</td>
                               {/* ΔMin */}
-                              <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(stat, 'min')}</td>
+                              <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(stat, 'min')}</td>
                               {/* Max */}
-                              <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{fmt(stat.max)}</td>
+                              <td style={getSelectedTdStyle(isSelected)} className={`${TD_DEV_BOLD} ${theme.tableCellBorder}`}>{fmt(stat.max)}</td>
                               {/* ΔMax */}
-                              <td style={getSelectedTdStyle(isSelected, false, isTableEnd)} className={`${TD_DEV_NORMAL} ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder}`}>{renderDevCell(stat, 'max')}</td>
+                              <td style={getSelectedTdStyle(isSelected, false, isTableEnd)} className={`${TD_DEV_NORMAL} ${theme.tableCellBorder}`}>{renderDevCell(stat, 'max')}</td>
                             </React.Fragment>
                           );
                         })}
@@ -2700,7 +2681,7 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         style={rowTint(idx, isSelected)}
                       className={`transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-[#DBEAFE]'
+                          ? 'bg-[#E0ECFF]'
                           : isMulti
                             ? theme.subRowBg
                             : (idx % 2 === 0 ? theme.tableRowBg : theme.tableRowAltBg)
@@ -2726,17 +2707,17 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                         </div>
                       </td>
                       {/* ① RF Delay */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.rfDelay)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.rfDelay)}</td>
                       {/* ② Matcher Delay */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.matcherDelay)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.matcherDelay)}</td>
                       {/* Gas Delay 7종 */}
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_oxyNF3)}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroAr)}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroN2O)}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroNH3)}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroPN2)}</td>
-                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroSiH4)}</td>
-                      <td style={getSelectedTdStyle(isSelected, false, true)} className={`py-1 px-0.5 border ${isSelected ? 'border-[#2563EB]' : theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroH2)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_oxyNF3)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroAr)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroN2O)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroNH3)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroPN2)}</td>
+                      <td style={getSelectedTdStyle(isSelected)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroSiH4)}</td>
+                      <td style={getSelectedTdStyle(isSelected, false, true)} className={`py-1 px-0.5 border ${theme.tableCellBorder} text-center align-middle font-sans tabular-nums text-[11px]`}>{renderDelayCell(d.gasDelay_pyroH2)}</td>
                     </tr>
                   );
                 })}
