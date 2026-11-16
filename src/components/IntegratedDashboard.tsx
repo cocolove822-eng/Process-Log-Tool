@@ -1217,9 +1217,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
               {/* 구분선 */}
               <span className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5 hidden sm:inline-block" />
 
-              {/* 데이터 산출 시점 (기존 Depo Step RF Off 설정값 개명 및 조화로운 스타일) */}
+              {/* Set 값 산출 시점 (Depo Step RF Off 기준 오프셋 초) */}
               <div className={`flex items-center gap-1.5 text-[11px] ${theme.cardTitleColor} ${theme.navPillBg} px-2.5 py-0.5 rounded-lg border ${theme.navPillBorder} whitespace-nowrap`}>
-                <span className="font-semibold text-[#6B7684] dark:text-[#94A3B8]">데이터 산출 시점:</span>
+                <span className="font-semibold text-[#6B7684] dark:text-[#94A3B8]">Set 값 산출 시점:</span>
                 <span className="font-mono text-[11px] text-[#4E5968] dark:text-[#CBD5E1]">RF Off</span>
                 <input
                   type="number"
@@ -1231,8 +1231,9 @@ export const IntegratedDashboard: React.FC<IntegratedDashboardProps> = ({
                       onUpdateSettings({ ...settings, readOffsetSec: val });
                     }
                   }}
-                  className={`w-11 px-1 py-0.5 text-center font-mono font-bold bg-white dark:bg-slate-800 border ${theme.cardBorder} ${theme.cardTitleColor} rounded-md text-[11px] focus:outline-none focus:ring-1 focus:ring-[#3182F6]`}
-                  title="Depo Step 데이터 산출 시점 RF Off 오프셋 초(s) 수정"
+                  data-read-offset
+                  className={`w-[64px] pl-1.5 pr-0.5 py-0.5 text-center font-mono font-bold bg-white dark:bg-slate-800 border ${theme.cardBorder} ${theme.cardTitleColor} rounded-md text-[11px] focus:outline-none focus:ring-1 focus:ring-[#3182F6]`}
+                  title="Set 값 산출 시점: Depo Step RF Off 기준 몇 초(s) 시점의 Set 값을 읽을지 (예: -10 = RF Off 10초 전)"
                 />
                 <span className="text-[#4E5968] dark:text-[#CBD5E1]">초</span>
               </div>

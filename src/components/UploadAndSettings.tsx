@@ -196,9 +196,9 @@ export const UploadAndSettings: React.FC<UploadAndSettingsProps> = ({
                   <div className="text-[10px] text-[#64748B]">Step 감지용 컬럼</div>
                 </div>
 
-                {/* Depo Step 판정 조건 & 데이터 산출 시점 */}
+                {/* Depo Step 판정 조건 & Set 값 산출 시점 */}
                 <div className="space-y-1.5 bg-[#F8FAFC] p-2.5 rounded-xl border border-[#CBD5E1]">
-                  <label className="text-[11px] font-semibold text-[#64748B]">Depo Step 판정 조건 & 데이터 산출 시점</label>
+                  <label className="text-[11px] font-semibold text-[#64748B]">Depo Step 판정 조건 & Set 값 산출 시점</label>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {(
                       [
@@ -270,7 +270,7 @@ export const UploadAndSettings: React.FC<UploadAndSettingsProps> = ({
                     })}
                   </div>
                   <div className="flex items-center justify-between text-xs pt-1 border-t border-[#E2E8F0]">
-                    <span className="text-[11px] text-[#64748B]">데이터 산출 시점 (RF Off)</span>
+                    <span className="text-[11px] text-[#64748B]">Set 값 산출 시점 (RF Off)</span>
                     <div className="flex items-center gap-1">
                       <span className="text-[11px] text-[#64748B]">RF Off</span>
                       <input
@@ -278,7 +278,7 @@ export const UploadAndSettings: React.FC<UploadAndSettingsProps> = ({
                         step="1"
                         value={settings.readOffsetSec}
                         onChange={e => onUpdateSettings({ ...settings, readOffsetSec: parseFloat(e.target.value) || 0 })}
-                        className="w-12 bg-white border border-[#CBD5E1] text-[#0F172A] rounded-lg px-1.5 py-0.5 text-center font-mono text-xs focus:outline-none focus:border-[#2563EB]"
+                        className="w-[64px] bg-white border border-[#CBD5E1] text-[#0F172A] rounded-lg pl-1.5 pr-0.5 py-0.5 text-center font-mono text-xs focus:outline-none focus:border-[#2563EB]"
                       />
                       <span className="text-[11px] text-[#64748B]">초</span>
                     </div>

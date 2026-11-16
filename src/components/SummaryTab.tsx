@@ -127,7 +127,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ results, settings }) => 
               [공정 Data] 공정 조건 Set 값
             </h3>
             <span className="text-[11px] text-[#64748B]">
-              · 데이터 산출 시점: RF Off {settings.readOffsetSec}초
+              · Set 값 산출 시점: RF Off {settings.readOffsetSec}초
             </span>
           </div>
 
