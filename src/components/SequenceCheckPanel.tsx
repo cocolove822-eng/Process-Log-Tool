@@ -3,20 +3,23 @@ import { Check, ChevronDown, ChevronRight, Copy, ListChecks } from 'lucide-react
 import { AnalysisFileResult, ParsedLogFile } from '../types/pecvd';
 import { useTheme } from '../context/ThemeContext';
 import { copyTableToClipboard } from '../utils/exportUtils';
-import { checkSequence, CheckKind, Evidence, SequenceReport, StepSetting, Verdict, worst } from '../utils/sequenceCheck';
+import { BoundaryCheck, checkSequence, CheckItem, CheckKind, Evidence, OrderStep, SequenceReport, StepSetting, Verdict, worst } from '../utils/sequenceCheck';
 
-/** 판정 근거 원본 Log 행 */
-const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
-  const h = 'px-1.5 py-[3px] border border-slate-400 bg-[#CBD5E1] text-[10px] font-bold text-[#0F172A] whitespace-nowrap text-center';
-  const c = 'px-1.5 py-[2px] border border-slate-300 text-[10px] tabular-nums whitespace-nowrap text-center';
+/** 판정 근거 원본 Log 행 (keyOnly = 동작이 일어난 행만) */
+const EvidenceTable: React.FC<{ ev: Evidence; keyOnly?: boolean; caption?: string }> = ({ ev, keyOnly, caption }) => {
+  // 머리글은 필요하면 두 줄로 접어 칸 폭을 줄임 (가로 스크롤 없이)
+  const h = 'px-1 py-[3px] border border-slate-400 bg-[#E2E8F0] text-[10px] font-bold text-[#0F172A] text-center leading-tight';
+  const c = 'px-1 py-[2px] border border-slate-300 text-[10px] tabular-nums whitespace-nowrap text-center';
+  const keyRows = ev.rows.filter(r => !r.gap && r.tag);
+  const rows = keyOnly && keyRows.length ? keyRows : ev.rows;
   return (
-    <div data-seq-evidence className="mt-1 mb-1 ml-[22px] overflow-x-auto rounded border border-slate-400">
-      <table className="border-collapse w-max min-w-full">
+    <div data-seq-evidence className="overflow-x-auto">
+      {caption && <div className="px-1 pt-1 pb-0.5 text-[10px] font-bold text-[#475569]">{caption}</div>}
+      <table className="border-collapse w-full">
         <thead>
           <tr>
-            <th className={h}>행</th>
             <th className={h}>동작</th>
-            <th className={h}>Time</th>
+            <th className={h}>행</th>
             <th className={h}>경계 기준</th>
             <th className={h}>Step</th>
             {ev.cols.map(col => (
@@ -27,20 +30,19 @@ const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
           </tr>
         </thead>
         <tbody>
-          {ev.rows.map((r, i) =>
+          {rows.map((r, i) =>
             r.gap ? (
               <tr key={i}>
-                <td colSpan={ev.cols.length + 5} className="px-1.5 py-0 border border-slate-300 text-center text-[10px] text-[#64748B] leading-[14px] bg-[#F1F5F9]">
+                <td colSpan={ev.cols.length + 4} className="px-1.5 py-0 border border-slate-300 text-center text-[10px] text-[#64748B] leading-[12px] bg-[#F1F5F9]">
                   ⋯
                 </td>
               </tr>
             ) : (
-              <tr key={i} data-ev-key={r.tag ? '1' : undefined} className={r.tag ? 'bg-[#DBEAFE]' : 'bg-white'}>
+              <tr key={i} data-ev-key={r.tag ? '1' : undefined} className={r.tag ? 'bg-[#DBEAFE]' : 'bg-white'} title={r.time ? `Time ${r.time}` : undefined}>
+                <td className={`${c} !text-left`}>{r.tag && <span className="font-bold text-[#1D4ED8]">▶ {r.tag}</span>}</td>
                 <td className={`${c} text-[#64748B]`}>{r.rowNo}</td>
-                <td className={c}>{r.tag && <span className="font-bold text-[#1D4ED8]">▶ {r.tag}</span>}</td>
-                <td className={`${c} text-[#475569]`}>{r.time}</td>
                 <td className={`${c} text-[#2563EB] font-semibold`}>{r.t === undefined ? '-' : `${r.t >= 0 ? '+' : '−'}${Math.abs(r.t).toFixed(1)}s`}</td>
-                <td className={`${c} text-center font-semibold`}>{r.step}</td>
+                <td className={`${c} font-semibold`}>{r.step}</td>
                 {r.cells!.map((v, k) => (
                   <td key={k} className={`${c} ${r.changed![k] ? 'bg-[#FEF08A] font-bold text-[#0F172A]' : 'text-[#334155]'}`}>
                     {v}
@@ -51,6 +53,220 @@ const EvidenceTable: React.FC<{ ev: Evidence }> = ({ ev }) => {
           )}
         </tbody>
       </table>
+    </div>
+  );
+};
+
+/** 항목들의 근거 표 (같은 근거는 한 번만) */
+const evidencesOf = (items: CheckItem[]) => {
+  const out: { ev: Evidence; caption: string }[] = [];
+  items.forEach(it => {
+    if (it.evidence && !out.some(o => o.ev === it.evidence)) out.push({ ev: it.evidence, caption: it.short || it.text });
+  });
+  return out;
+};
+
+/** 접히는 근거 원본 Log 묶음 */
+const EvidenceBlock: React.FC<{ list: { ev: Evidence; caption: string }[]; defaultOpen: boolean; defaultKeyOnly: boolean; title?: string }> = ({
+  list,
+  defaultOpen,
+  defaultKeyOnly,
+  title,
+}) => {
+  const [open, setOpen] = useState(defaultOpen);
+  const [keyOnly, setKeyOnly] = useState(defaultKeyOnly);
+  if (list.length === 0) return null;
+  return (
+    <div data-seq-evblock className="border-t border-slate-300">
+      <div className="flex items-center gap-2 px-2 py-1 bg-[#F8FAFC] text-[10.5px]">
+        <button type="button" data-seq-evtoggle onClick={() => setOpen(o => !o)} className="flex items-center gap-1 font-bold text-[#475569] hover:text-[#1D4ED8] cursor-pointer">
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          근거 원본 Log{title ? ` — ${title}` : ''}
+        </button>
+        {open ? (
+          <>
+            <span className="text-[#94A3B8]">{keyOnly ? '동작 행만' : '앞뒤 행 포함'} · 바뀐 칸 노랑</span>
+            <button
+              type="button"
+              data-seq-evrows
+              onClick={() => setKeyOnly(k => !k)}
+              className="ml-auto px-1.5 rounded border border-slate-300 bg-white text-[10px] font-semibold text-[#2563EB] hover:border-[#2563EB] cursor-pointer"
+            >
+              {keyOnly ? '앞뒤 행 보기' : '동작 행만 보기'}
+            </button>
+          </>
+        ) : (
+          <span className="text-[#94A3B8]">눌러서 펼치기</span>
+        )}
+      </div>
+      {open && (
+        <div className="px-2 pb-2 space-y-1.5">
+          {list.map((x, i) => (
+            <EvidenceTable key={i} ev={x.ev} keyOnly={keyOnly} caption={list.length > 1 ? x.caption : undefined} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const VTEXT: Record<Verdict, string> = { ok: 'text-[#065F46] bg-[#F0FDF4] border-[#BBF7D0]', warn: 'text-[#92400E] bg-[#FFFBEB] border-[#FDE68A]', fail: 'text-[#B91C1C] bg-[#FEF2F2] border-[#FECACA]', na: 'text-[#64748B] bg-slate-50 border-slate-200' };
+
+/** 순서 확인 표 */
+const OrderTable: React.FC<{ order: OrderStep[] }> = ({ order }) => {
+  const h = 'px-2 py-1 border border-slate-400 bg-[#CBD5E1] text-[10.5px] font-bold text-[#0F172A] whitespace-nowrap text-center';
+  const c = 'px-2 py-1 border border-slate-300 text-[11px] text-center whitespace-nowrap';
+  return (
+    <table data-seq-order className="w-full border-collapse">
+      <thead>
+        <tr>
+          <th className={`${h} w-[44px]`}>순서</th>
+          <th className={h}>기대 동작</th>
+          <th className={h}>실제 시점 (경계 기준)</th>
+          <th className={h}>Log 행</th>
+          <th className={h}>확인</th>
+        </tr>
+      </thead>
+      <tbody>
+        {order.map((o, i) => (
+          <tr key={i} className="bg-white">
+            <td className={c}>
+              <span className="inline-flex w-4 h-4 rounded-full bg-[#1E3A8A] text-white text-[10px] font-bold items-center justify-center">{i + 1}</span>
+            </td>
+            <td className={`${c} !text-left font-bold text-[#0F172A]`}>{o.label}</td>
+            <td className={`${c} font-bold text-[#2563EB] tabular-nums`}>{o.t}</td>
+            <td className={`${c} tabular-nums text-[#334155]`}>{o.rows}</td>
+            <td className={`${c} !text-left`}>
+              <span className="inline-flex items-center gap-1.5">
+                <VerdictBadge v={o.verdict} compact />
+                {o.note && <span className="text-[10.5px] text-[#64748B]">{o.note}</span>}
+              </span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+};
+
+/** 결론 띠 (항목별 한 줄) */
+const ResultLines: React.FC<{ items: CheckItem[] }> = ({ items }) => (
+  <div>
+    {items.map((it, k) => (
+      <div key={k} data-seq-item={it.verdict} className={`flex items-start gap-1.5 px-2 py-1 border-t text-[11px] font-bold ${VTEXT[it.verdict]}`}>
+        <VerdictBadge v={it.verdict} compact />
+        <span className="pt-[2px]">{it.text}</span>
+      </div>
+    ))}
+  </div>
+);
+
+/** 모아 보기 표 칸 정의 (BB Mode · RSD) */
+const AGG_COLS: Partial<Record<CheckKind, { key: string; title: string; sub?: string; empty: string }[]>> = {
+  bb: [
+    { key: 'bbRf', title: 'RF 이어짐', sub: '경계 −0.5 ~ +0.6 s 모두 RF On', empty: '–' },
+    { key: 'bbPress', title: '압력 제어 유지', empty: '–' },
+    { key: 'bbSet', title: '다음 Step 동시 Set', sub: '0.35 s 안', empty: '– (Set 변화 없음)' },
+  ],
+  rsd: [{ key: 'rsdHold', title: 'RSD 유지 → RF Off', sub: '0.5 s 이상 유지', empty: '–' }],
+};
+
+/** BB Mode · RSD: 경계를 한 표로 모으고, 고른 경계의 근거 Log만 아래에 */
+const AggTable: React.FC<{ kind: CheckKind; groups: { b: BoundaryCheck; items: CheckItem[] }[]; showLog: boolean }> = ({ kind, groups, showLog }) => {
+  const cols = AGG_COLS[kind]!;
+  const [sel, setSel] = useState<number>(showLog ? 0 : -1);
+  const h = 'px-2 py-1 border border-slate-400 bg-[#CBD5E1] text-[10.5px] font-bold text-[#0F172A] text-center';
+  const c = 'px-2 py-1 border border-slate-300 text-[11px] text-center whitespace-nowrap';
+  const rangeOf = (items: CheckItem[]) => {
+    const nos = items.flatMap(it => it.evidence?.rows.filter(r => !r.gap).map(r => r.rowNo as number) ?? []);
+    return nos.length ? `행 ${Math.min(...nos)} ~ ${Math.max(...nos)}` : '-';
+  };
+  const cur = sel >= 0 ? groups[sel] : null;
+  return (
+    <div className="border border-slate-400 rounded-md overflow-hidden" data-seq-agg={kind}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              <th className={`${h} text-left w-[240px]`}>경계</th>
+              {cols.map(col => (
+                <th key={col.key} className={h}>
+                  {col.title}
+                  {col.sub && <div className="text-[9.5px] font-normal text-[#475569]">({col.sub})</div>}
+                </th>
+              ))}
+              <th className={`${h} w-[90px]`}>판정</th>
+              <th className={`${h} w-[150px]`}>근거 Log</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map(({ b, items }, gi) => {
+              const none = items.find(it => it.check === 'bbNone');
+              return (
+                <tr key={gi} data-seq-boundary className={gi === sel ? 'bg-[#EFF6FF]' : 'bg-white'}>
+                  <td className={`${c} !text-left font-bold text-[#0F172A]`}>{b.title}</td>
+                  {none ? (
+                    <td colSpan={cols.length} className={`${c} text-[#92400E]`} data-seq-item={none.verdict}>
+                      ⚠ {none.text}
+                    </td>
+                  ) : (
+                    cols.map(col => {
+                      const it = items.find(x => x.check === col.key);
+                      return (
+                        <td key={col.key} className={c} title={it?.text} data-seq-item={it?.verdict}>
+                          {it ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <VerdictBadge v={it.verdict} compact />
+                              <span className="text-[#334155] font-semibold">{it.short || it.text}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[#94A3B8]">{items.some(x => x.check === 'bbPress') ? col.empty : '–'}</span>
+                          )}
+                        </td>
+                      );
+                    })
+                  )}
+                  <td className={c}>
+                    <VerdictBadge v={worst(...items.map(it => it.verdict))} />
+                  </td>
+                  <td className={c}>
+                    {items.some(it => it.evidence) ? (
+                      <button
+                        type="button"
+                        data-seq-aggev
+                        onClick={() => setSel(s => (s === gi ? -1 : gi))}
+                        className={`text-[10.5px] font-semibold underline cursor-pointer ${gi === sel ? 'text-[#1D4ED8]' : 'text-[#2563EB] hover:text-[#1D4ED8]'}`}
+                      >
+                        {rangeOf(items)} {gi === sel ? '▴' : '▾'}
+                      </button>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {cur && <EvidenceBlock key={sel} list={evidencesOf(cur.items)} defaultOpen defaultKeyOnly={kind !== 'bb'} title={cur.b.title} />}
+    </div>
+  );
+};
+
+/** Sequence · Specific Gas: 경계 카드 (순서 확인 표 + 결론 + 근거) */
+const BoundaryCard: React.FC<{ kind: CheckKind; b: BoundaryCheck; items: CheckItem[]; showLog: boolean }> = ({ kind, b, items, showLog }) => {
+  const order = b.order?.[kind];
+  return (
+    <div data-seq-boundary className="border border-slate-400 rounded-md overflow-hidden bg-white">
+      <div className="px-2 py-1.5 bg-[#E2E8F0] border-b border-slate-400 flex flex-wrap items-center gap-2">
+        <VerdictBadge v={worst(...items.map(it => it.verdict))} />
+        <span className="text-[11.5px] font-bold text-[#0F172A]">{b.title}</span>
+        <span className="ml-auto text-[10.5px] font-semibold text-[#334155] bg-white border border-slate-400 rounded px-1.5">{b.setting}</span>
+      </div>
+      {order && order.length > 0 && <OrderTable order={order} />}
+      <ResultLines items={items} />
+      <EvidenceBlock key={String(showLog)} list={evidencesOf(items)} defaultOpen={showLog} defaultKeyOnly />
     </div>
   );
 };
@@ -300,6 +516,7 @@ export const SequenceCheckPanel: React.FC<{
                               .map(b => ({ b, items: b.items.filter(it => it.kind === kind) }))
                               .filter(g => g.items.length > 0);
                             const info = KIND_INFO[kind];
+                            const agg = !!AGG_COLS[kind];
                             return (
                               <div key={kind} data-seq-kind={kind} className={`rounded-lg border-2 ${info.border} bg-white overflow-hidden`}>
                                 <div className={`px-3 py-1.5 ${info.head} border-b ${info.border} flex flex-wrap items-center gap-2`}>
@@ -310,60 +527,14 @@ export const SequenceCheckPanel: React.FC<{
                                 </div>
                                 {groups.length === 0 ? (
                                   <div className="px-3 py-2 text-[11px] text-[#64748B]">{info.none}</div>
+                                ) : agg ? (
+                                  <div className="p-2">
+                                    <AggTable key={String(showLog)} kind={kind} groups={groups} showLog={showLog} />
+                                  </div>
                                 ) : (
                                   <div className="p-2 grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
                                     {groups.map(({ b, items }, i) => (
-                                      <div key={i} data-seq-boundary className="border border-slate-400 rounded-md overflow-hidden">
-                                        <div className="px-2 py-1.5 bg-[#E2E8F0] border-b border-slate-400 flex flex-wrap items-center gap-2">
-                                          <VerdictBadge v={worst(...items.map(it => it.verdict))} />
-                                          <span className="text-[11.5px] font-bold text-[#0F172A]">{b.title}</span>
-                                          <span className="ml-auto text-[10.5px] font-semibold text-[#334155] bg-white border border-slate-400 rounded px-1.5">{b.setting}</span>
-                                        </div>
-                                        <div className="px-2 py-1.5 space-y-1.5 text-[11px]">
-                                          {(kind === 'sequence' || kind === 'sg') && (
-                                            <>
-                                              <div className="flex flex-wrap items-center gap-1">
-                                                <span className="text-[10.5px] font-bold text-[#475569] w-[40px] shrink-0">기대</span>
-                                                {b.expected.map((e, k) => (
-                                                  <span key={k} className="flex items-center gap-1">
-                                                    {k > 0 && <span className="text-[#94A3B8]">→</span>}
-                                                    <span className="px-1.5 rounded bg-slate-100 border border-slate-300 text-[#334155] font-semibold">{e}</span>
-                                                  </span>
-                                                ))}
-                                              </div>
-                                              {b.events.length > 0 && (
-                                                <div className="flex flex-wrap items-center gap-1">
-                                                  <span className="text-[10.5px] font-bold text-[#475569] w-[40px] shrink-0">실제</span>
-                                                  {b.events.map((e, k) => (
-                                                    <span key={k} className="flex items-center gap-1">
-                                                      {k > 0 && <span className="text-[#94A3B8]">→</span>}
-                                                      <span className="px-1.5 rounded bg-[#EFF6FF] border border-[#BFDBFE] text-[#1E3A8A] font-semibold whitespace-nowrap">
-                                                        {e.label}
-                                                        <span className="ml-1 tabular-nums text-[10px] text-[#2563EB]">{e.t === null ? '-' : `${e.t >= 0 ? '+' : '−'}${Math.abs(e.t).toFixed(1)}s`}</span>
-                                                      </span>
-                                                    </span>
-                                                  ))}
-                                                </div>
-                                              )}
-                                            </>
-                                          )}
-                                          <ul className="space-y-1 pt-0.5">
-                                            {items.map((it, k) => {
-                                              // 같은 근거를 쓰는 항목이 이어지면 표는 마지막 항목 아래에 한 번만
-                                              const showEv = showLog && it.evidence && items[k + 1]?.evidence !== it.evidence;
-                                              return (
-                                                <li key={k} data-seq-item={it.verdict}>
-                                                  <div className="flex items-start gap-1.5">
-                                                    <VerdictBadge v={it.verdict} compact />
-                                                    <span className="text-[#0F172A] font-semibold pt-[2px]">{it.text}</span>
-                                                  </div>
-                                                  {showEv && <EvidenceTable ev={it.evidence!} />}
-                                                </li>
-                                              );
-                                            })}
-                                          </ul>
-                                        </div>
-                                      </div>
+                                      <BoundaryCard key={i} kind={kind} b={b} items={items} showLog={showLog} />
                                     ))}
                                   </div>
                                 )}
@@ -373,7 +544,7 @@ export const SequenceCheckPanel: React.FC<{
                         </div>
                         <p className="mt-1.5 text-[10.5px] text-[#94A3B8] flex items-center gap-1">
                           <ListChecks className="w-3 h-3" />
-                          시간 = 다음 Step 첫 행 기준 (− 는 경계 전) · 같은 행(0.15초 안)은 '동시' · SiH4 Off와 RF RSD Down은 0.35초 안이면 '함께' · 근거 Log: 파란 행 = 동작이 일어난 행, 노란 칸 = 바로 앞 행에서 Set·상태 값이 바뀐 칸, ⋯ = 사이 행 생략
+                          시간 = 다음 Step 첫 행 기준 (− 는 경계 전) · 같은 행(0.15초 안)은 '동시' · SiH4 Off와 RF RSD Down은 0.35초 안이면 '함께' · 근거 Log: 파란 행 = 동작이 일어난 행 (마우스 = 시각), 노란 칸 = 바로 앞 행에서 Set·상태 값이 바뀐 칸, ⋯ = 사이 행 생략
                         </p>
                       </td>
                     </tr>

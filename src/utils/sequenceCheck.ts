@@ -47,6 +47,22 @@ export interface CheckItem {
   /** 한 줄 설명 */
   text: string;
   evidence?: Evidence;
+  /** 모아 보기 표의 칸 (bbRf · bbPress · bbSet · bbNone · rsdHold) */
+  check?: string;
+  /** 모아 보기 표 칸에 넣을 짧은 결과 (예: '11행 모두 On') */
+  short?: string;
+}
+
+/** 순서 확인 표 한 줄: 기대 동작 · 실제 시점 · Log 행 · 확인 */
+export interface OrderStep {
+  label: string;
+  /** 경계 기준 시점 (예: '−7.8 s', 둘이면 '−3.3 s / −3.4 s') */
+  t: string;
+  /** Log 행 번호 (예: '794', '1801 · 1800') */
+  rows: string;
+  verdict: Verdict;
+  /** 앞 동작과의 간격 등 (예: 'Gas Flow On 뒤 0.9 s') */
+  note: string;
 }
 
 export interface SeqEvent {
@@ -63,6 +79,8 @@ export interface BoundaryCheck {
   events: SeqEvent[];
   items: CheckItem[];
   verdict: Verdict;
+  /** 구역별 순서 확인 표 (Sequence · Specific Gas) */
+  order?: Partial<Record<CheckKind, OrderStep[]>>;
 }
 
 export interface StepSetting {
@@ -263,6 +281,63 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
     return { rfOffIdx, rfOffT, rsdIdx, rsdT, rsdLevel, sihIdx, sihT, mainSet };
   };
 
+  // ---- 순서 확인 표 ----
+  const fmtTs = (t: number) => fmtT(t).replace(/s$/, ' s');
+  type OrderIn = { label: string; idx: number | number[]; verdict?: Verdict; note?: string };
+  /** 순서대로 시점·행을 적고, 앞 동작보다 먼저면 미적용 · 못 찾으면 확인 필요 */
+  const mkOrder = (refIdx: number, list: OrderIn[]): OrderStep[] => {
+    const ref = rows[refIdx];
+    let prevT: number | null = null;
+    let prevLabel = '';
+    return list.map(s => {
+      const idxs = Array.isArray(s.idx) ? s.idx : [s.idx];
+      const ts = idxs.map(i => (i >= 0 && i < rows.length ? tSec(rows[i], ref) : null));
+      const found = ts.every(t => t !== null);
+      const tMain = found ? Math.max(...(ts as number[])) : null;
+      let verdict: Verdict;
+      let note: string;
+      if (!found) {
+        verdict = 'warn';
+        note = '찾지 못함';
+      } else if (prevT !== null && tMain! < prevT - SAME_ROW_SEC) {
+        verdict = 'fail';
+        note = `${prevLabel}보다 먼저`;
+      } else {
+        verdict = 'ok';
+        note = prevT === null ? '' : Math.abs(tMain! - prevT) <= SAME_ROW_SEC ? `${prevLabel}와 같은 시점` : `${prevLabel} 뒤 ${(tMain! - prevT).toFixed(1)} s`;
+      }
+      if (s.verdict) verdict = s.verdict;
+      if (s.note !== undefined) note = s.note;
+      if (found) {
+        prevT = tMain;
+        prevLabel = s.label;
+      }
+      return {
+        label: s.label,
+        t: ts.map(t => (t === null ? '-' : fmtTs(t))).join(' / '),
+        rows: idxs.map(i => (i >= 0 && i < rows.length ? String(rows[i].rowIndex) : '-')).join(' · '),
+        verdict,
+        note,
+      };
+    });
+  };
+  /** Specific Gas 순서 표 (Step 끝) */
+  const sgOrder = (sg: boolean | null, a: ReturnType<typeof endActions>, items: CheckItem[], bIdx: number, rfContinues = false): OrderStep[] | undefined => {
+    const sgIt = items.filter(it => it.kind === 'sg');
+    if (sgIt.length === 0 || sg === null) return undefined;
+    const v = worst(...sgIt.map(it => it.verdict));
+    if (sg === true) {
+      const pairNote = a.sihT !== null && a.rsdT !== null ? `함께 (${fmtGap(a.sihT, a.rsdT)} 차)` : undefined;
+      const pair: OrderIn = { label: 'SiH4 Off + RF RSD Down', idx: [a.sihIdx, a.rsdIdx], verdict: v, note: v === 'ok' ? pairNote : sgIt[0].text };
+      // BB 켜진 경계는 RF가 꺼지지 않고 다음 Step으로 이어지므로 RF Off 줄 없음
+      return mkOrder(bIdx, rfContinues ? [pair] : [pair, { label: 'RF Off', idx: a.rfOffIdx }]);
+    }
+    return mkOrder(bIdx, [
+      { label: 'RF Off', idx: a.rfOffIdx },
+      { label: 'SiH4 Off (RF Off 이후)', idx: a.sihIdx, verdict: v },
+    ]);
+  };
+
   /** Specific Gas 판정 (Step 끝) */
   const sgItems = (d: number, sg: boolean | null, a: ReturnType<typeof endActions>, out: CheckItem[], bIdx: number) => {
     const hasSih = rowsOf(d).some(r => num(r.pyroSiH4Set) > 0);
@@ -300,6 +375,8 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
             kind: 'rsd',
             verdict: hold >= 0.5 ? 'ok' : 'warn',
             text: `RSD ${a.rsdLevel?.toLocaleString()} W 유지 ${hold.toFixed(1)}초 후 RF Off`,
+            check: 'rsdHold',
+            short: `${a.rsdLevel?.toLocaleString()} W · ${hold.toFixed(1)} s 유지`,
           });
         }
       }
@@ -378,6 +455,13 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       events: ev,
       items,
       verdict: worst(...items.map(i => i.verdict)),
+      order: {
+        sequence: mkOrder(d0, [
+          { label: 'Gas Flow On', idx: gasOnIdx },
+          { label: '압력 제어 On', idx: pOnIdx },
+          { label: 'RF Power On', idx: rfOnIdx },
+        ]),
+      },
     });
   }
 
@@ -411,13 +495,13 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
         const pEv = makeEv(bIdx, [bTag], ['bb', 'pSet', 'pAct', 'tvMode'], win);
         items.push(
           rfContinuous
-            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 다음 Step으로 이어짐', evidence: rfEv }
-            : { kind: 'bb', verdict: 'fail', text: `BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다${a.rfOffT !== null ? ` (${fmtT(a.rfOffT)})` : ''}`, evidence: rfEv },
+            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 다음 Step으로 이어짐', evidence: rfEv, check: 'bbRf', short: `${w1 - w0 + 1}행 모두 On` }
+            : { kind: 'bb', verdict: 'fail', text: `BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다${a.rfOffT !== null ? ` (${fmtT(a.rfOffT)})` : ''}`, evidence: rfEv, check: 'bbRf', short: `RF 꺼짐${a.rfOffT !== null ? ` ${fmtTs(a.rfOffT)}` : ''}` },
         );
         items.push(
           pressHeld
-            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: 압력 제어 유지', evidence: pEv }
-            : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 압력 제어가 풀렸습니다', evidence: pEv },
+            ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: 압력 제어 유지', evidence: pEv, check: 'bbPress', short: `${num(rows[bIdx].tvPressureSet).toLocaleString()} mTorr 유지` }
+            : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 압력 제어가 풀렸습니다', evidence: pEv, check: 'bbPress', short: '압력 제어 풀림' },
         );
         // 다음 Step 시작 '동시 Set': RF Set · 압력 Set · 바뀌는 Gas Set의 첫 변경 시점
         const prev = rows[bIdx - 1];
@@ -447,6 +531,8 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
             verdict: v,
             text: v === 'ok' ? `다음 Step 시작에서 Gas·압력·Power가 동시에 Set (${sp.toFixed(1)}초 안)` : `다음 Step의 Set 변경이 ${sp.toFixed(1)}초에 걸쳐 나뉘어 있습니다`,
             evidence: makeEv(bIdx, chKeys, chCols),
+            check: 'bbSet',
+            short: v === 'ok' ? `${sp.toFixed(1)} s 안` : `${sp.toFixed(1)} s에 나뉨`,
           });
         }
       } else if (bb === false) {
@@ -482,7 +568,7 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
             : { kind: 'sequence', verdict: 'warn', text: `Gas 처리 확인: ${wrong.join(', ')}`, evidence: gEv },
         );
       } else {
-        items.push({ kind: 'bb', verdict: 'warn', text: 'Log에 BB Mode 설정 열이 없어 판정할 수 없습니다' });
+        items.push({ kind: 'bb', verdict: 'warn', text: 'Log에 BB Mode 설정 열이 없어 판정할 수 없습니다', check: 'bbNone', short: 'Log에 BB 열 없음' });
       }
       boundaries.push({
         title: `Step ${d} ${sDepo?.name ?? ''} → Step ${nextStep} ${sNext?.name ?? ''}`,
@@ -498,6 +584,10 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
         events: events.sort((x, y) => (x.t ?? 0) - (y.t ?? 0)),
         items,
         verdict: worst(...items.map(i => i.verdict)),
+        order: {
+          sg: sgOrder(sg, a, items, bIdx, bb === true),
+          sequence: bb === false ? mkOrder(bIdx, [{ label: 'RF Off', idx: a.rfOffIdx }, { label: 'Step 경계', idx: bIdx }]) : undefined,
+        },
       });
     } else {
       // ----- 공정 끝: RF Off → 압력 제어 Off → Gas Off -----
@@ -543,6 +633,14 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
         events: events.sort((x, y) => (x.t ?? 0) - (y.t ?? 0)),
         items,
         verdict: worst(...items.map(i => i.verdict)),
+        order: {
+          sg: sgOrder(sg, a, items, bIdx),
+          sequence: mkOrder(bIdx, [
+            { label: 'RF Off', idx: a.rfOffIdx },
+            { label: '압력 제어 Off', idx: pOffIdx },
+            { label: 'Gas Off', idx: gasOffIdx },
+          ]),
+        },
       });
     }
   });
@@ -560,8 +658,8 @@ export function checkSequence(file: ParsedLogFile, depoStepsIn: number[]): Seque
       const ok = rows.slice(w0, w1 + 1).every(rfIsOn);
       const ev = makeEv(bIdx, [{ idx: bIdx, tag: 'Step 경계' }], ['bb', 'rfOn', 'rfSet', 'rfAct'], windowRows(w0, w1, bIdx));
       const item: CheckItem = ok
-        ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 이어짐', evidence: ev }
-        : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다', evidence: ev };
+        ? { kind: 'bb', verdict: 'ok', text: 'BB Mode: RF가 꺼지지 않고 이어짐', evidence: ev, check: 'bbRf', short: `${w1 - w0 + 1}행 모두 On` }
+        : { kind: 'bb', verdict: 'fail', text: 'BB Mode 켜짐인데 경계에서 RF가 꺼졌습니다', evidence: ev, check: 'bbRf', short: 'RF 꺼짐' };
       boundaries.push({
         title: `Step ${prevStep} ${setOf(prevStep)?.name ?? ''} → Step ${s} ${setOf(s)?.name ?? ''}`,
         setting: 'BB 켜짐',
