@@ -296,8 +296,14 @@ export const CtclPanel: React.FC<CtclPanelProps> = ({
             <table className="w-full border-collapse table-fixed select-text min-w-[640px]">
               <thead>
                 <tr>
-                  <th rowSpan={2} className={`${TINT_FIXED_TH1} w-[64px] text-center`}>
-                    Load \ Tune
+                  {/* 모서리 칸: 대각선으로 나눠 '가로 = Tune →', '세로 = Load ↓'를 줄바꿈 없이 표시 */}
+                  <th rowSpan={2} data-ctcl-corner className={`${TINT_FIXED_TH1} w-[88px] !p-0 relative`} title="세로(행) = Matcher Load (%), 가로(열) = Matcher Tune (%)">
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" viewBox="0 0 100 100" aria-hidden="true">
+                      <line x1="0" y1="0" x2="100" y2="100" stroke="#94A3B8" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                    <span className="absolute top-[3px] right-[5px] text-[10.5px] font-bold text-[#1E3A8A] whitespace-nowrap leading-none">Tune →</span>
+                    <span className="absolute bottom-[3px] left-[5px] text-[10.5px] font-bold text-[#0F172A] whitespace-nowrap leading-none">Load ↓</span>
+                    <span className="block h-[44px]" />
                   </th>
                   <th colSpan={visibleTunes.length} className={`${TINT_RF_TH1} text-center`}>
                     Matcher Tune (%) — R + jX (Ω)
