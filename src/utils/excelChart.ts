@@ -6,6 +6,7 @@
  * - 좌·우 2축 지원 (통합 그래프)
  * 라이브러리 없이 xlsx 구조(XML)를 직접 만들고 fflate로 압축
  */
+import { saveFile, SaveOutcome } from './saveFile';
 import { strToU8, zipSync } from 'fflate';
 
 export interface XSeries {
@@ -355,22 +356,11 @@ export function buildChartXlsx(spec: XChartSpec): Uint8Array {
   return zipSync(files, { level: 6 });
 }
 
-/** 파일로 저장 */
-export function downloadChartXlsx(spec: XChartSpec) {
+/** 파일로 저장 (링크 페이지 안이면 저장 확인 창) */
+export function downloadChartXlsx(spec: XChartSpec): Promise<SaveOutcome> {
   const bytes = buildChartXlsx(spec);
   const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = spec.fileName.replace(/[\\/:*?"<>|]/g, '_');
-  a.rel = 'noopener';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  // 바로 지우면 일부 브라우저가 파일 이름을 놓침 → 잠시 뒤 정리
-  setTimeout(() => {
-    a.remove();
-    URL.revokeObjectURL(a.href);
-  }, 3000);
+  return saveFile(blob, spec.fileName);
 }
 
 // ───────── 축 범위 보조: 보기 좋은 최소·최대·간격 ─────────

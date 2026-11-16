@@ -5,6 +5,7 @@
  * - 표가 여러 개면 화면 위치대로 배치 (옆에 있는 표는 옆 칸, 아래 표는 한 줄 띄우고 아래)
  * - 그래프는 화면 그대로 PNG 이미지로 복사 (copyElementImage)
  */
+import { saveFile } from './saveFile';
 import { toBlob } from 'html-to-image';
 
 // ───────── 색: 어떤 CSS 색(oklch 등)이든 흰 바탕 위의 #rrggbb로 ─────────
@@ -433,12 +434,8 @@ export async function copyElementImage(el: HTMLElement, fileName = 'graph.png'):
     console.warn('그래프 이미지 클립보드 복사 실패 → PNG 저장 시도', err);
     try {
       const b = await blobP;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(b);
-      a.download = fileName;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      return 'saved';
+      const r = await saveFile(b, fileName);
+      return r === 'saved' ? 'saved' : 'failed';
     } catch (err2) {
       console.warn('그래프 이미지 만들기 실패', err2);
       return 'failed';

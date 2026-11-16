@@ -7,18 +7,21 @@ import { downloadChartXlsx, XChartSpec } from '../utils/excelChart';
  * - 엑셀에서 선 위 마우스 = 값, 축 서식 사용, B3 커서 Time을 바꾸면 커서 선 · 값 표가 바뀜
  */
 export const ExcelSaveButton: React.FC<{ getSpec: () => XChartSpec | null; compact?: boolean }> = ({ getSpec, compact }) => {
-  const [state, setState] = useState<'idle' | 'saved' | 'failed'>('idle');
-  const onClick = (e: React.MouseEvent) => {
+  const [state, setState] = useState<'idle' | 'busy' | 'saved' | 'declined' | 'failed'>('idle');
+  const onClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (state === 'busy') return;
+    setState('busy');
+    let r: 'saved' | 'declined' | 'failed' = 'failed';
     try {
       const spec = getSpec();
       if (!spec || spec.series.length === 0) throw new Error('데이터 없음');
-      downloadChartXlsx(spec);
-      setState('saved');
+      // 링크 페이지 안이면 저장 확인 창이 뜨고, '저장'을 누르면 받아짐
+      r = await downloadChartXlsx(spec);
     } catch (err) {
       console.warn('엑셀 저장 실패', err);
-      setState('failed');
     }
+    setState(r);
     setTimeout(() => setState('idle'), 2000);
   };
   return (
@@ -36,7 +39,7 @@ export const ExcelSaveButton: React.FC<{ getSpec: () => XChartSpec | null; compa
     >
       {state === 'saved' ? <Check className="w-3.5 h-3.5 text-[#059669]" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-[#059669]" />}
       <span className={state === 'saved' ? 'text-[#059669]' : state === 'failed' ? 'text-[#DC2626]' : ''}>
-        {state === 'saved' ? '저장됨' : state === 'failed' ? '실패' : '엑셀 저장'}
+        {state === 'busy' ? '저장 중' : state === 'saved' ? '저장됨' : state === 'declined' ? '취소됨' : state === 'failed' ? '실패' : '엑셀 저장'}
       </span>
     </button>
   );
