@@ -333,7 +333,7 @@ export const SpcPanel: React.FC<SpcPanelProps> = ({ results, files, selectedRunI
       return [
         run.result.displayNo,
         run.result.processData?.rcpName || run.result.rcpName,
-        run.groupLabel.split(' · ').slice(-1)[0],
+        run.layer,
         run.startLabel,
         ...charts.map(c => readMetric(c.metric, run.result)),
         judge || '정상',
@@ -390,7 +390,8 @@ export const SpcPanel: React.FC<SpcPanelProps> = ({ results, files, selectedRunI
               aria-label="SPC 대상 Recipe"
               value={activeGroup}
               onChange={e => setGroupKey(e.target.value)}
-              className="h-[26px] max-w-[340px] px-1.5 bg-white border border-slate-300 rounded-lg font-semibold text-[#0F172A] cursor-pointer focus:outline-none focus:border-[#2563EB]"
+              title={'같은 Recipe 기준: Recipe 이름 · Depo Layer 이름이 같고, Main Depo Step의 RF Power · Pressure · Spacing · Process Gas 유량 Set 값이 모두 같은 Run\n(조건이 다르면 이름 뒤에 다른 값을 붙여 따로 묶음)'}
+              className="h-[26px] max-w-[520px] px-1.5 bg-white border border-slate-300 rounded-lg font-semibold text-[#0F172A] cursor-pointer focus:outline-none focus:border-[#2563EB]"
             >
               {groups.map(g => (
                 <option key={g.key} value={g.key}>
@@ -465,7 +466,7 @@ export const SpcPanel: React.FC<SpcPanelProps> = ({ results, files, selectedRunI
           <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
             <Info className="w-3.5 h-3.5 mt-[1px] shrink-0" />
             <span>
-              서로 다른 Recipe·Layer({groups.length}종)가 섞여 있습니다. 관리선은 같은 조건끼리 비교해야 정확하니, <b>대상 Recipe</b>에서 하나를 고르는 것을 권장합니다.
+              서로 다른 Recipe·Layer·Main Depo 조건({groups.length}종)이 섞여 있습니다. 관리선은 같은 조건끼리 비교해야 정확하니, <b>대상 Recipe</b>에서 하나를 고르는 것을 권장합니다.
             </span>
           </div>
         )}

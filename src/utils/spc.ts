@@ -10,7 +10,7 @@
  *   2) 7점 연속 한쪽: 7개 이상 연속으로 CL 위(또는 아래) — CL과 같은 값은 연속을 끊음
  *   3) 7점 연속 상승·하강: 7개 이상 연속으로 계속 커짐(또는 계속 작아짐) — 같은 값은 연속을 끊음
  */
-import { AnalysisFileResult, ParsedLogFile } from '../types/pecvd';
+import { AnalysisFileResult, ParsedLogFile, ProcessDataSetRow } from '../types/pecvd';
 
 export type SpcRule = 'beyond' | 'side' | 'trend';
 
@@ -83,10 +83,40 @@ export interface SpcRun {
   startMs: number | null;
   /** 화면 표시용 시각 'YYYY-MM-DD HH:mm' (모르면 날짜 문자열) */
   startLabel: string;
-  /** Recipe · Layer 묶음 키 */
+  /** 묶음 키: Recipe 이름 · Depo Layer · Main Depo 조건(RF Power · Pressure · Spacing · Process Gas Set) */
   groupKey: string;
   groupLabel: string;
+  /** Depo Layer 이름 */
+  layer: string;
+  /** Main Depo Step 조건 Set 값 (묶음 구분용) */
+  cond: Record<string, number | null>;
 }
+
+/** 같은 Recipe로 보려면 모두 같아야 하는 Main Depo Step 조건 (Set 값) */
+export const SPC_COND_FIELDS: { key: keyof ProcessDataSetRow; name: string; unit: string }[] = [
+  { key: 'rfForwardSetValue', name: 'RF Power', unit: 'W' },
+  { key: 'tvPressureSet', name: 'Pressure', unit: 'mTorr' },
+  { key: 'liftSpacingSet', name: 'Spacing', unit: 'mils' },
+  { key: 'pyroSiH4Set', name: 'SiH4', unit: 'sccm' },
+  { key: 'pyroN2OSet', name: 'N2O', unit: 'sccm' },
+  { key: 'pyroNH3Set', name: 'NH3', unit: 'sccm' },
+  { key: 'pyroPN2Set', name: 'PN2', unit: 'sccm' },
+  { key: 'pyroArSet', name: 'Ar', unit: 'sccm' },
+  { key: 'pyroH2Set', name: 'H2', unit: 'sccm' },
+  { key: 'oxyNF3Set', name: 'NF3', unit: 'sccm' },
+  { key: 'oxyArSet', name: 'Oxy.Ar', unit: 'sccm' },
+];
+const condOf = (r: AnalysisFileResult): Record<string, number | null> => {
+  const out: Record<string, number | null> = {};
+  SPC_COND_FIELDS.forEach(f => {
+    const v = r.processData?.[f.key];
+    // 소수 1자리로 맞춰 비교 (계산 오차로 갈라지지 않게), 없음·0은 0으로
+    out[f.key] = typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10) / 10 : null;
+  });
+  return out;
+};
+const condKeyOf = (c: Record<string, number | null>) => SPC_COND_FIELDS.map(f => c[f.key] ?? 0).join('|');
+const fmtCond = (v: number | null) => (v === null ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 1 }));
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const fmtMs = (ms: number) => {
@@ -119,14 +149,36 @@ export const buildSpcRuns = (results: AnalysisFileResult[], files: ParsedLogFile
     const startMs = fileStartMs(f);
     const rcp = (r.processData?.rcpName || r.rcpName || r.fileName || '').trim();
     const layer = layerName(r);
+    const cond = condOf(r);
     return {
       resultIdx: i,
       result: r,
       startMs,
       startLabel: startMs !== null ? fmtMs(startMs) : r.date || '',
-      groupKey: `${rcp}\u0000${layer}`,
+      groupKey: `${rcp}\u0000${layer}\u0000${condKeyOf(cond)}`,
       groupLabel: `${rcp} · ${layer}`,
+      layer,
+      cond,
     } as SpcRun;
+  });
+  // 같은 Recipe · Layer인데 조건이 다른 묶음: 이름 뒤에 서로 다른 조건 값을 붙여 구분
+  const byBase = new Map<string, Map<string, SpcRun>>();
+  runs.forEach(r => {
+    const base = r.groupKey.split('\u0000').slice(0, 2).join('\u0000');
+    if (!byBase.has(base)) byBase.set(base, new Map());
+    const m = byBase.get(base)!;
+    if (!m.has(r.groupKey)) m.set(r.groupKey, r);
+  });
+  byBase.forEach(variants => {
+    if (variants.size < 2) return;
+    const reps = [...variants.values()];
+    const diff = SPC_COND_FIELDS.filter(f => new Set(reps.map(x => x.cond[f.key] ?? 0)).size > 1);
+    const suffix = new Map<string, string>();
+    reps.forEach(x => suffix.set(x.groupKey, diff.map(f => `${f.name} ${fmtCond(x.cond[f.key])}${f.unit === 'sccm' ? '' : ` ${f.unit}`}`).join(', ')));
+    runs.forEach(r => {
+      const sfx = suffix.get(r.groupKey);
+      if (sfx) r.groupLabel = `${r.groupLabel} · ${sfx}`;
+    });
   });
   return runs.sort((a, b) => {
     const ta = a.startMs ?? Number.POSITIVE_INFINITY;
