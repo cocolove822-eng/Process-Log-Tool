@@ -7,6 +7,8 @@ import { MultiParamChart, MultiSeries, MultiStep } from './MultiParamChart';
 import { autoAxisLayout } from '../utils/multiAxis';
 import { copyTextAndTables } from '../utils/richCopy';
 import { CopyImageButton } from './CopyImageButton';
+import { ExcelSaveButton } from './ExcelSaveButton';
+import { axisFormat, niceAxis, XChartSpec, XSeries } from '../utils/excelChart';
 
 export interface AlignedStepSegment {
   step: number;
@@ -2816,6 +2818,79 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
 
   const catStyle = CATEGORY_STYLES[metric.category];
 
+  /** '엑셀 저장': 화면과 같은 데이터 · 색 · 축 범위로 엑셀 차트 만들기 */
+  const buildExcelSpec = (): XChartSpec | null => {
+    const toPts = (file: ParsedLogFile, off: number, get: (r: RawLogRow) => number) => {
+      const pts: [number, number][] = [];
+      file.rows.forEach(r => {
+        const v = get(r);
+        if (Number.isFinite(v)) pts.push([Math.round((r.elapsedSec - off) * 1000) / 1000, v]);
+      });
+      return pts;
+    };
+    const series: XSeries[] = [];
+    visibleFiles.forEach(({ file, idx, color, rcpName }) => {
+      const res = results.find(r => r.fileId === file.id) || results[idx];
+      const off = timeAlignment === 'rfOn' ? getRfOnOffsetSec(file, res) : 0;
+      series.push({ name: `#${idx + 1} ${rcpName}`, unit: metric.unit, color, points: toPts(file, off, metric.getter), side: 'L' });
+      if (overlayMetric)
+        series.push({
+          name: `#${idx + 1} ${rcpName} · ${overlayMetric.name}`,
+          unit: overlayMetric.unit,
+          color,
+          points: toPts(file, off, overlayMetric.getter),
+          side: 'R',
+        });
+    });
+    if (series.every(x => x.points.length === 0)) return null;
+    // X: 확대·직접 입력이면 그대로, 아니면 보기 좋은 범위
+    const [x0, x1] = effectiveXRange;
+    const xCustom = cardXRange !== null || axisConfig.xMin !== null || axisConfig.xMax !== null;
+    const xn = niceAxis(x0, x1, 8);
+    const xStepUser = axisConfig.xStep && axisConfig.xStep > 0 && (x1 - x0) / axisConfig.xStep <= 12 ? axisConfig.xStep : null;
+    const x = {
+      min: xCustom ? Math.round(x0 * 10) / 10 : xn.min,
+      max: xCustom ? Math.round(x1 * 10) / 10 : xn.max,
+      major: xStepUser ?? xn.major,
+      title: timeAlignment === 'rfOn' ? 'Time (sec, RF On = 0)' : 'Time (sec)',
+      grid: axisConfig.showVGrid,
+    };
+    // Y: 직접 입력이면 그대로, 아니면 보기 좋은 범위
+    const [y0, y1] = effectiveYRange;
+    const yCustom = axisConfig.yMin !== null || axisConfig.yMax !== null;
+    // 값이 0 아래로 내려가지 않으면 0부터 (화면의 위·아래 여백은 엑셀에서 빼기)
+    const dataMin = Math.min(...series.filter(s2 => s2.side !== 'R').flatMap(s2 => s2.points.map(p => p[1])));
+    const yn = niceAxis(dataMin >= 0 ? 0 : y0, y1 <= 0 ? y1 : Math.max(...series.filter(s2 => s2.side !== 'R').flatMap(s2 => s2.points.map(p => p[1]))) * 1.04, 6);
+    const yMajor = axisConfig.yStep && axisConfig.yStep > 0 ? axisConfig.yStep : yn.major;
+    const dec = axisConfig.decimalPlaces === 'auto' ? null : axisConfig.decimalPlaces;
+    const yL = {
+      min: yCustom ? y0 : yn.min,
+      max: yCustom ? y1 : yn.max,
+      major: yMajor,
+      title: `${metric.name} [${metric.unit}]`,
+      format: axisFormat(yMajor, dec),
+      log: axisConfig.isLogScale && y1 > 0,
+      grid: axisConfig.showHGrid,
+    };
+    if (yL.log && yL.min <= 0) yL.min = Math.max(0.001, Math.min(...series.flatMap(s2 => s2.points.map(p => p[1]).filter(v => v > 0))) || 0.1);
+    let yR: XChartSpec['yR'] = null;
+    if (overlayMetric) {
+      const vals = series.filter(s2 => s2.side === 'R').flatMap(s2 => s2.points.map(p => p[1]));
+      const rn = niceAxis(Math.min(0, ...vals), Math.max(...vals, 1), 6);
+      yR = { ...rn, title: `${overlayMetric.name} [${overlayMetric.unit}]`, format: axisFormat(rn.major), grid: false };
+    }
+    return {
+      title: `${metric.name} [${metric.unit}]${overlayMetric ? ` + ${overlayMetric.name}` : ''}`,
+      series,
+      x,
+      yL,
+      yR,
+      steps: showStepTimeline ? alignedSteps.map(st => ({ step: st.step, name: st.stepName, start: st.alignedStart, end: st.alignedEnd })) : [],
+      cursorT: Math.round(((x.min + x.max) / 2) * 10) / 10,
+      fileName: `${metric.name}_Excel_Chart.xlsx`,
+    };
+  };
+
   return (
     <div
       ref={containerRef}
@@ -2854,6 +2929,7 @@ const TrendChartCard: React.FC<TrendChartCardProps> = ({
         {/* Action Buttons: 그래프 복사 + 줌 리셋 + 축 서식 (구간 선택·겹쳐 보기는 그래프 분석 매니저) */}
         <div className="flex items-center gap-1 shrink-0">
           <CopyImageButton compact target={() => containerRef.current} fileName={`${metric.name}.png`} />
+          <ExcelSaveButton compact getSpec={buildExcelSpec} />
           {isCustomOrZoomed && (
             <button
               onClick={handleResetCard}

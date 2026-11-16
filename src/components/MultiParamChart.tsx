@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CopyImageButton } from './CopyImageButton';
+import { ExcelSaveButton } from './ExcelSaveButton';
+import { axisFormat, niceAxis, XChartSpec } from '../utils/excelChart';
 import { Check, ChevronDown, ChevronRight, Copy, Layers, RefreshCw, X } from 'lucide-react';
 import { useStoredState } from '../utils/trendStore';
 import { copyTableToClipboard } from '../utils/exportUtils';
@@ -362,6 +364,34 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
   };
 
   const unitsOf = (list: MultiSeries[]) => [...new Set(list.map(s => s.unit))].join(' · ');
+
+  /** '엑셀 저장': 같은 선 · 좌우 축 범위 · Step 경계로 엑셀 차트 (좌·우 2축) */
+  const buildExcelSpec = (): XChartSpec | null => {
+    if (series.length === 0) return null;
+    const xn = niceAxis(x0, x1, 8);
+    const zoomed = view !== null;
+    const axis = (ax: { lo: number; hi: number; step: number } | null, list: MultiSeries[]) =>
+      ax ? { min: ax.lo, max: ax.hi, major: ax.step, title: unitsOf(list), format: axisFormat(ax.step), grid: true } : null;
+    const yL = axis(axL, left) ?? axis(axR, right);
+    if (!yL) return null;
+    const yR = axL && axR ? { ...axis(axR, right)!, grid: false } : null;
+    return {
+      title: `통합 그래프 · ${runLabel}`,
+      series: series.map(s => ({ name: s.name, unit: s.unit, color: s.color, points: s.points, side: yR ? s.side : 'L' })),
+      x: {
+        min: zoomed ? Math.round(x0 * 10) / 10 : xn.min,
+        max: zoomed ? Math.round(x1 * 10) / 10 : xn.max,
+        major: xn.major,
+        title: timeLabel,
+        grid: true,
+      },
+      yL,
+      yR,
+      steps: showSteps ? steps.map(st => ({ step: st.step, name: st.stepName, start: st.start, end: st.end })) : [],
+      cursorT: Math.round(((x0 + x1) / 2) * 10) / 10,
+      fileName: `Multi_Graph_${runLabel.replace(/[^\x20-\x7E]/g, "").trim() || "Run"}_Excel_Chart.xlsx`,
+    };
+  };
   const visibleSteps = steps.filter(st => st.end > x0 && st.start < x1);
 
   return (
@@ -394,7 +424,8 @@ export const MultiParamChart: React.FC<Props> = ({ runLabel, series, axes, steps
           ))}
         </div>
         <span className="ml-auto flex items-center gap-2 text-[10.5px] text-[#64748B] whitespace-nowrap">
-          {!collapsed && <CopyImageButton compact fileName="통합_그래프.png" />}
+          {!collapsed && <CopyImageButton compact fileName="Multi_Graph.png" />}
+          {!collapsed && <ExcelSaveButton compact getSpec={buildExcelSpec} />}
           {!collapsed && view && (
             <button
               type="button"
