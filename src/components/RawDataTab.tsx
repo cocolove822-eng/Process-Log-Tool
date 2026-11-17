@@ -109,7 +109,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
   // 탭을 다녀와도 그대로 유지되도록 화면 밖 보관소에 저장 (useStoredState)
   const [searchTerm, setSearchTerm] = useStoredState<string>('raw:search', '');
   const [selectedStepFilter, setSelectedStepFilter] = useStoredState<string>('raw:step', 'all');
-  // 마우스로 클릭해 선택한 행 (파란 테두리 표시, 다시 클릭하면 해제)
+  // 마우스로 클릭해 선택한 행 (파란 테두리 + 연한 파란 배경, 다시 클릭하면 해제)
   const [selectedRowIndex, setSelectedRowIndex] = useStoredState<number | null>('raw:row', null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useStoredState<boolean>('raw:sidebar', false);
 
@@ -998,7 +998,7 @@ export const RawDataTab: React.FC<RawDataTabProps> = ({
                     const isEven = r.rowIndex % 2 === 0;
                     // 공정 종합 분석과 100% 동일한 zebra: 흰색(white)과 소프트 슬레이트(#EDF2F7)
                     const rowBgClass = isEven ? 'bg-white' : 'bg-[#EDF2F7]';
-                    // Step이 바뀌는 첫 행 → 위쪽에 파란 굵은 경계선
+                    // Step이 바뀌는 첫 행 → 위쪽에 회색 점선 경계
                     const prev = filteredRows[startIndex + vi - 1];
                     const isStepStart = !!prev && prev.step !== r.step;
                     const inSelected = selectedStepNum !== null && r.step === selectedStepNum;
