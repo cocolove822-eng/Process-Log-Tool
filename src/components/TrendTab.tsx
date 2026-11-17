@@ -311,32 +311,29 @@ let persistedRecipeSelection: string[] = [];
 export const TrendTab: React.FC<TrendTabProps> = ({ files, results, managerHost = null }) => {
   // 설정은 보관소(useStoredState)에 저장 → 다른 탭에 다녀와도 유지
   const [isManagerCollapsed, setIsManagerCollapsed] = useStoredState<boolean>('trend.managerCollapsed', false);
-  const [timeAlignment, setTimeAlignment] = useStoredState<'elapsed' | 'rfOn'>('trend.timeAlignment', 'elapsed');
-  // 그래프 배치: 한 행에 1·2·3개 (보는 사람 브라우저에 기억, 저장이 안 되는 환경이면 기본 2열)
+  const [timeAlignment, setTimeAlignment] = useStoredState<'elapsed' | 'rfOn'>('trend.timeAlignment', 'rfOn');
+  // 그래프 배치: 한 행에 1·2·3개 (보는 사람 브라우저에 기억, 처음·저장이 안 되는 환경이면 기본 1열)
+  //  - 기본값을 1열로 바꾸면서 저장 이름을 새로 함 (예전에 저장된 2열이 남아 있지 않게)
+  const CHART_COLS_KEY = 'pecvd.trend.chartCols.v2';
   const [chartCols, setChartColsState] = useState<1 | 2 | 3>(() => {
     try {
-      const v = Number(window.localStorage.getItem('pecvd.trend.chartCols'));
-      return v === 1 || v === 3 ? v : 2;
+      const v = Number(window.localStorage.getItem(CHART_COLS_KEY));
+      return v === 2 || v === 3 ? v : 1;
     } catch {
-      return 2;
+      return 1;
     }
   });
   const setChartCols = (v: 1 | 2 | 3) => {
     setChartColsState(v);
     try {
-      window.localStorage.setItem('pecvd.trend.chartCols', String(v));
+      window.localStorage.setItem(CHART_COLS_KEY, String(v));
     } catch {
       /* 저장 불가 환경은 무시 */
     }
   };
-  // Default 4 metrics requested by user
-  const [selectedMetrics, setSelectedMetrics] = useStoredState<string[]>('trend.selectedMetrics', [
-    'rfForwardAct',
-    'rfReflect',
-    'tvPressure',
-    'matcherDCBias',
-  ]);
-  // 선택한 Recipe id 목록. 비어 있으면 전체 표시, 있으면 선택한 Recipe만 그래프에 표시
+  // Parameter 선택: 처음에는 아무것도 선택 안 함 ('기본 4종' 버튼으로 빠르게 고를 수 있음)
+  const [selectedMetrics, setSelectedMetrics] = useStoredState<string[]>('trend.selectedMetrics', []);
+  // 선택한 Recipe id 목록 (처음에는 아무것도 선택 안 함). 비어 있으면 전체 표시, 있으면 선택한 Recipe만 그래프에 표시
   const [selectedRecipeIds, setSelectedRecipeIdsState] = useState<string[]>(() => persistedRecipeSelection);
   const setSelectedRecipeIds = (next: string[] | ((prev: string[]) => string[])) => {
     setSelectedRecipeIdsState(prev => {
